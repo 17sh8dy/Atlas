@@ -1,0 +1,80 @@
+/**
+ * Atlas design tokens — dark-first.
+ * Colors are raw RGB channels so Tailwind opacity modifiers (bg-surface/40) work.
+ * Light theme overrides live under [data-theme='light'].
+ */
+
+:root {
+  /* ---- Color (dark, default) ---- */
+  --color-background: 8 8 11;
+  --color-surface: 18 18 23;
+  --color-surface-raised: 26 26 33;
+  --color-border: 38 38 47;
+  --color-border-strong: 58 58 70;
+  --color-foreground: 244 244 246;
+  --color-foreground-muted: 161 161 174;
+  --color-foreground-subtle: 112 112 126;
+  --color-primary: 124 92 255;
+  --color-primary-foreground: 255 255 255;
+  --color-accent: 99 102 241;
+  --color-ring: 124 92 255;
+  --color-danger: 239 68 68;
+  --color-success: 34 197 94;
+  --color-warning: 234 179 8;
+
+  /* ---- Radius ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+
+  /* ---- Typography ---- */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* ---- Shadow ---- */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 16px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 12px 40px -8px rgb(0 0 0 / 0.55);
+  --shadow-glow: 0 0 0 1px rgb(124 92 255 / 0.3), 0 8px 30px -6px rgb(124 92 255 / 0.35);
+
+  /* ---- Motion ---- */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --color-background: 250 250 252;
+  --color-surface: 255 255 255;
+  --color-surface-raised: 255 255 255;
+  --color-border: 228 228 234;
+  --color-border-strong: 202 202 212;
+  --color-foreground: 22 22 27;
+  --color-foreground-muted: 92 92 104;
+  --color-foreground-subtle: 132 132 146;
+  --color-primary: 109 74 255;
+  --color-primary-foreground: 255 255 255;
+  --color-accent: 79 82 221;
+  --color-ring: 109 74 255;
+
+  --shadow-sm: 0 1px 2px 0 rgb(16 16 20 / 0.06);
+  --shadow-md: 0 4px 16px -2px rgb(16 16 20 / 0.1);
+  --shadow-lg: 0 12px 40px -8px rgb(16 16 20 / 0.16);
+  --shadow-glow: 0 0 0 1px rgb(109 74 255 / 0.25), 0 8px 30px -6px rgb(109 74 255 / 0.25);
+
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}
