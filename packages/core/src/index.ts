@@ -11,3 +11,4 @@ export * from './models/wallpaper';
 export * from './models/taxonomy';
 export * from './models/collection';
 export * from './models/search';
+export * from './ports/catalog-repository';

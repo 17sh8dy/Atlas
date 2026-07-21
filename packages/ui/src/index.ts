@@ -1,8 +1,13 @@
 export { cn } from './lib/cn';
 export { Button } from './components/Button';
-export type { ButtonProps } from './components/Button';
+export type { ButtonProps, ButtonVariant, ButtonSize } from './components/Button';
 export { Surface } from './components/Surface';
 export type { SurfaceProps } from './components/Surface';
 export { Skeleton } from './components/Skeleton';
 export { Spinner } from './components/Spinner';
+export { Input } from './components/Input';
+export type { InputProps } from './components/Input';
+export { Kbd } from './components/Kbd';
+export { Modal } from './components/Dialog';
+export type { ModalProps } from './components/Dialog';
 export * as Icons from './icons';

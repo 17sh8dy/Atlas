@@ -14,9 +14,9 @@ export function ThemeToggle() {
       onClick={() => setMode(next)}
     >
       {resolved === 'dark' ? (
-        <Icons.Sparkles className="h-4 w-4" />
+        <Icons.Sun className="h-4 w-4" />
       ) : (
-        <Icons.Compass className="h-4 w-4" />
+        <Icons.Moon className="h-4 w-4" />
       )}
     </Button>
   );

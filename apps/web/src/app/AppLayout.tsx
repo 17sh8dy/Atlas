@@ -1,6 +1,10 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import { Icons, cn } from '@atlas/ui';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { TopBar } from '../components/TopBar';
+import { CommandPalette } from '../components/CommandPalette';
+import { AnimatedOutlet } from './AnimatedOutlet';
 
 interface NavItem {
   to: string;
@@ -18,6 +22,19 @@ const NAV: NavItem[] = [
 ];
 
 export function AppLayout() {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="flex h-full">
       <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-surface/40 p-3">
@@ -50,14 +67,19 @@ export function AppLayout() {
         </nav>
 
         <div className="mt-auto flex items-center justify-between px-1 pt-3">
-          <span className="px-2 text-xs text-foreground-subtle">Phase 0 · v0.0.0</span>
+          <span className="px-2 text-xs text-foreground-subtle">Phase 1 · v0.0.0</span>
           <ThemeToggle />
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
-        <Outlet />
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar onOpenPalette={() => setPaletteOpen(true)} />
+        <main className="flex-1 overflow-y-auto">
+          <AnimatedOutlet />
+        </main>
+      </div>
+
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );
 }
