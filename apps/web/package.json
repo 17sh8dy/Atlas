@@ -11,13 +11,14 @@
   },
   "dependencies": {
     "@atlas/core": "workspace:*",
-    "@atlas/data": "workspace:*",
+    "@atlas/engine": "workspace:*",
+    "@atlas/platform": "workspace:*",
     "@atlas/tokens": "workspace:*",
     "@atlas/ui": "workspace:*",
-    "framer-motion": "^11.11.17",
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.2.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@atlas/config": "workspace:*",

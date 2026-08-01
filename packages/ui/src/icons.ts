@@ -1,51 +1,46 @@
 /**
  * Curated icon set for Atlas. Re-exported from lucide-react so the rest of the
  * app imports icons from one place (`Icons.Search`) rather than reaching into
- * lucide directly — keeps the icon vocabulary intentional and swappable.
+ * lucide directly — which keeps the icon vocabulary intentional and reviewable,
+ * and stops fifty near-identical glyphs creeping in one import at a time.
  */
 export {
-  // navigation / chrome
-  Home,
-  Search,
-  Grid2x2,
-  Library,
+  // window chrome
+  Minus,
+  Square,
+  X,
   Settings,
-  Sparkles,
-  Compass,
   Command,
   Sun,
   Moon,
-  ChevronRight,
-  ArrowLeft,
-  ArrowRight,
-  X,
+  // conversation
+  ArrowUp,
+  Sparkles,
+  Compass,
+  Shield,
   Check,
   Plus,
-  // actions / meta
-  Heart,
-  Download,
-  Share2,
-  Eye,
-  Star,
-  Clock,
-  TrendingUp,
-  Wand2,
-  Monitor,
-  Smartphone,
-  Maximize2,
-  ImageOff,
-  Layers,
-  // category icons
-  Trees,
+  Trash2,
+  // the things Atlas acts on
+  Search,
+  Folder,
+  FolderOpen,
+  FileText,
+  AppWindow,
   Rocket,
-  Car,
-  Gamepad2,
-  Building2,
-  Shapes,
-  Palette,
-  PawPrint,
+  Globe,
+  Clipboard,
+  // the machine
   Cpu,
-  Landmark,
-  Castle,
+  HardDrive,
+  MemoryStick,
+  Activity,
+  Battery,
+  // intelligence providers
+  Brain,
+  Cloud,
+  MonitorSmartphone,
+  CircleDot,
+  Circle,
   type LucideIcon,
 } from 'lucide-react';

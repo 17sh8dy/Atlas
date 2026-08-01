@@ -1,178 +1,211 @@
 # Atlas — Architecture
 
-> Premium desktop + web (+ future mobile) personalization platform.
-> Today: wallpaper discovery, organization, creation. Tomorrow: themes, icons, widgets, AI generation, creator communities, full device personalization.
+> A local-first desktop assistant.
+> Today: understand, act, and stay on your machine. Tomorrow: memory, routines,
+> and awareness of what you're working on.
 
-This document is the source of truth for **how Atlas is built and why**. Read it before making any structural decision. It is written to survive years of feature growth.
-
----
-
-## 1. Core principles
-
-These are the constraints every decision is measured against.
-
-1. **Write the UI once.** The interface is a single React codebase. Desktop (Tauri), web, and later mobile all render the same components. Platform differences are pushed behind interfaces, never sprinkled through UI code.
-2. **The domain doesn't know about the framework.** Wallpapers, collections, users, and the rules that govern them live in a pure-TypeScript core with zero React/Tauri/Supabase imports. UI and infrastructure are replaceable; the domain is not.
-3. **Content source is an implementation detail.** The app never talks to Unsplash/Pexels directly. It talks to a normalized `Wallpaper` model. Swapping API → owned CMS → creator uploads is a backend change, not an app rewrite. (This is why the "hybrid" choice is safe.)
-4. **Native capability is abstracted.** "Set as wallpaper", "download to disk", "system tray", "live wallpaper renderer" are all defined as interfaces. Web gets a limited impl, Tauri gets the full native impl, mobile gets its own — the UI just calls `platform.setWallpaper(...)`.
-5. **Dark-mode-first, token-driven design.** All color/spacing/motion flows from design tokens (CSS variables). Theming, light mode, and future "theme marketplace" skins are just token sets.
-6. **No premature backend.** MVP ships fast on Supabase (managed Postgres + Auth + Storage). We stay on **standard Postgres** with a repository layer so we're never locked in.
-7. **Performance is a feature, not a phase.** Virtualized grids, responsive image variants, progressive loading, and Turborepo-cached builds are baked in from Phase 0.
+This document explains **why** Atlas is shaped the way it is. Every decision
+below is written with its alternative, because a choice without a rejected
+option is just a description.
 
 ---
 
-## 2. Technology decisions (and why)
+## 1. The thesis
 
-| Layer | Choice | Why | Rejected alternative |
+Most assistants are a chat box in front of a language model. That makes them
+fluent and unreliable at the same time: fluent because the model is good at
+words, unreliable because *everything* — including "open my downloads folder" —
+takes a network round trip through a probabilistic system.
+
+Atlas inverts it. **The engine is the product; a model is an optional
+accessory.** Commands are recognised by deterministic rules that run in
+microseconds, offline, with no chance of a creative misreading. An external
+model is consulted only for genuinely novel phrasing, and never for anything the
+grammar already understands.
+
+Three consequences shape everything else:
+
+1. **It works with nothing connected.** No account, no key, no network. That
+   isn't a degraded mode — it's the normal one.
+2. **It's fast in the way that matters.** The common case never pays for the
+   rare one.
+3. **It's auditable.** Because actions are declared rather than generated, "what
+   can this program do to my machine?" has a finite answer.
+
+---
+
+## 2. Principles
+
+1. **Dependencies point inward.** `core` imports nothing. `engine` imports only
+   `core`. UI may import anything. Enforced by eslint, not by good intentions.
+2. **The domain doesn't know about the framework.** Skills, plans and memory are
+   pure TypeScript with no React, no Tauri, no HTTP. That is what lets the same
+   engine run in a window, a browser tab, and a test.
+3. **Native capability is a port, not a special case.** Skills call
+   `platform.openPath(...)`; they never learn which platform they're on.
+4. **Capability absence is data, not an exception.** A platform reports what it
+   can do; skills needing something absent are *hidden*, not broken.
+5. **Every action is declared.** Nothing happens except through a registered
+   skill with typed arguments and a risk rating.
+
+---
+
+## 3. Stack
+
+| Layer | Choice | Why | Rejected |
 |---|---|---|---|
-| **Monorepo** | pnpm workspaces + **Turborepo** | Share `core`/`ui`/`data` across desktop/web/mobile with one dependency graph; Turbo caches builds so CI/local stays fast as it grows | Nx (heavier), multi-repo (sync hell) |
-| **Language** | **TypeScript** everywhere, `strict` | One language across UI, domain, edge functions; strong typing is an explicit requirement | — |
-| **Build/dev** | **Vite** | Fastest HMR, first-class Tauri + React support | Webpack/CRA (slow, dead) |
-| **UI framework** | **React 18** | Ecosystem, your team already knows it, works in Tauri + web + RN | Svelte/Solid (smaller ecosystem for a multi-year platform) |
-| **Styling** | **Tailwind CSS** + CSS-variable token layer | Fast, consistent, themeable; tokens enable dark-first + theme marketplace | CSS-in-JS (runtime cost) |
-| **Primitives** | **Radix UI** | Accessible, unstyled headless components — a11y is a requirement | Building modals/menus by hand |
-| **Animation** | **Framer Motion** | The "beautiful animations / Linear-Arc feel" bar; declarative, GPU-friendly | Hand-rolled CSS for complex sequences |
-| **Server state** | **TanStack Query** | Caching, background refetch, infinite scroll for wallpaper feeds | Redux for server data (boilerplate) |
-| **Client state** | **Zustand** | Tiny, unopinionated UI/session state (filters, theme, panels) | Redux (overkill) |
-| **Desktop shell** | **Tauri 2 (Rust core)** | ~10MB bundle, low RAM, native wallpaper-setting, tray, autostart — matches "extremely fast / premium" | Electron (~150MB, heavy — cuts against the goal) |
-| **Web build** | Same React app → static SPA | Chosen "Tauri + shared web build": UI is web-native, desktop wraps it | Separate web rewrite |
-| **Mobile (future)** | **Expo / React Native** | Reuses `core`/`data`/design tokens; own `platform` impl | Flutter (Dart = second language, no code reuse) |
-| **Backend** | **Supabase** (Postgres, Auth, Storage, Edge Functions, RLS) | Real accounts, cloud sync, storage, and SQL ownership on day one; scales far; self-hostable later | Firebase (NoSQL, lock-in), custom Node (slow to first value) |
-| **Search** | Postgres FTS (MVP) → **Meilisearch/Typesense** (scale) | Start free with `tsvector`; graduate to instant search engine behind the same `SearchRepository` interface | Elasticsearch (ops-heavy) |
-| **Media/CDN** | Supabase Storage + image transforms → **Cloudflare Images/R2** at scale | Wallpapers are huge (4K/8K); need thumbnails + responsive variants + CDN | Serving originals directly (bandwidth death) |
+| **Desktop shell** | **Tauri 2 (Rust)** | The shipped binary is 3.6 MB and the installer builds in minutes. An assistant summoned by a keystroke has to feel instant, and a 150 MB runtime with a Chromium per window cuts directly against that. | Electron — familiar, but the size and memory cost are the exact thing this product can't afford |
+| **UI** | React 18 + Vite + Tailwind | The UI is a conversation and two panes; the value is in the engine, so the UI layer should be boring, fast to iterate, and well-understood | A native Rust UI (egui/slint) — smaller still, but every design change becomes a research project |
+| **Language (logic)** | TypeScript, `strict` | The engine is the part that must be *correct*, and its bugs are type-shaped: a plan with a bad argument, a skill that doesn't exist | JS — this is precisely the code that benefits from a compiler |
+| **Language (system)** | Rust, in `apps/desktop` | File indexing, process enumeration and app launching want a real systems language, and Tauri commands are the natural boundary | Node sidecar — another runtime to ship and supervise |
+| **Monorepo** | pnpm + Turborepo | Already in place, and the package boundaries *are* the architecture | A single package — the boundaries would exist only in comments |
+| **Tests** | Vitest | Resolves modules exactly as Vite does, so tests import the same graph the app does | `node --test` — needs explicit `.ts` extensions, which fights bundler resolution |
+| **Styling** | Tokens → CSS variables → Tailwind | One source of truth for colour and motion, theme switching for free | Hard-coded classes |
+
+### Why not keep Supabase?
+
+The wallpaper product needed a backend because its content came from elsewhere.
+An assistant that runs on your machine and reads your files needs the opposite:
+**no server at all**. Adding one would create a privacy story to defend for
+features nobody asked for. Sync, if it ever arrives, enters through a
+repository port the way content did — as an implementation detail behind an
+interface.
 
 ---
 
-## 3. Monorepo structure
+## 4. The shape
 
 ```
-D:\Dev\Atlas\
-├─ apps/
-│  ├─ web/            # THE UI. Vite + React SPA. The canonical interface.
-│  ├─ desktop/        # Tauri shell. Loads the web UI, adds native impls.
-│  ├─ mobile/         # (future) Expo app. Reuses core/data/ui-tokens.
-│  └─ admin/          # (future) CMS for owned content + moderation.
-│
-├─ packages/
-│  ├─ core/           # Pure TS domain. Types + use-cases. NO framework deps.
-│  │                  #   models: Wallpaper, Collection, Category, User, Tag...
-│  │                  #   use-cases: favorite(), buildFeed(), filterSearch()...
-│  ├─ platform/       # Interfaces for native capability + impls:
-│  │                  #   setWallpaper, downloadFile, fs, tray, notifications
-│  │                  #   platform-web | platform-tauri | platform-mobile
-│  ├─ data/           # Supabase client + repositories + TanStack Query hooks.
-│  │                  #   WallpaperRepository, LibraryRepository, SearchRepo...
-│  ├─ content/        # Provider adapters (Unsplash/Pexels/Wallhaven) →
-│  │                  #   normalize to core Wallpaper. Runs in edge functions.
-│  ├─ ui/             # Design system: components built on Radix + tokens.
-│  ├─ tokens/         # Design tokens (color/space/type/motion) → CSS vars.
-│  ├─ icons/          # Icon set.
-│  └─ config/         # Shared tsconfig, eslint, tailwind preset, prettier.
-│
-├─ supabase/
-│  ├─ migrations/     # Versioned SQL schema.
-│  └─ functions/      # Edge functions (content sync, image variants, AI-gen).
-│
-└─ docs/              # This file, ROADMAP.md, decisions.
+┌──────────────────────────────────────────────────────────────┐
+│  apps/desktop            Tauri 2                             │
+│    src-tauri/                                                │
+│      lib.rs              window, tray, global shortcut       │
+│      platform.rs         the Rust half of the Platform port  │
+│                          — validated, narrow, no exec        │
+├──────────────────────────────────────────────────────────────┤
+│  apps/web                the canonical UI (also runs alone)  │
+│    AtlasApp              two screens, no router               │
+│    useAtlas              the engine's io, as React state      │
+├──────────────────────────────────────────────────────────────┤
+│  packages/platform       Platform impls: tauri | web         │
+│                          detectPlatform() picks one          │
+├──────────────────────────────────────────────────────────────┤
+│  packages/engine         bus · registry · grammar            │
+│                          planner · executor · kernel         │
+│                          depends only on core                │
+├──────────────────────────────────────────────────────────────┤
+│  packages/core           Skill · Plan · memory               │
+│                          ports: Platform, Intelligence       │
+│                          depends on NOTHING                  │
+└──────────────────────────────────────────────────────────────┘
 ```
-
-**The load-bearing idea:** `apps/web` is the entire interface. `apps/desktop` is a *thin Tauri wrapper* that serves that same build and injects `platform-tauri`. Mobile later injects `platform-mobile`. You never fork the UI.
-
-### Dependency rule (enforced by lint boundaries)
-
-```
-apps/*  ──►  packages/ui, packages/data, packages/platform
-packages/ui   ──►  packages/tokens, packages/icons, packages/core (types only)
-packages/data ──►  packages/core, packages/content
-packages/core ──►  (nothing — pure domain)
-```
-
-`core` depends on nothing. Everything can depend on `core`. Dependencies point inward. This is what keeps Atlas rewritable in pieces for years.
 
 ---
 
-## 4. The three abstraction layers that make Atlas future-proof
+## 5. The pipeline
 
-Everything the future features list needs (AI gen, creators, live wallpapers, mobile, marketplace) survives because of these three seams:
-
-### 4.1 Content abstraction (`packages/content` + `WallpaperRepository`)
-The app requests wallpapers by intent ("trending", "category: space", "search: neon city"). A repository resolves that against whatever source is configured:
-- **Now:** provider adapters normalize Unsplash/Pexels/Wallhaven responses into the canonical `Wallpaper` model; results are cached into Postgres so the app reads from *our* DB, not their API (rate-limit + offline safety).
-- **Later:** owned CMS rows and creator uploads land in the *same* `wallpapers` table with `source = 'atlas' | 'creator'`. Zero UI change.
-- **AI gen:** just another source that writes a `Wallpaper` row.
-
-### 4.2 Platform abstraction (`packages/platform`)
-```ts
-interface Platform {
-  setWallpaper(path: string, opts): Promise<void>   // native only
-  downloadWallpaper(w: Wallpaper, res): Promise<Path>
-  fs: FileStore                                       // local library cache
-  tray?: TrayController
-  liveWallpaper?: LiveRenderer                        // video/live, native
-}
 ```
-Web ships a limited impl (download via browser, no set-wallpaper). Tauri ships the full Rust-backed impl. Mobile ships its own. **UI code is identical across all three.**
+"open steam"
+     │
+     ▼
+┌─────────────┐  deterministic, microseconds, offline.
+│ 1. grammar  │  Handles the large majority of real input.
+└─────┬───────┘
+      │ no match
+      ▼
+┌─────────────┐  Is this an instruction at all, or a question?
+│ 2. triage   │  Questions never reach the planner.
+└─────┬───────┘
+      │ actionable
+      ▼
+┌─────────────┐  Only for novel phrasing. Strict JSON.
+│ 3. AI plan  │  EVERY step validated against the registry.
+└─────┬───────┘
+      │
+      ▼
+┌─────────────┐  Confirms risky steps. Aborts on failure
+│  executor   │  or refusal. Never silently continues.
+└─────┬───────┘
+      ▼
+    skills ──▶ Platform ──▶ the machine
+```
 
-### 4.3 Persistence abstraction (repository layer in `packages/data`)
-UI/domain never import the Supabase SDK. They call repositories. This means: Supabase today, self-hosted Postgres or a custom API later, and a **local-first** library (favorites/history/collections cached in SQLite/IndexedDB, synced when signed in) — all behind the same interfaces.
+**Why triage exists.** Without it, "what's the capital of Peru?" reaches a
+planner that dutifully hunts for a matching skill. A question is conversation;
+only an imperative is worth planning over. It costs one regex and removes an
+entire category of absurd behaviour.
+
+**Why an AI plan is all-or-nothing.** If any step fails validation, the whole
+plan is discarded and the message falls through to conversation. A
+half-understood instruction must never become a half-executed plan.
 
 ---
 
-## 5. Data model (Postgres / Supabase)
+## 6. The three seams
 
-Core tables (MVP), designed so future features slot in without migrations that break things:
+Everything on the roadmap survives because of these.
 
-```
-wallpapers        id, title, source, source_id, source_url, author,
-                  license, attribution, width, height, dominant_color,
-                  blurhash, colors[], orientation, is_ai, is_live,
-                  created_at, popularity_score
-wallpaper_assets  wallpaper_id, kind(thumb|preview|full|4k|video),
-                  url, width, height, bytes
-categories        id, slug, name, icon, sort
-wallpaper_tags    wallpaper_id, tag_id            tags: id, slug, name
-collections       id, owner_id?, title, is_staff_pick, is_featured, cover
-collection_items  collection_id, wallpaper_id, sort
+### 6.1 The Platform port (`core/ports/platform.ts`)
 
--- user-scoped (RLS: owner-only), local-first mirror on device
-users             (Supabase auth) + profiles(display_name, avatar, plan)
-favorites         user_id, wallpaper_id, created_at
-downloads         user_id, wallpaper_id, resolution, created_at
-recently_viewed   user_id, wallpaper_id, viewed_at
+Every reach outside the process goes through one interface. Methods are optional
+and `capabilities()` declares what's real, so:
 
--- future, schema stubbed now
-creators          user_id, handle, bio, verified
-ratings           user_id, wallpaper_id, stars
-comments          user_id, wallpaper_id, body, created_at
-follows           follower_id, creator_id
-```
+- the **desktop** build gets files, apps, system, processes, windows;
+- the **browser** build gets clipboard and notifications, and the engine simply
+  *hides* the rest — a web Atlas is honestly smaller rather than subtly broken;
+- **tests** get a scripted machine, which is why the engine suite runs in
+  milliseconds without touching a disk.
 
-**Why these choices:** `source`/`source_id`/`license`/`attribution` from day one makes the API→owned→creator migration a data operation. `wallpaper_assets` as a separate table is what lets us serve thumbnails/responsive variants/video from a CDN instead of the original (the #1 bandwidth trap). `blurhash`/`dominant_color` power instant progressive loading and color-filter search. Row-Level Security scopes all user tables to their owner automatically.
+There is deliberately **no `exec(command: string)`**. Atlas can open a path,
+reveal a path, launch a *registered* app, and read metadata. Once a general
+"run this string" capability exists, no other guarantee on the interface means
+anything.
+
+### 6.2 The skill registry (`engine/skills/registry.ts`)
+
+The only door to action. `invoke()` validates arguments against the declared
+schema, drops parameters the skill never declared, checks capabilities, and
+catches throws. There is no second path — including for plans a model wrote.
+
+Adding a capability is one `register()` call; it becomes available to the
+planner, to search, and to help, with no other edit.
+
+### 6.3 The intelligence port (`core/ports/intelligence.ts`)
+
+Providers register, one may be active, and `active()` returning `null` is the
+normal supported state. The engine depends on this port but needs nothing from
+it — which is the architectural expression of "the engine is the brain, models
+are accessories".
 
 ---
 
-## 6. Scaling risks identified up front (and the mitigation already in the design)
+## 7. Safety
 
-| Risk | Why it bites | Mitigation baked in |
+| Rule | Where | Why |
 |---|---|---|
-| **Content licensing / API rate limits** | Third-party APIs throttle & can revoke; attribution rules | Content abstraction + cache-to-Postgres; owned CMS path; `license`/`attribution` columns |
-| **Bandwidth (4K/8K images are massive)** | Serving originals bankrupts you and feels slow | `wallpaper_assets` variants + CDN + thumbnails + progressive `blurhash` loading |
-| **Set-wallpaper is inherently native** | Can't be done from a web sandbox | Platform abstraction; Tauri Rust impl; web degrades to download |
-| **Search at scale** | `LIKE %...%` dies past ~100k rows | Postgres FTS now → Meilisearch/Typesense behind `SearchRepository` |
-| **Offline / local library** | Users expect favorites without a round-trip | Local-first repositories, sync on auth |
-| **Live/video wallpapers** | GPU-heavy, OS-specific | Isolated `LiveRenderer` in platform layer; opt-in phase |
-| **Creator uploads** | Storage cost, moderation, abuse | Separate storage bucket + moderation queue in `admin`; stubbed schema now |
-| **Vendor lock-in (Supabase)** | Managed BaaS risk | Standard Postgres + repository layer; self-hostable |
-| **Monorepo build times** | Grows with packages | Turborepo remote+local cache from Phase 0 |
-| **Cross-platform UI drift** | Desktop/web/mobile diverge | Single UI codebase; only `platform` impls differ |
+| Risky steps ask, every time | `executor.ts` | One approval covers one step, never the session |
+| A refusal ends the plan | `executor.ts` | Continuing after "no" is the most alarming thing an agent can do |
+| A failure stops what follows | `executor.ts` | Step two against nothing is worse than stopping |
+| Paths must sit under the user's home | `platform.rs` | The renderer is web content — the least trusted part of the app. A path from it is a claim, not a fact |
+| Apps launch by registered id | `platform.rs` | "One of these known apps" ≠ "whatever string I'm given" |
+| http(s) links only | both | Otherwise `file://` reopens the door the path checks closed |
+| The index reads names, never contents | `platform.rs` | Better matching isn't worth the entire privacy story |
+| Only the user's own folders | `platform.rs` | An index that quietly grew to `C:\` is a different product |
+| Tauri capabilities allow-list | `capabilities/default.json` | Tauri 2 denies by default; the grant is short and contains no shell permission |
 
 ---
 
-## 7. Theming & design system
+## 8. Decisions worth revisiting
 
-- `packages/tokens` emits CSS variables for **color, space, radius, typography, shadow, motion**. Dark theme is the default token set; light + future marketplace themes are alternate sets swapped at the `:root` level.
-- `packages/ui` components read tokens only — never hardcoded hex. This is what makes the "theme marketplace" future feature a data feature, not a rewrite.
-- Motion tokens (durations, easings) centralize the Linear/Arc feel so animations are consistent, not per-component guesses.
-- Accessibility: Radix primitives + focus management + reduced-motion token respected globally.
+Honest uncertainty, recorded rather than buried:
 
-See `ROADMAP.md` for the phased build order.
+- **Ctrl+Space as the summon key** is free on most systems but not all. It should
+  become configurable before anyone else uses this.
+- **Start-menu scraping for the app list** finds what the user can already see,
+  which is the right privacy posture, but misses Store apps.
+- **No persistence yet.** Memory models exist in `core`; nothing writes them.
+  That's Phase 2, and the storage port should land before the first feature that
+  wants it, not after.
+- **The web build is a real target or it isn't.** Right now it's a useful test
+  bed and a graceful fallback. If it's never going to be a product, the honest
+  move is to say so and delete the branch in `detectPlatform()`.

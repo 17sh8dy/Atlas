@@ -1,8 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { RouterProvider } from 'react-router-dom';
-import { MockCatalogRepository, RepositoryProvider } from '@atlas/data';
-import { router } from './app/router';
+import { detectPlatform } from '@atlas/platform';
+import { AtlasApp } from './app/AtlasApp';
 import { ThemeProvider } from './app/theme';
 import '@atlas/tokens/tokens.css';
 import './styles/index.css';
@@ -10,16 +9,14 @@ import './styles/index.css';
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element #root not found');
 
-// Phase 1 uses the in-memory catalog. Phase 2 swaps this one line for a
-// Supabase-backed repository — no other change required.
-const repository = new MockCatalogRepository();
+// The one place the runtime is decided. Everything above this line is written
+// against the Platform port and never learns whether it's in a window or a tab.
+const platform = detectPlatform();
 
 ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <ThemeProvider>
-      <RepositoryProvider repository={repository}>
-        <RouterProvider router={router} />
-      </RepositoryProvider>
+      <AtlasApp platform={platform} />
     </ThemeProvider>
   </React.StrictMode>,
 );

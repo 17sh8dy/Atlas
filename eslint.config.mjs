@@ -4,7 +4,17 @@ import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**'] },
+  {
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/.turbo/**',
+      // Cargo's build directory contains generated JS that Tauri injects into
+      // the webview. It isn't ours, isn't source, and isn't valid standalone.
+      '**/src-tauri/target/**',
+      '**/src-tauri/gen/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -27,6 +37,11 @@ export default tseslint.config(
     },
   },
   {
+    // Build scripts are plain Node ES modules, not browser code.
+    files: ['**/scripts/**/*.mjs'],
+    languageOptions: { globals: globals.node, sourceType: 'module' },
+  },
+  {
     // Architectural boundary: core is the inner domain layer.
     // Dependencies must point inward — core imports no framework or infra.
     files: ['packages/core/**/*.ts'],
@@ -42,12 +57,34 @@ export default tseslint.config(
             {
               group: [
                 '@atlas/ui',
-                '@atlas/data',
+                '@atlas/engine',
                 '@atlas/platform',
                 '@tauri-apps/*',
-                '@supabase/*',
               ],
               message: 'core is the inner layer; dependencies must point inward.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The engine is the next ring out: it may know the domain, and nothing else.
+    // This is what keeps it runnable in a window, a browser tab and a test.
+    files: ['packages/engine/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'react', message: 'the engine renders nothing.' },
+            { name: 'react-dom', message: 'the engine renders nothing.' },
+          ],
+          patterns: [
+            {
+              group: ['@atlas/ui', '@atlas/platform', '@tauri-apps/*'],
+              message:
+                'the engine reaches the machine through the Platform port, never a concrete impl.',
             },
           ],
         },

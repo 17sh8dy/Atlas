@@ -8,3 +8,7 @@ dist/
 !.env.example
 .DS_Store
 Thumbs.db
+
+# Rust / Tauri build output
+target/
+apps/desktop/src-tauri/gen/

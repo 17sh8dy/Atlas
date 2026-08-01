@@ -1,97 +1,90 @@
-# Atlas — Phased Roadmap
+# Atlas — Roadmap
 
-Build order is chosen so each phase ships something **usable and correct** before the next, and so the hardest architectural seams (content, platform, persistence) are proven early with cheap versions. No phase is "throwaway" — early impls sit behind the same interfaces the mature ones will.
-
-Legend: 🎯 goal · ✅ done-when · ⚠️ risk proven this phase
-
----
-
-## Phase 0 — Foundations
-🎯 The skeleton everything hangs on.
-- pnpm workspaces + Turborepo; shared `config` (tsconfig strict, eslint, prettier, tailwind preset).
-- `packages/tokens` (dark-first CSS variables) + `packages/ui` seed (Button, Icon, Surface, Skeleton).
-- `apps/web` boots with Vite + React + Tailwind + router + theme provider.
-- CI: typecheck + lint + build, Turbo-cached.
-- Lint boundaries enforcing the dependency rule.
-
-✅ `pnpm dev` renders a themed empty shell; CI green.
-⚠️ Proves the monorepo + token pipeline.
-
-## Phase 1 — App shell & navigation (mocked data)
-🎯 The product's *shape* and feel, on fake data.
-- Layout: sidebar/topbar nav, page transitions (Framer Motion), command palette (⌘K) scaffold.
-- Routes: Home, Search, Categories, Library, Settings, Wallpaper detail.
-- `packages/core` domain models (`Wallpaper`, `Collection`, `Category`, filters) + in-memory fixtures.
-- Virtualized wallpaper grid + responsive image component (blurhash placeholder).
-
-✅ You can click through the whole app on mock data; it *feels* like Atlas.
-⚠️ Proves the UI-once shell + performance grid early.
-
-## Phase 2 — Content pipeline (real wallpapers)
-🎯 Replace mocks with real, normalized content.
-- `packages/content`: Unsplash/Pexels/Wallhaven adapters → canonical `Wallpaper`.
-- Supabase schema (`supabase/migrations`): wallpapers, assets, categories, tags, collections.
-- Edge function: scheduled sync → normalize → cache into Postgres + generate `wallpaper_assets` variants.
-- `packages/data`: `WallpaperRepository` + TanStack Query hooks. Home sections (Featured/Trending/New/Staff Picks) + Categories now render real data.
-
-✅ Home & Categories show real wallpapers served from *our* DB/CDN.
-⚠️ Proves the content abstraction + bandwidth strategy (variants/CDN) — the biggest risk.
-
-## Phase 3 — Wallpaper page & Search
-🎯 Discovery depth.
-- Detail page: large preview, screenshots/variants, resolution options, metadata, related wallpapers, share.
-- Search: instant query, filters for tags, colors, resolution, orientation, device; Postgres FTS behind `SearchRepository`.
-
-✅ Find any wallpaper by text/filters; open a rich detail page.
-
-## Phase 4 — Library (local-first)
-🎯 Personal organization, no account required yet.
-- Favorites, download history, recently viewed, collections — stored locally (IndexedDB/SQLite) via `LibraryRepository`.
-- Optimistic UI, offline-safe.
-
-✅ Favorite, collect, and revisit wallpapers fully offline.
-⚠️ Proves the persistence abstraction + local-first before cloud complexity.
-
-## Phase 5 — Desktop native (Tauri)
-🎯 The thing a web app can't do.
-- `apps/desktop`: Tauri 2 shell wrapping the web build.
-- `platform-tauri`: set-as-wallpaper (Rust), download-to-disk with resolution, system tray, autostart, "wallpaper of the day".
-- Web keeps `platform-web` (download-only) — same UI.
-
-✅ Set any wallpaper as your desktop background from Atlas; tray + downloads work.
-⚠️ Proves the platform abstraction end-to-end.
-
-## Phase 6 — Accounts & cloud sync
-🎯 Continuity across devices.
-- Supabase Auth; profiles; RLS on all user tables.
-- `LibraryRepository` gains a synced backend; local mirror syncs on sign-in. Conflict-safe merge.
-- Settings: Account, Privacy.
-
-✅ Sign in on another device → favorites/collections follow you.
-
-## Phase 7 — Settings, polish, a11y, performance
-🎯 Ship-quality.
-- Settings: Theme (dark/light/system), Appearance, Performance (motion/quality), Downloads (path/default res).
-- Full reduced-motion, keyboard nav, focus states, screen-reader labels.
-- Animation polish pass; image loading/perf audit; light theme completion.
-
-✅ Meets the premium/accessible/fast bar across the board. **MVP complete.**
+Phases are completed one at a time, in full. A phase is done when it typechecks,
+lints, has tests where the logic is non-trivial, and actually runs — not when
+the code exists.
 
 ---
 
-## Post-MVP tracks (architecture already supports these)
+## Phase 0 — Foundations ✅
 
-Each is a new source/module behind an existing seam — not a rewrite.
+The engine, the seam, and a desktop app that launches.
 
-- **Creator platform**: `apps/admin` CMS + moderation; `source='creator'` uploads; creator profiles, follows.
-- **AI generation**: edge function that writes generated `Wallpaper` rows (`is_ai`), gated by Atlas Pro.
-- **Live / video wallpapers**: `LiveRenderer` in `platform-tauri`; `is_live` assets.
-- **Social**: ratings, comments, wallpaper requests, community challenges (schema stubbed).
-- **Mobile**: `apps/mobile` (Expo) reusing `core`/`data`/`tokens` + `platform-mobile`.
-- **Theme marketplace / icon packs / widgets**: token-set + asset-pack products — the design system already reads from swappable token sets.
-- **Atlas Pro**: `profiles.plan` gate on AI-gen, exclusive collections, higher-res, cloud storage.
+- `@atlas/core` — `Skill`, `Plan`, memory models, and the `Platform` /
+  `Intelligence` ports. Depends on nothing.
+- `@atlas/engine` — bus, skill registry, grammar, triage, executor, kernel.
+  Depends only on core. **26 tests** against a scripted platform.
+- `@atlas/platform` — Tauri and browser implementations, `detectPlatform()`.
+- `apps/desktop` — Tauri 2 shell: frameless window, tray, `Ctrl+Space` summon,
+  hide-on-close, and the Rust half of the port (files, apps, system, processes).
+- `apps/web` — conversation UI, inline confirmation cards, actionable result
+  rows, Settings.
+- Icons generated from code, not committed as opaque binaries.
+
+**Verified:** `pnpm typecheck` (6 packages), `pnpm lint`, `pnpm test` (26/26),
+`pnpm build` (67.7 kB gzipped), `cargo check`, and a real
+`Atlas_0.1.0_x64-setup.exe` at 3.6 MB.
+
+**Not yet done:** nobody has clicked through the running app. The desktop binary
+builds and launches; its behaviour beyond that is unverified.
 
 ---
 
-## Working agreement
-Per the brief: architecture first (this doc + ARCHITECTURE.md), then **implement each phase carefully and completely before moving on**. Every new capability enters through `core` (domain), a repository (data), or a platform impl — never as a special case in UI code.
+## Phase 1 — Make it feel like an assistant
+
+The engine can act. It can't yet *remember* or *explain itself*.
+
+- **Memory** — episodic (what happened), semantic (facts, preferences, and the
+  names you use for things), working (what "it" refers to). The models are
+  already in `core`; this phase gives them a storage port and an implementation.
+- **`engine.help`** — "what can you do?" answered from the live registry rather
+  than a written list that drifts.
+- **Aliases** — "remember my work folder is D:\Dev", then "open my work folder".
+  The single feature that most makes an assistant feel like *yours*.
+- **Voice** — one place that owns phrasing, so Atlas sounds like one thing.
+  Present tense, naming the subject: "Opening Steam", never "Executing command".
+- **Ordinals** — "open the second one" against the last result list.
+
+## Phase 2 — Persistence
+
+- A `Storage` port in core; a Tauri implementation writing to the app's own
+  data directory, and a `localStorage` one for the web build.
+- Conversation history across restarts.
+- A real background file index, so `files.find` stops walking the disk per
+  query. Names and paths only — the privacy line does not move.
+
+## Phase 3 — Intelligence providers
+
+- Local models first (Ollama), because the private option should be the easy
+  one and the default recommendation.
+- Then Claude via a user-hosted proxy; then a generic provider contract.
+- The Settings screen already states the hierarchy; this phase makes the rows
+  real rather than "Planned".
+
+## Phase 4 — Routines
+
+- "Save that as my morning routine", then "run my morning routine".
+- Stores *validated steps*, never free text — so a routine can't become a way
+  to smuggle an unvalidated instruction past the registry later.
+
+## Phase 5 — Awareness
+
+- What's focused, what changed, what you've been doing.
+- Proactive notices, sparingly: a build finished, a download completed. The bar
+  is high — an assistant that interrupts is worse than one that waits.
+
+## Phase 6 — Polish and ship
+
+- Configurable summon shortcut (see the open question in ARCHITECTURE §8).
+- Autostart, updater, code signing.
+- First-run experience: the app should teach `Ctrl+Space` without a tour.
+
+---
+
+## Deliberately not doing
+
+- **A general `exec`.** Discussed and rejected in ARCHITECTURE §6.1.
+- **Cloud sync by default.** Local-first means the local case is the whole
+  product, not the offline mode of a server product.
+- **An agent that acts unprompted.** Atlas does what you ask. Proactivity in
+  Phase 5 means *noticing*, not deciding.
