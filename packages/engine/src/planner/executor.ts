@@ -10,11 +10,14 @@
  *     than stopping.
  *  3. A declined step always ends the plan. Carrying on with the remainder
  *     after the user said no is the single most alarming thing an agent can do.
+ *  4. A plan the content policy refuses never starts — it is not announced,
+ *     not confirmed, and no step of it runs. See `safety/content-policy.ts`.
  */
 
 import type { Plan, PlanOutcome, SkillContext, StepOutcome } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import { createPhrasing, type Phrasing } from '../phrasing';
+import { refusalFor, screenPlan } from '../safety/content-policy';
 
 export interface ExecutorOptions {
   /** Set false to run every step regardless of failures. */
@@ -37,6 +40,27 @@ export class Executor {
 
     if (!plan.steps.length) {
       return { ok: false, ran: 0, outcomes, aborted: false };
+    }
+
+    // Content policy, before anything is said or shown. The registry would
+    // refuse these arguments anyway, but only once the step was already
+    // running — by which point the plan has announced itself and, for a
+    // `confirm` skill, put a card on screen offering to do the thing. A plan
+    // is refused whole, matching rule 3 above: nothing after a refusal runs.
+    const screened = screenPlan(plan.steps, (id) => this.skills.get(id));
+    if (!screened.allowed) {
+      ctx.say(refusalFor(screened.reason));
+      return {
+        ok: false,
+        ran: 0,
+        outcomes: plan.steps.map((s) => ({
+          skill: s.skill,
+          ok: false,
+          skipped: true,
+          error: 'Refused.',
+        })),
+        aborted: true,
+      };
     }
 
     // A multi-step plan says what it's about to do first, so the user can stop

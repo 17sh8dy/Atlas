@@ -13,6 +13,7 @@
  */
 
 import type { Platform, ResultRow, Skill } from '@atlas/core';
+import { filterDestinations, isExplicitDestination, refusalFor } from '../safety/content-policy';
 
 export function createWebSearchSkills(platform: Platform): Skill[] {
   return [
@@ -45,6 +46,16 @@ export function createWebSearchSkills(platform: Platform): Skill[] {
 
         if (!results.length) {
           return { ok: true, message: `No web results for "${query}".` };
+        }
+
+        // Requirement 6, accidental exposure: an ordinary query can return
+        // something explicit. Dropped here, at the point the results enter
+        // Atlas, so they reach neither the rows the user can click nor the
+        // `data` a connected model is later asked to read — one filter rather
+        // than one per consumer.
+        results = filterDestinations(results);
+        if (!results.length) {
+          return { ok: true, message: `No results I can show you for "${query}".` };
         }
 
         const rows: ResultRow[] = results.map((r) => ({
@@ -94,6 +105,14 @@ export function createWebSearchSkills(platform: Platform): Skill[] {
 
         if (!page.text.trim()) {
           return { ok: false, error: "That page didn't have any readable text." };
+        }
+        // The `url` argument was screened before this skill ran; what came
+        // back may still be somewhere else, since a link can redirect. Checked
+        // on the fetched page's own address and title rather than its body:
+        // an article *about* a sexual subject is legitimate reading, and
+        // scanning full page text would refuse exactly those.
+        if (isExplicitDestination({ url: page.url, title: page.title })) {
+          return { ok: false, error: refusalFor('explicit') };
         }
         return {
           ok: true,

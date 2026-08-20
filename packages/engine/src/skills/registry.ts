@@ -3,9 +3,10 @@
  *
  * Every capability the assistant has is registered here, and `invoke()` is the
  * single path by which any of them runs. That is what makes the safety model
- * checkable rather than aspirational: argument validation, capability gating
- * and unknown-skill rejection all live in one function, so there is no second
- * route that skips them — including for plans a language model wrote.
+ * checkable rather than aspirational: argument validation, capability gating,
+ * unknown-skill rejection and the content policy all live in one function, so
+ * there is no second route that skips them — including for plans a language
+ * model wrote.
  */
 
 import type {
@@ -16,6 +17,7 @@ import type {
   SkillResult,
   CapabilityName,
 } from '@atlas/core';
+import { refusalFor, screenSkillCall } from '../safety/content-policy';
 
 export interface RegistryOptions {
   /**
@@ -143,6 +145,14 @@ export class SkillRegistry {
 
     const skill = this.get(id);
     if (!skill) return { ok: false, error: `Unknown action “${id}”.` };
+
+    // Content policy, checked last and therefore unskippable. The engine and
+    // the executor screen earlier and phrase the refusal better, but they are
+    // both bypassable by a caller that reaches for the registry directly —
+    // which is exactly what conversation's own web search does. This is the
+    // one that holds for every caller, including ones not written yet.
+    const screened = screenSkillCall(skill, check.args);
+    if (!screened.allowed) return { ok: false, error: refusalFor(screened.reason) };
 
     try {
       return await skill.run(check.args, ctx);

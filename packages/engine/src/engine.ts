@@ -4,13 +4,15 @@
  * ── The pipeline ────────────────────────────────────────────────────────────
  *
  *   text ─▶ 1. grammar    deterministic, instant, offline. Handles most of it.
- *           2. triage     is this an instruction at all, or a question?
- *           3. AI plan    only for novel phrasing. Strict JSON, validated
+ *           2. policy     may Atlas act on this at all? Refusals stop here,
+ *                         before anything is typed, opened or played.
+ *           3. triage     is this an instruction at all, or a question?
+ *           4. AI plan    only for novel phrasing. Strict JSON, validated
  *                         against the registry before a single step runs.
- *           4. conversation  anything left over.
+ *           5. conversation  anything left over.
  *
  * Each tier is cheaper and more certain than the one after it, so the common
- * case never pays for the rare one. Turn every provider off and tiers 1–2 still
+ * case never pays for the rare one. Turn every provider off and tiers 1–3 still
  * work completely — that is the whole point of the ordering.
  *
  * ── The io object ───────────────────────────────────────────────────────────
@@ -36,6 +38,7 @@ import { SkillRegistry } from './skills/registry';
 import { createPhrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
 import { buildAugmentedPrompt, formatSourcesFooter, needsWebSearch, runSearch } from './research';
+import { refusalFor, screenRequest } from './safety/content-policy';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -95,15 +98,36 @@ export class Engine {
     this.bus.emit('engine:ask', { text: raw });
     const ctx = this.context(io);
 
-    // 1. Grammar — the fast path.
+    // 1. Grammar — the fast path. Parsing is pure: it reads the text and
+    //    builds a plan object, and nothing runs until the executor is handed
+    //    one, so the policy check below still sits ahead of every action.
     const matched = this.grammar.parse(raw);
+
+    // 2. Content policy. Placed here, between understanding the request and
+    //    executing anything, because a refusal has to happen before the first
+    //    keystroke reaches a search box — not after the browser is already
+    //    open on the query. A question about a sexual subject is conversation
+    //    and passes; an instruction to go and fetch explicit material does
+    //    not. Refusing sexual content involving minors ignores that
+    //    distinction and applies to any phrasing at all.
+    const actionable = Boolean(matched) || this.grammar.looksActionable(raw);
+    const screened = screenRequest(raw, actionable);
+    if (!screened.allowed) {
+      // Deliberately carries the reason and not the text. Nothing downstream
+      // of a refusal — the bus, an episode, a future conversation log — has
+      // any business keeping a copy of the request that caused it.
+      this.bus.emit('engine:refused', { reason: screened.reason });
+      io.say(refusalFor(screened.reason));
+      return { ok: false, mode: 'chat', error: `refused:${screened.reason}` };
+    }
+
     if (matched && matched.confidence >= this.threshold) {
       const outcome = await this.executor.run(matched, ctx);
       this.bus.emit('engine:done', { mode: 'command', plan: matched, outcome });
       return { ok: outcome.ok, mode: 'command', plan: matched, outcome };
     }
 
-    // 2. Triage — questions are conversation, not planning. Skipping this is
+    // 3. Triage — questions are conversation, not planning. Skipping this is
     //    how assistants end up trying to "run" a question.
     if (this.grammar.looksActionable(raw)) {
       const proposed = await this.planWithAI(raw);
@@ -114,7 +138,7 @@ export class Engine {
       }
     }
 
-    // 3. Conversation.
+    // 4. Conversation.
     return this.converse(raw, io, ctx);
   }
 

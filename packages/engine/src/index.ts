@@ -31,6 +31,16 @@ export { createOsSkills } from './skills/os-skills';
 export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
 
+export {
+  filterDestinations,
+  isExplicitDestination,
+  refusalFor,
+  screenPlan,
+  screenRequest,
+  screenSkillCall,
+} from './safety/content-policy';
+export type { BlockReason, PolicyVerdict } from './safety/content-policy';
+
 export { createPhrasing } from './phrasing';
 export type { Phrasing } from './phrasing';
 
