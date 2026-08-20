@@ -22,6 +22,8 @@
  * makes every other guarantee on this interface decorative.
  */
 
+import type { SpeechOptions, SpeechVoice } from '../models/speech';
+
 /** Names the engine checks before offering a skill. */
 export type CapabilityName =
   | 'files' // read the file index
@@ -34,6 +36,7 @@ export type CapabilityName =
   | 'os' // the machine itself: lock, power, volume, media keys
   | 'windows' // Atlas's own window: show, hide, position
   | 'network' // search the web, fetch a page
+  | 'speech' // say things out loud, locally
   | 'ai'; // an intelligence provider is connected
 
 export interface FileEntry {
@@ -143,6 +146,24 @@ export interface Platform {
   writeClipboard?(text: string): Promise<boolean>;
 
   notify?(title: string, body?: string): Promise<boolean>;
+
+  /**
+   * Speech, gated by the `speech` capability.
+   *
+   * Synthesis happens on this machine, so these resolve without a network
+   * call and keep working with nothing connected — the same rule every other
+   * method here follows.
+   *
+   * `speak` resolves once the words have been *handed to the speaker*, not
+   * once they finish playing. A caller that waited for the end of a sentence
+   * would block the conversation on the length of the reply, which is exactly
+   * backwards: the transcript should already be readable while it is spoken.
+   */
+  speak?(text: string, options?: SpeechOptions): Promise<boolean>;
+  /** Cut off whatever is currently being said. Safe to call when silent. */
+  stopSpeaking?(): Promise<boolean>;
+  /** The voices this machine can actually produce. */
+  speechVoices?(): Promise<SpeechVoice[]>;
 
   /** Atlas's own window. */
   showWindow?(): Promise<void>;

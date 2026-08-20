@@ -14,7 +14,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Platform, ResultRow, Storage, VoiceProfile } from '@atlas/core';
+import type {
+  Platform,
+  ResultRow,
+  SpeechPreferences,
+  Storage,
+  VoiceProfile,
+} from '@atlas/core';
+import { DEFAULT_SPEECH } from '@atlas/core';
 import { MemoryStore } from '@atlas/data';
 import type { ProviderKeyId } from '@atlas/data';
 import { createClaudeProvider, createOpenAIProvider } from '@atlas/platform';
@@ -62,6 +69,8 @@ export function useAtlas(
   voiceProfile: VoiceProfile = {},
   providerKeys: Partial<Record<ProviderKeyId, string>> = {},
   activeProviderId: string | null = null,
+  /** How Atlas should speak. `VoiceProfile` above is a different thing entirely. */
+  speech: SpeechPreferences = DEFAULT_SPEECH,
 ) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -116,9 +125,36 @@ export function useAtlas(
   // Episodic memory doesn't touch the ask/io path at all — it just listens.
   useEffect(() => recordEpisodes(engine.bus, memory, engine.skills), [engine, memory]);
 
+  /**
+   * Speak a reply, if speaking is on.
+   *
+   * Read from a ref rather than a dependency so that turning speech on or off
+   * does not rebuild `io` — which would rebuild the engine's context in the
+   * middle of a conversation. The setting is read at the moment of speaking,
+   * which is also when it should be.
+   */
+  const speechRef = useRef<SpeechPreferences>(DEFAULT_SPEECH);
+  speechRef.current = speech;
+
+  const speakIfEnabled = useCallback(
+    (text: string) => {
+      const prefs = speechRef.current;
+      if (!prefs.enabled || !platform.speak) return;
+      const spoken = text.trim();
+      if (!spoken) return;
+      // Fire and forget: the transcript is already on screen, and a failed
+      // synthesis must not turn into an error in the conversation.
+      void platform.speak(spoken, { voiceId: prefs.voiceId, pace: prefs.pace }).catch(() => {});
+    },
+    [platform],
+  );
+
   const io = useMemo<EngineIO>(
     () => ({
-      say: (text) => push({ kind: 'atlas', text }),
+      say: (text) => {
+        push({ kind: 'atlas', text });
+        speakIfEnabled(text);
+      },
       showResults: (rows, meta) => push({ kind: 'results', rows, meta }),
       confirm: (question, detail) =>
         new Promise<boolean>((resolve) => {
@@ -126,7 +162,7 @@ export function useAtlas(
           push({ kind: 'confirm', question, detail });
         }),
     }),
-    [push],
+    [push, speakIfEnabled],
   );
 
   /** Answer the outstanding confirmation, and mark its card as decided. */

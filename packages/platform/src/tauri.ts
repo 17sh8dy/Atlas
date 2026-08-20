@@ -16,6 +16,7 @@ import type {
   Platform,
   ProcessEntry,
   SystemSnapshot,
+  SpeechVoice,
   WebPage,
   PathInfo,
   WebSearchResult,
@@ -97,6 +98,18 @@ export function createTauriPlatform(): Platform {
       sendNotification({ title, body });
       return true;
     },
+
+    // Speech. The renderer names a voice by id and supplies text; it cannot
+    // point this at an executable or pass engine flags — the same narrow shape
+    // every other command here has.
+    speechVoices: () => invoke<SpeechVoice[]>('speech_voices'),
+    speak: (text, options) =>
+      invoke<boolean>('speak_text', {
+        text,
+        voiceId: options?.voiceId,
+        pace: options?.pace,
+      }),
+    stopSpeaking: () => invoke<boolean>('stop_speaking'),
   };
 }
 

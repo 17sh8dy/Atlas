@@ -17,6 +17,7 @@ export { createWebStorage } from './web-storage';
 export { writePreference, readVoiceProfile } from './preferences';
 export type { PreferenceSubject } from './preferences';
 export { MemoryStore } from './memory-store';
+export { readSpeechPreferences, writeSpeechPreferences } from './speech-preferences';
 export {
   readProviderKey,
   writeProviderKey,

@@ -8,7 +8,14 @@
  */
 
 import { Icons, Tabs, TabsContent, TabsList, TabsTrigger } from '@atlas/ui';
-import type { CapabilityName, Platform, Storage, VoiceProfile } from '@atlas/core';
+import type {
+  CapabilityName,
+  Platform,
+  SpeechPreferences,
+  SpeechVoice,
+  Storage,
+  VoiceProfile,
+} from '@atlas/core';
 import type { ProviderKeyId } from '@atlas/data';
 import type { SkillRegistry } from '@atlas/engine';
 import { General } from './settings/General';
@@ -32,6 +39,11 @@ interface Props {
   providerKeys: Partial<Record<ProviderKeyId, string>>;
   activeProviderId: string | null;
   onProviderChange(): void;
+  speechVoices: SpeechVoice[];
+  speech: SpeechPreferences;
+  onSpeechChange(next: Partial<SpeechPreferences>): void;
+  onSpeechPreview(voiceId: string): void;
+  onSpeechStop(): void;
 }
 
 const SECTIONS = [
@@ -57,6 +69,11 @@ export function Settings({
   providerKeys,
   activeProviderId,
   onProviderChange,
+  speechVoices,
+  speech,
+  onSpeechChange,
+  onSpeechPreview,
+  onSpeechStop,
 }: Props) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -84,7 +101,13 @@ export function Settings({
               <Appearance />
             </TabsContent>
             <TabsContent value="voice">
-              <Voice />
+              <Voice
+            voices={speechVoices}
+            preferences={speech}
+            onChange={onSpeechChange}
+            onPreview={onSpeechPreview}
+            onStop={onSpeechStop}
+          />
             </TabsContent>
             <TabsContent value="personalization">
               <Personalization

@@ -17,6 +17,9 @@ export {
   Moon,
   // conversation
   ArrowUp,
+  Play,
+  Volume2,
+  VolumeX,
   Sparkles,
   Compass,
   Shield,

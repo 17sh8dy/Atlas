@@ -303,15 +303,46 @@ brushes against "an agent that acts unprompted" in the not-doing list below.
 (`time.timer` exists, but it is in-session only.) Design this before building
 it.
 
-## Phase 8 — Voice
+## Phase 8 — Voice 🟡 speaking built, listening deferred
 
-- **Audio (TTS/STT)** — approach undecided, revisit here. The WebView can do
-  offline text-to-speech using installed Windows voices today; speech
-  recognition in a Chromium engine typically wants a network round-trip,
-  which sits uneasily next to "works with nothing connected." Options: ship
-  TTS now and best-effort networked STT as v1, or hold voice input entirely
-  for a fully local STT engine. Settings → Voice already has its placeholder
-  tab waiting.
+**The undecided question got decided, and only half of it got built.**
+
+**Speaking — done.** Atlas reads its replies aloud through a bundled neural
+engine. The three options considered were Windows SAPI voices, a networked
+cloud voice, and a local neural engine; the first was rejected because this
+machine ships only American voices and a British one needs a language pack
+the user installs by hand — an assistant that sounds right only after a
+system-settings detour sounds wrong. The second breaks local-first outright.
+
+- **Engine:** Piper, pinned to the **archived MIT release** (`2023.11.14-2`).
+  Development moved to `OHF-Voice/piper1-gpl`, which is GPL and would dictate
+  Atlas's own licensing — do not "update" without deciding that first.
+- **Model:** `en_GB-vctk-medium`, **CC BY 4.0**, 109 speakers in one file.
+  Chosen over the obvious `en_GB-alan-medium`, whose training data traces to
+  `MycroftAI/mimic3-voices` and carries "All Rights Reserved" with no grant to
+  redistribute. Attribution belongs in Settings → About.
+- **Personas are speakers, not sliders.** Pitch is not a parameter a neural
+  model exposes, and faking it by resampling sounds broken rather than
+  different. The five male options are five *regions* — Surrey, London,
+  Birmingham, Yorkshire, Newcastle — because options that sound alike are not
+  options. Pace is real (the model's length scale) and is the one slider.
+- **Playback** is `PlaySoundW` from the `windows` crate already used by
+  `os.rs`, not an audio crate: asynchronous, one utterance at a time, and
+  passing null stops it. No volume control, which the system mixer already has.
+- **Off by default.** An assistant that starts talking unasked is startling.
+- Cost: the installer goes from 3.6 MB to ~88 MB. That was a deliberate trade
+  for a voice that works offline and sounds right.
+
+**Still open in this phase:**
+
+- **Listening (STT)** — unchanged and still deferred. Speech recognition in
+  this engine wants a network round trip, which sits badly beside working with
+  nothing connected. Not half-built.
+- **Weather** — deferred, and the one item on the original list that
+  conflicts with local-first-by-default. If it ships, it's opt-in with the
+  user's own API key, disclosed in Settings → Privacy — never on by default.
+- A "stop talking" skill, so speech can be cut from the conversation rather
+  than only from Settings.
 - **Weather** — deferred, and the one item on the original list that
   conflicts with local-first-by-default. If it ships, it's opt-in with the
   user's own API key, disclosed in Settings → Privacy (the placeholder shell

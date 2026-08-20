@@ -42,6 +42,11 @@
       "icons/icon.ico"
     ],
     "shortDescription": "A local-first desktop assistant",
-    "longDescription": "Atlas understands what you ask, drives your machine, and keeps everything on it. External models are optional."
+    "longDescription": "Atlas understands what you ask, drives your machine, and keeps everything on it. External models are optional.",
+    "resources": {
+      "vendor/piper/piper": "vendor/piper/piper",
+      "vendor/piper/en_GB-vctk-medium.onnx": "vendor/piper/en_GB-vctk-medium.onnx",
+      "vendor/piper/en_GB-vctk-medium.onnx.json": "vendor/piper/en_GB-vctk-medium.onnx.json"
+    }
   }
 }

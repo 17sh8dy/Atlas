@@ -13,8 +13,22 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import type { CapabilityName, Platform, Storage, VoiceProfile } from '@atlas/core';
-import { readActiveProvider, readProviderKeys, readVoiceProfile } from '@atlas/data';
+import type {
+  CapabilityName,
+  Platform,
+  SpeechPreferences,
+  SpeechVoice,
+  Storage,
+  VoiceProfile,
+} from '@atlas/core';
+import { DEFAULT_SPEECH } from '@atlas/core';
+import {
+  readActiveProvider,
+  readProviderKeys,
+  readSpeechPreferences,
+  readVoiceProfile,
+  writeSpeechPreferences,
+} from '@atlas/data';
 import type { ProviderKeyId } from '@atlas/data';
 import { Icons, Spinner, cn } from '@atlas/ui';
 import { TitleBar } from '../components/TitleBar';
@@ -30,6 +44,8 @@ interface Loaded {
   voiceProfile: VoiceProfile;
   providerKeys: Partial<Record<ProviderKeyId, string>>;
   activeProviderId: string | null;
+  speech: SpeechPreferences;
+  speechVoices: SpeechVoice[];
 }
 
 export function AtlasApp({ platform, storage }: { platform: Platform; storage: Storage }) {
@@ -44,13 +60,19 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       readVoiceProfile(storage).catch(() => ({}) as VoiceProfile),
       readProviderKeys(storage).catch(() => ({}) as Partial<Record<ProviderKeyId, string>>),
       readActiveProvider(storage).catch(() => undefined),
-    ]).then(([capabilities, voiceProfile, providerKeys, activeProviderId]) => {
+      readSpeechPreferences(storage).catch(() => DEFAULT_SPEECH),
+      // An empty list is the honest answer for a build without the engine;
+      // the Voice tab renders that case rather than pretending otherwise.
+      platform.speechVoices?.().catch(() => [] as SpeechVoice[]) ?? Promise.resolve([]),
+    ]).then(([capabilities, voiceProfile, providerKeys, activeProviderId, speech, speechVoices]) => {
       if (alive)
         setLoaded({
           capabilities,
           voiceProfile,
           providerKeys,
           activeProviderId: activeProviderId ?? null,
+          speech,
+          speechVoices,
         });
     });
     return () => {
@@ -76,8 +98,11 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       voiceProfile={loaded.voiceProfile}
       providerKeys={loaded.providerKeys}
       activeProviderId={loaded.activeProviderId}
+      speech={loaded.speech}
+      speechVoices={loaded.speechVoices}
       onVoiceProfileChange={reload}
       onProviderChange={reload}
+      onSpeechSaved={reload}
     />
   );
 }
@@ -89,8 +114,11 @@ function Ready({
   voiceProfile,
   providerKeys,
   activeProviderId,
+  speech,
+  speechVoices,
   onVoiceProfileChange,
   onProviderChange,
+  onSpeechSaved,
 }: {
   platform: Platform;
   storage: Storage;
@@ -98,8 +126,11 @@ function Ready({
   voiceProfile: VoiceProfile;
   providerKeys: Partial<Record<ProviderKeyId, string>>;
   activeProviderId: string | null;
+  speech: SpeechPreferences;
+  speechVoices: SpeechVoice[];
   onVoiceProfileChange: () => void;
   onProviderChange: () => void;
+  onSpeechSaved: () => void;
 }) {
   const [screen, setScreen] = useState<Screen>('conversation');
   const [homeFading, setHomeFading] = useState(false);
@@ -110,7 +141,41 @@ function Ready({
     voiceProfile,
     providerKeys,
     activeProviderId,
+    speech,
   );
+
+  /**
+   * A settings change is written and then reloaded rather than mirrored in
+   * local state. One source of truth for a preference — the stored file —
+   * means the Voice tab and the code that actually speaks can never disagree
+   * about which voice is selected, which is exactly the bug a local copy
+   * invites.
+   */
+  const onSpeechChange = useCallback(
+    (next: Partial<SpeechPreferences>) => {
+      void writeSpeechPreferences(storage, next).then(onSpeechSaved);
+    },
+    [storage, onSpeechSaved],
+  );
+
+  /**
+   * Preview speaks in the voice being *auditioned*, not the saved one —
+   * demonstrating the wrong voice is the one thing this button must never do.
+   * It uses the current pace, so a preview is what you will actually hear.
+   */
+  const onSpeechPreview = useCallback(
+    (voiceId: string) => {
+      void platform.stopSpeaking?.();
+      void platform
+        .speak?.('Good evening. All systems are online.', { voiceId, pace: speech.pace })
+        ?.catch(() => {});
+    },
+    [platform, speech.pace],
+  );
+
+  const onSpeechStop = useCallback(() => {
+    void platform.stopSpeaking?.();
+  }, [platform]);
 
   // Clicking the logo is "go home," the way it is on a website — back to the
   // welcome screen, not just back to the conversation tab. An instant swap
@@ -196,6 +261,11 @@ function Ready({
             providerKeys={providerKeys}
             activeProviderId={activeProviderId}
             onProviderChange={onProviderChange}
+            speech={speech}
+            speechVoices={speechVoices}
+            onSpeechChange={onSpeechChange}
+            onSpeechPreview={onSpeechPreview}
+            onSpeechStop={onSpeechStop}
           />
         )}
       </div>
