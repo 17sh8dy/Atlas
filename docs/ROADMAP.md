@@ -4,6 +4,27 @@ Phases are completed one at a time, in full. A phase is done when it typechecks,
 lints, has tests where the logic is non-trivial, and actually runs — not when
 the code exists.
 
+## Where things stand (2026-08-19)
+
+**Done:** Phases 0, 1, 2, plus **6 and 7 delivered early** on 2026-08-17 and an
+unnumbered interlude that took the catalog to **100 actions** and rebuilt the
+window chrome and app resolution. Phase 4 is **half-built**: Claude and ChatGPT
+are real, local models are not.
+
+**Next:** Phase 3 — persistence. Conversation history still dies with the
+process, and `files.find` still walks the disk on every query.
+
+**Open question blocking nothing yet, but real:** every file command is limited
+to `%USERPROFILE%` (`is_permitted` in `platform.rs`), and the index only covers
+Desktop/Documents/Downloads/Pictures/Videos/Music. So `D:\Dev` — where all the
+user's actual projects live — is refused. This is the security model working as
+designed, not a bug, so widening it is a decision to make deliberately (a
+user-managed allowed-folders list is the obvious shape) rather than a limit to
+quietly raise.
+
+**Baseline, verified 2026-08-19 before commit `790ee7d`:** `pnpm typecheck`
+(7 packages), `pnpm lint` clean, **129 engine tests + 13 data tests**.
+
 ---
 
 ## Phase 0 — Foundations ✅
@@ -143,6 +164,70 @@ suite; live OS-level keystroke automation wasn't completed this session
 foreground app without risking stray input landing in the wrong window) —
 worth a manual pass.
 
+---
+
+## Interlude — catalog, shell, and app resolution ✅ (2026-08-17)
+
+Not a numbered phase: this work cut across several, and pulled Phases 6 and 7
+forward with it. Recorded here so the phase list below stays honest.
+
+- **Catalog 25 → 50 → 100 actions.** Worth stating plainly, because the count
+  invites the wrong reading: skills here are **broad and parameterised**, not
+  canned commands. `app.open` takes any app name, so 100 actions is 100
+  capabilities. New pure packs that need no capabilities and therefore work in
+  the browser build too: `utility-skills.ts` (password/uuid/random/coin/dice/
+  base64/colour/word-count/case/percent/average/time-in-zone/days-until),
+  `text-skills.ts` (14: replace/sort/dedupe/tidy/extract/slug/frequency/lorem,
+  urlEncode/hash/hex/json/jwt/roman), `calc-skills.ts` (11: tip/interest/
+  aspect/bytes/primes/fraction, zoneDiff/age/between/weekday/unix). Every one
+  has a deterministic rule in `core-grammar.ts` or the new
+  `planner/extra-grammar.ts`, so **none of them needs a model**.
+- **Grammar rule order is the whole game.** `webImages` sits at −10.5, ahead of
+  `filesFind` (whose noun list contains "images"), and declines possessives so
+  "find pictures of my wedding" stays a disk search; `timeInZone` must precede
+  `timeNow`; `mathPercent` and `colorConvert` must precede `mathCalculate` and
+  `unitConvert`. Adding a rule means placing it, not just writing it.
+- **Window chrome** — Windows-11-native caption buttons (46px, full-height,
+  flush to the corner, red close, colour-only 120ms hover/press) and a
+  Full screen toggle.
+- **Full screen is borderless, deliberately not OS fullscreen.** An exactly
+  monitor-sized borderless window gets promoted by the compositor to a
+  fullscreen flip, which produced a stuttery doubled cursor (visible only while
+  hovering, when the two pointers disagree about shape). The fix sizes the
+  window to the monitor **minus 1px of height**, leaving the bottom screen row
+  uncovered — and the obvious guess is wrong, monitor **+1px did not help**,
+  since overhanging a monitor still counts as covering it. Cost: Atlas is
+  `alwaysOnTop` while full screen. Note that Tauri's `setSize` sets the *inner*
+  size while `outerPosition`/`outerSize` report the frame, so mixing them grows
+  the window 16px per round trip.
+- **Accent schemes** — 5 in `packages/tokens/src/accents.ts` (Purple default,
+  Red, Orange, and two gradient ones, Sunset and Ocean), each with separate
+  dark and light variants, applied as inline CSS vars on `<html>`. A gradient
+  cannot live in `--color-primary` because `bg-primary/10` tints depend on it
+  being flat: gradients go in `--gradient-primary` and are painted only by
+  `.accent-surface`.
+- **App resolution rebuilt**, after two real failures — "open CrosshairX" found
+  nothing, and "Open Steelseires.GG" opened a *website*.
+  1. The index only saw Start Menu `.lnk` files. `list_apps` now also reads
+     Desktop (user and public), `.url` shortcuts (launcher games often have
+     only one), Steam (`libraryfolders.vdf` → `appmanifest_*.acf` →
+     `steam://rungameid/`), and Epic (`Manifests\*.item`).
+  2. A bare `name.tld` was claimed by the URL grammar rule before apps were
+     ever consulted. The design rule that came out of it: **only the layer that
+     can see the installed apps can tell an app name from a domain**, so the
+     decision belongs in the skill, not the grammar.
+  3. Matching is now `appKey()` normalisation → alias table →
+     Damerau-Levenshtein on a length-scaled budget. Several close matches show
+     a "did you mean" list rather than guessing.
+
+**Verified:** 129 engine tests, and live against the built app — "open
+crosshairx" launched the real game, "Open Steelseires.GG" correctly offered the
+app rather than the URL, and the full-screen cursor fix was confirmed by the
+user directly (a GDI screen capture never contains the pointer, so that class
+of bug can only be verified by a human looking at the screen).
+
+---
+
 ## Phase 3 — Persistence
 
 - Conversation history across restarts, using the `Storage` port Phase 1
@@ -150,15 +235,27 @@ worth a manual pass.
 - Command history — small, now that Storage exists.
 - A real background file index, so `files.find` stops walking the disk per
   query. Names and paths only — the privacy line does not move.
+- **Settle the allowed-folders question first** (see "Where things stand"):
+  building an index is the natural moment to decide *what it is allowed to
+  index*, and shipping one scoped to the six home folders would bake the
+  current `%USERPROFILE%` limit in deeper.
 
-## Phase 4 — Intelligence providers
+## Phase 4 — Intelligence providers 🟡 half-built
 
-- Local models first (Ollama), because the private option should be the easy
-  one and the default recommendation.
-- Then Claude via a user-hosted proxy; then a generic provider contract.
-- The Settings screen already states the hierarchy; this phase makes the rows
-  real rather than "Planned." Also what finally lets "answer normal
-  questions" mean more than the offline fallback reply.
+**Built:** Claude and ChatGPT register for real. A key saved in Settings →
+Developer goes through the same `Storage` port as everything else
+(`packages/data/src/provider-keys.ts`), and "Connected" reflects
+`isConfigured()` on the actually-registered provider rather than a static
+label. Supporting pieces: `intelligence-registry.ts`, `research.ts`,
+`intelligence.rs`, `web.rs`.
+
+**Not built, and it's the wrong half to be missing:** **Local models (Ollama)
+are still "Planned."** The plan was local first, *because the private option
+should be the easy one and the default recommendation* — shipping the cloud
+providers first inverted that. Closing this phase means making Ollama real.
+
+**Also outstanding:** Gemini, and a generic provider contract for endpoints
+that don't exist yet (the Developer tab already documents the contract).
 
 ## Phase 5 — Routines
 
@@ -166,24 +263,42 @@ worth a manual pass.
 - Stores *validated steps*, never free text — so a routine can't become a way
   to smuggle an unvalidated instruction past the registry later.
 
-## Phase 6 — Native OS controls
+## Phase 6 — Native OS controls ✅ mostly (delivered early, 2026-08-17)
 
-- Volume/mute, brightness, screenshots, media play/pause, lock the PC,
-  restart/shut down with confirmation.
-- None of this has a Tauri plugin or an existing crate behind it yet — it
-  needs the `windows` crate (Core Audio APIs, WMI brightness methods, SMTC
-  media control, `LockWorkStation`/`ExitWindowsEx`) or a screenshot crate.
-  Bigger and more native than anything shipped so far; deliberately kept
-  separate from the narrow-custom-command work in Phase 1.
-- Everything destructive here (restart, shutdown, lock) is `risk: 'confirm'`,
-  same safety model as file delete.
+**Built** — `apps/desktop/src-tauri/src/os.rs` on the `windows` crate 0.58,
+compiled first try, exposed as the new `os` capability and seven skills in
+`skills/os-skills.ts`:
 
-## Phase 7 — Reminders, to-dos, and notes
+| Rust | Skill |
+| --- | --- |
+| `lock_workstation` | `system.lock` |
+| `power_action` (`ExitWindowsEx` + `SeShutdownPrivilege`) | `system.power` |
+| `media_key`, `set_volume`, `toggle_mute` | `media.control`, `system.volume`, `system.mute` |
+| `display_off` (`SC_MONITORPOWER`) | `system.displayOff` |
+| `empty_recycle_bin` | `system.emptyRecycleBin` |
 
-- Set reminders, create/read/complete to-do items, keep and read notes.
-- Waits for real memory (Phase 2) rather than building its own storage
-  schema on top of Phase 1's flat preferences module, which was never meant
-  to grow into this.
+Volume went through `keybd_event` with `VK_MEDIA_*`/`VK_VOLUME_*` rather than
+Core Audio COM: no COM to manage, and it routes to whatever actually owns
+playback. Everything destructive (restart, shutdown, lock) is `risk: 'confirm'`,
+the same safety model as file delete.
+
+**Still open in this phase:** **brightness** (WMI methods) and **screenshots**
+(needs a capture crate). Both were the parts with no obvious cheap path, which
+is exactly why they're the leftovers.
+
+## Phase 7 — Reminders, to-dos, and notes 🟡 (delivered early, 2026-08-17)
+
+**Built** — `skills/notes-skills.ts`: `notes.add`, `notes.list`, `notes.clear`,
+`todo.add`, `todo.list`, `todo.done`. Waiting for Phase 2 paid off exactly as
+intended: these ride the **`Memory` port** with two new `note` and `todo` fact
+kinds, so the feature added **no new store**.
+
+**Still open: reminders.** Notes and to-dos are things you ask for; a reminder
+has to *fire on its own later*, which needs scheduling and a process that is
+running when the moment arrives — a genuinely different problem, and one that
+brushes against "an agent that acts unprompted" in the not-doing list below.
+(`time.timer` exists, but it is in-session only.) Design this before building
+it.
 
 ## Phase 8 — Voice
 
