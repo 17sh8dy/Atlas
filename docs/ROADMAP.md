@@ -14,6 +14,9 @@ are real, local models are not.
 **Next:** Phase 3 — persistence. Conversation history still dies with the
 process, and `files.find` still walks the disk on every query.
 
+**Version:** still `0.1.0`, and deliberately so until Phase 8 — see
+[Versioning](#versioning).
+
 **Open question blocking nothing yet, but real:** every file command is limited
 to `%USERPROFILE%` (`is_permitted` in `platform.rs`), and the index only covers
 Desktop/Documents/Downloads/Pictures/Videos/Music. So `D:\Dev` — where all the
@@ -315,6 +318,7 @@ it.
   for this already exists from Phase 1) — never on by default.
 - Multiple voice options, speed/volume, push-to-talk, interrupt-while-speaking
   all sit behind the TTS/STT decision above.
+- **Ship this as 0.5.0** — see Versioning below.
 
 ## Phase 9 — Awareness
 
@@ -328,6 +332,38 @@ it.
 - Autostart (Settings → Startup already has its disabled placeholder from
   Phase 1), updater, code signing.
 - First-run experience: the app should teach `Ctrl+Space` without a tour.
+
+---
+
+## Versioning
+
+**Decision (2026-08-19): when Phase 8 — Voice ships, the version goes to
+0.5.0, at minimum.**
+
+`0.1.0` is the number the project was created with and it has not moved since,
+which now badly understates the build: Phases 0, 1 and 2 are complete, 6 and 7
+landed early, half of 4 exists, and the catalog is a hundred actions deep. The
+About screen reading "Version 0.1.0" tells a first-time user this is a sketch.
+
+Voice is the right moment to correct it rather than doing it now, because a
+version number should mark something a user can feel. Speaking and being
+spoken to is that; a quiet renumber between builds is not.
+
+**Three files have to move together**, or the app and its installer disagree
+about what they are:
+
+| File | Why it matters |
+| --- | --- |
+| `apps/desktop/src-tauri/tauri.conf.json` | Authoritative. Feeds `getVersion()`, which is what Settings → About actually displays, and names the installer (`Atlas_0.1.0_x64-setup.exe`). |
+| `apps/desktop/src-tauri/Cargo.toml` | The crate version. |
+| `apps/desktop/package.json` | Keeps the workspace honest. |
+
+The root `package.json` stays at `0.0.0` — it is a private workspace root and
+is not a shipped artifact.
+
+Nothing reads the version at runtime beyond the About screen, so this is a
+rename, not a migration. Do it as its own commit, so `git log` has one place
+that says when and why the number changed.
 
 ---
 
