@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Platform,
   ResultRow,
+  SpeechOptions,
   SpeechPreferences,
   Storage,
   VoiceProfile,
@@ -71,6 +72,12 @@ export function useAtlas(
   activeProviderId: string | null = null,
   /** How Atlas should speak. `VoiceProfile` above is a different thing entirely. */
   speech: SpeechPreferences = DEFAULT_SPEECH,
+  /**
+   * Supplied from the app's single `useSpeech` player, rather than created
+   * here: the voice screen's visualiser has to read the same analyser that is
+   * playing, and two players would mean two Atlases able to talk at once.
+   */
+  speak: (text: string, options?: SpeechOptions) => void = () => {},
 ) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -139,14 +146,14 @@ export function useAtlas(
   const speakIfEnabled = useCallback(
     (text: string) => {
       const prefs = speechRef.current;
-      if (!prefs.enabled || !platform.speak) return;
+      if (!prefs.enabled) return;
       const spoken = text.trim();
       if (!spoken) return;
       // Fire and forget: the transcript is already on screen, and a failed
-      // synthesis must not turn into an error in the conversation.
-      void platform.speak(spoken, { voiceId: prefs.voiceId, pace: prefs.pace }).catch(() => {});
+      // synthesis must never turn into an error in the conversation.
+      void speak(spoken, { voiceId: prefs.voiceId, pace: prefs.pace });
     },
-    [platform],
+    [speak],
   );
 
   const io = useMemo<EngineIO>(

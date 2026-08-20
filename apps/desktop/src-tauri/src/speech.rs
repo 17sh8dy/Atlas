@@ -14,18 +14,24 @@
 //! about 0.055, so a sentence is ready in a fraction of the time it takes to
 //! say it.
 //!
-//! ## Why `PlaySoundW` and not an audio crate
+//! ## This module synthesises. It does not play.
 //!
-//! `rodio` or `cpal` would pull in a device-enumeration stack to do something
-//! the `windows` crate — already a dependency for `os.rs` — does in one call.
-//! `PlaySoundW` also happens to have exactly the semantics wanted here:
-//! asynchronous playback, one sound at a time (a second utterance replaces the
-//! first rather than talking over it), and passing null stops playback. That
-//! is the entire feature set, for no new dependency.
+//! It used to do both, via `PlaySoundW`. That was wrong twice over.
 //!
-//! The tradeoff is real and accepted: `PlaySoundW` offers no volume control
-//! and no "finished" callback. Volume belongs to the system mixer, and nothing
-//! in the UI needs to know when a sentence ended.
+//! It did not work: `PlaySoundW` was called from a `spawn_blocking` thread
+//! that returned immediately afterwards, and asynchronous winmm playback does
+//! not reliably outlive the thread that started it. The call returned `TRUE`
+//! and the room stayed silent — the worst kind of failure, because it looks
+//! like success from Rust.
+//!
+//! And it was the wrong seam: audio played by the OS is audio the WebView
+//! cannot see. An audio-reactive visualiser needs an `AnalyserNode` over the
+//! samples actually being heard, so the audio has to reach the page. Handing
+//! back bytes gives the surface the analyser, real volume control, and a
+//! genuine "finished" event — none of which `PlaySoundW` could offer.
+//!
+//! So: Rust owns synthesis, which is the part that needs the machine. The
+//! renderer owns playback, which is the part that needs the speakers.
 
 use std::fs;
 use std::io::Write;
@@ -34,8 +40,6 @@ use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
-use windows::core::PCWSTR;
-use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_FILENAME, SND_NODEFAULT};
 
 /// A selectable voice. Mirrors `SpeechVoice` in `@atlas/core`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,28 +125,19 @@ pub fn voices() -> Vec<SpeechVoice> {
         .collect()
 }
 
-/// Stop whatever is being said. Passing null to `PlaySoundW` halts playback.
-pub fn stop() -> Result<bool, String> {
-    unsafe {
-        let _ = PlaySoundW(PCWSTR::null(), None, SND_ASYNC);
-    }
-    Ok(true)
-}
-
-/// Synthesise `text` and play it.
+/// Synthesise `text` and return the WAV bytes.
 ///
-/// Returns once playback has *started*. Waiting for the end would block the
-/// caller for the length of the sentence, and the transcript is already
-/// readable — the speech is an accompaniment to the reply, not the reply.
-pub fn speak(
+/// Nothing is played here — see the note at the top of the file. The caller
+/// gets audio it can analyse, scale and stop.
+pub fn synthesize(
     app: &tauri::AppHandle,
     text: &str,
     voice_id: Option<String>,
     pace: Option<f32>,
-) -> Result<bool, String> {
+) -> Result<Vec<u8>, String> {
     let spoken = text.trim();
     if spoken.is_empty() {
-        return Ok(false);
+        return Ok(Vec::new());
     }
     // A cap, not a truncation of meaning: this reads out replies, and anything
     // past a few paragraphs is a wall of speech nobody wants to sit through.
@@ -163,7 +158,17 @@ pub fn speak(
     let out = std::env::temp_dir().join("atlas-speech.wav");
     let _ = fs::remove_file(&out);
 
-    let mut child = Command::new(&exe)
+    let mut command = Command::new(&exe);
+    // Without this, every single utterance flashes a console window on screen.
+    // Piper is a console program; nothing about it should be visible.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = command
         // piper resolves espeak-ng-data relative to its own directory, so it
         // has to run from there or every synthesis fails on phonemisation.
         .current_dir(dir.join("piper"))
@@ -177,41 +182,50 @@ pub fn speak(
         .arg(&out)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        // Captured, not discarded. Piper reports a missing model, a bad
+        // speaker index and a phonemisation failure here, and throwing that
+        // away is what turns a fixable error into "it just doesn't work".
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Couldn't start the speech engine: {e}"))?;
 
     {
-        let stdin = child
+        // Taken, not borrowed, so it is *dropped* at the end of this block.
+        // Piper reads its input to EOF; a stdin handle left open means it
+        // waits forever for a line that is never coming.
+        let mut stdin = child
             .stdin
-            .as_mut()
+            .take()
             .ok_or("Couldn't send text to the speech engine.")?;
         stdin
             .write_all(spoken.as_bytes())
             .map_err(|e| format!("Couldn't send text to the speech engine: {e}"))?;
+        stdin
+            .write_all(b"\n")
+            .map_err(|e| format!("Couldn't send text to the speech engine: {e}"))?;
     }
 
-    let status = child
-        .wait()
+    let finished = child
+        .wait_with_output()
         .map_err(|e| format!("The speech engine didn't finish: {e}"))?;
-    if !status.success() || !out.exists() {
-        return Err("The speech engine produced nothing.".into());
+    if !finished.status.success() || !out.exists() {
+        let detail = String::from_utf8_lossy(&finished.stderr);
+        // Piper logs progress to stderr even on success, so only the tail is
+        // useful and only when something actually went wrong.
+        let tail: String = detail.lines().rev().take(3).collect::<Vec<_>>().join(" | ");
+        return Err(if tail.is_empty() {
+            "The speech engine produced nothing.".to_string()
+        } else {
+            format!("The speech engine failed: {tail}")
+        });
     }
 
-    let mut wide: Vec<u16> = out.to_string_lossy().encode_utf16().collect();
-    wide.push(0);
-    unsafe {
-        // SND_NODEFAULT: if the file is somehow unplayable, say nothing rather
-        // than firing the Windows default beep at someone.
-        PlaySoundW(
-            PCWSTR(wide.as_ptr()),
-            None,
-            SND_FILENAME | SND_ASYNC | SND_NODEFAULT,
-        )
-        .ok()
-        .map_err(|e| format!("Couldn't play the audio: {e}"))?;
-    }
-    Ok(true)
+    let bytes = fs::read(&out).map_err(|e| format!("Couldn't read the audio: {e}"))?;
+    // The temp file has done its job the moment it is in memory. Piper writes
+    // to a path rather than stdout, so the file is a step on the way, not
+    // something to leave lying around with the user's words in it.
+    let _ = fs::remove_file(&out);
+    Ok(bytes)
 }
 
 // ---- commands ---------------------------------------------------------------
@@ -226,22 +240,24 @@ pub fn speech_voices() -> Vec<SpeechVoice> {
     voices()
 }
 
+/// Synthesise, and hand back the audio itself.
+///
+/// Returns a `Response`, which reaches JavaScript as an `ArrayBuffer` rather
+/// than as JSON. A WAV serialised the ordinary way would become an array of a
+/// hundred thousand numbers — megabytes of text to encode and parse for
+/// something that is already bytes.
 #[tauri::command]
-pub async fn speak_text(
+pub async fn synthesize_speech(
     app: tauri::AppHandle,
     text: String,
     voice_id: Option<String>,
     pace: Option<f32>,
-) -> Result<bool, String> {
+) -> Result<tauri::ipc::Response, String> {
     // Synthesis is CPU work measured in tenths of a second. Off the async
     // runtime's thread regardless, so a long reply can never stall the
     // window's event loop.
-    tauri::async_runtime::spawn_blocking(move || speak(&app, &text, voice_id, pace))
+    let bytes = tauri::async_runtime::spawn_blocking(move || synthesize(&app, &text, voice_id, pace))
         .await
-        .map_err(|e| format!("The speech task failed: {e}"))?
-}
-
-#[tauri::command]
-pub fn stop_speaking() -> Result<bool, String> {
-    stop()
+        .map_err(|e| format!("The speech task failed: {e}"))??;
+    Ok(tauri::ipc::Response::new(bytes))
 }

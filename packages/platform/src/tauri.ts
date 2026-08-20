@@ -103,13 +103,15 @@ export function createTauriPlatform(): Platform {
     // point this at an executable or pass engine flags — the same narrow shape
     // every other command here has.
     speechVoices: () => invoke<SpeechVoice[]>('speech_voices'),
-    speak: (text, options) =>
-      invoke<boolean>('speak_text', {
+    // Comes back as an ArrayBuffer rather than JSON — the command returns a
+    // `tauri::ipc::Response`, so a WAV stays bytes instead of becoming an
+    // array of a hundred thousand numbers on the way across.
+    synthesizeSpeech: (text, options) =>
+      invoke<ArrayBuffer>('synthesize_speech', {
         text,
         voiceId: options?.voiceId,
         pace: options?.pace,
       }),
-    stopSpeaking: () => invoke<boolean>('stop_speaking'),
   };
 }
 
