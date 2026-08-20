@@ -12,3 +12,9 @@ Thumbs.db
 # Rust / Tauri build output
 target/
 apps/desktop/src-tauri/gen/
+
+# Speech engine and voice model — fetched, never committed.
+# ~114 MB of binaries and neural weights; a repo is for source. Reproduce with
+#   pnpm --filter @atlas/desktop voices
+# which downloads, verifies the exact byte sizes, and unpacks into place.
+apps/desktop/src-tauri/vendor/
