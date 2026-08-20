@@ -1,0 +1,10 @@
+{
+  "extends": "@atlas/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The web `Storage` implementation reads/writes `localStorage` directly,
+    // so this package needs DOM types alongside `packages/platform`.
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src"]
+}

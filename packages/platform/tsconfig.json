@@ -2,8 +2,9 @@
   "extends": "@atlas/config/tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    // This package is the only one that touches browser globals — it is the
-    // platform layer, so DOM types belong here and nowhere below it.
+    // This package touches browser globals — it is the platform layer, so DOM
+    // types belong here (and in `@atlas/data`, the other infra package that
+    // talks to `localStorage` directly) and nowhere below either of them.
     "lib": ["ES2022", "DOM"]
   },
   "include": ["src"]

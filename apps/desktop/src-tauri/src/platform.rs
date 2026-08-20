@@ -176,6 +176,15 @@ pub fn search_files(query: String, kind: Option<String>, limit: Option<usize>) -
     out
 }
 
+/// A file's modification time as epoch milliseconds, which is what the
+/// TypeScript side wants — `SystemTime` has no meaning across that boundary.
+fn modified_millis(meta: &std::fs::Metadata) -> Option<u64> {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+}
+
 fn matches_kind(kind: &str, ext: &str, is_dir: bool) -> bool {
     match kind {
         "folder" => is_dir,
@@ -278,17 +287,60 @@ pub fn running_processes(limit: Option<usize>) -> Vec<ProcessEntry> {
 /// there, it doesn't discover anything hidden.
 #[tauri::command]
 pub fn list_apps() -> Vec<AppEntry> {
-    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut out: Vec<AppEntry> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
 
+    // Order matters: shortcuts have the nicest names, so they claim a name
+    // first and the game launchers fill in what has no shortcut.
+    collect_shortcuts(&mut out, &mut seen);
+    collect_steam(&mut out, &mut seen);
+    collect_epic(&mut out, &mut seen);
+
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out
+}
+
+/// Lowercase alphanumerics only, so "SteelSeries GG" and "steelseries.gg" are
+/// the same app and can't both be listed.
+fn normalized(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+fn push_app(out: &mut Vec<AppEntry>, seen: &mut Vec<String>, name: String, target: String) {
+    let key = normalized(&name);
+    if key.is_empty() || seen.contains(&key) {
+        return;
+    }
+    seen.push(key.clone());
+    out.push(AppEntry {
+        id: key,
+        name,
+        target,
+    });
+}
+
+/// Start Menu and Desktop shortcuts — `.lnk` and `.url` alike.
+///
+/// `.url` files matter more than they look: a launcher-installed game often has
+/// no `.lnk` anywhere, only an internet shortcut holding a `steam://` or
+/// `com.epicgames.launcher://` address.
+fn collect_shortcuts(out: &mut Vec<AppEntry>, seen: &mut Vec<String>) {
+    let mut roots: Vec<PathBuf> = Vec::new();
     if let Some(appdata) = std::env::var_os("APPDATA") {
         roots.push(PathBuf::from(appdata).join("Microsoft/Windows/Start Menu/Programs"));
     }
     if let Some(programdata) = std::env::var_os("ProgramData") {
         roots.push(PathBuf::from(programdata).join("Microsoft/Windows/Start Menu/Programs"));
     }
-
-    let mut out: Vec<AppEntry> = Vec::new();
-    let mut seen: Vec<String> = Vec::new();
+    if let Some(home) = dirs_home() {
+        roots.push(home.join("Desktop"));
+    }
+    if let Some(public) = std::env::var_os("PUBLIC") {
+        roots.push(PathBuf::from(public).join("Desktop"));
+    }
 
     for root in roots {
         if !root.is_dir() {
@@ -300,33 +352,160 @@ pub fn list_apps() -> Vec<AppEntry> {
             .filter_map(Result::ok)
         {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("lnk") {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase());
+            if !matches!(ext.as_deref(), Some("lnk") | Some("url")) {
                 continue;
             }
             let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
                 continue;
             };
-            // Uninstallers and help files are shortcuts too, and nobody means
-            // them when they say "open X".
-            let lower = stem.to_lowercase();
-            if lower.contains("uninstall") || lower.contains("readme") || lower.contains("help") {
+            if is_shortcut_noise(&stem.to_lowercase()) {
                 continue;
             }
-            let id = lower.replace(' ', "-");
-            if seen.contains(&id) {
-                continue;
-            }
-            seen.push(id.clone());
-            out.push(AppEntry {
-                id,
-                name: stem,
-                target: path.to_string_lossy().to_string(),
-            });
+            push_app(out, seen, stem, path.to_string_lossy().to_string());
+        }
+    }
+}
+
+/// Uninstallers, readmes and support links are shortcuts too, and nobody means
+/// them when they say "open X".
+fn is_shortcut_noise(lower: &str) -> bool {
+    lower.contains("uninstall")
+        || lower.contains("readme")
+        || lower.contains("help")
+        || lower.contains("release notes")
+        || lower.contains("documentation")
+}
+
+/// Installed Steam games, from Steam's own manifests.
+///
+/// Read rather than executed: `libraryfolders.vdf` names the library folders
+/// and each `appmanifest_*.acf` names one installed game. Launching goes
+/// through `steam://rungameid/<id>`, which is Steam's documented handler — so
+/// this adds a *list*, not a way to run arbitrary things.
+fn collect_steam(out: &mut Vec<AppEntry>, seen: &mut Vec<String>) {
+    let mut libraries: Vec<PathBuf> = Vec::new();
+
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for var in ["ProgramFiles(x86)", "ProgramFiles"] {
+        if let Some(dir) = std::env::var_os(var) {
+            roots.push(PathBuf::from(dir).join("Steam"));
         }
     }
 
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    out
+    for root in &roots {
+        let vdf = root.join("steamapps/libraryfolders.vdf");
+        let Ok(text) = std::fs::read_to_string(&vdf) else {
+            continue;
+        };
+        libraries.push(root.clone());
+        for line in text.lines() {
+            // "path"		"D:\\SteamLibrary"
+            let trimmed = line.trim();
+            if !trimmed.starts_with("\"path\"") {
+                continue;
+            }
+            if let Some(value) = vdf_value(trimmed) {
+                libraries.push(PathBuf::from(value.replace("\\\\", "\\")));
+            }
+        }
+    }
+
+    for library in libraries {
+        let apps_dir = library.join("steamapps");
+        let Ok(entries) = std::fs::read_dir(&apps_dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !name.starts_with("appmanifest_") || !name.ends_with(".acf") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+
+            let mut app_id = String::new();
+            let mut app_name = String::new();
+            for line in text.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("\"appid\"") {
+                    app_id = vdf_value(trimmed).unwrap_or_default();
+                } else if trimmed.starts_with("\"name\"") {
+                    app_name = vdf_value(trimmed).unwrap_or_default();
+                }
+                if !app_id.is_empty() && !app_name.is_empty() {
+                    break;
+                }
+            }
+            if app_id.is_empty() || app_name.is_empty() {
+                continue;
+            }
+            push_app(out, seen, app_name, format!("steam://rungameid/{app_id}"));
+        }
+    }
+}
+
+/// The second quoted field on a VDF line: `"name"		"Half-Life"` → `Half-Life`.
+fn vdf_value(line: &str) -> Option<String> {
+    let mut parts = line.split('"').filter(|p| !p.trim().is_empty());
+    parts.next()?;
+    parts.next().map(|s| s.to_string())
+}
+
+/// Installed Epic Games Launcher titles, from its manifest folder.
+///
+/// Each `.item` is JSON naming an install location and an executable — which
+/// is how something like a Store-bought overlay tool, with no Start Menu entry
+/// anywhere, becomes findable by the name its owner knows it by.
+fn collect_epic(out: &mut Vec<AppEntry>, seen: &mut Vec<String>) {
+    let Some(programdata) = std::env::var_os("ProgramData") else {
+        return;
+    };
+    let manifests = PathBuf::from(programdata).join("Epic/EpicGamesLauncher/Data/Manifests");
+    let Ok(entries) = std::fs::read_dir(&manifests) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("item") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        // Plugins and DLC are manifests too; only applications are launchable.
+        if json.get("bIsApplication").and_then(|v| v.as_bool()) != Some(true) {
+            continue;
+        }
+
+        let (Some(name), Some(location), Some(exe)) = (
+            json.get("DisplayName").and_then(|v| v.as_str()),
+            json.get("InstallLocation").and_then(|v| v.as_str()),
+            json.get("LaunchExecutable").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+
+        let target = PathBuf::from(location).join(exe.replace('/', "\\"));
+        if !target.exists() {
+            continue;
+        }
+        push_app(
+            out,
+            seen,
+            name.to_string(),
+            target.to_string_lossy().to_string(),
+        );
+    }
 }
 
 #[tauri::command]
@@ -339,4 +518,301 @@ pub fn launch_app(id: String) -> Result<bool, String> {
         return Err(format!("No installed app with id “{id}”."));
     };
     opener_open(&app.target)
+}
+
+// ---- file and folder operations --------------------------------------------
+//
+// Same trust boundary as everything above: a path from the renderer is a
+// claim, not a fact, so every command below re-validates it in Rust. `open_path`
+// and `reveal_path` use `is_permitted`, which requires the path to already
+// exist; a target that's about to be *created* can't pass that check, so
+// these use `is_permitted_for_create` — its parent must exist and sit under
+// home, the same rule applied one directory up.
+
+fn is_permitted_for_create(path: &Path) -> bool {
+    match path.parent() {
+        Some(parent) => is_permitted(parent),
+        None => false,
+    }
+}
+
+/// A bare filename with no path separators or `..` — never a place to hide a
+/// path outside the folder a rename is already scoped to.
+fn is_bare_filename(name: &str) -> bool {
+    !name.is_empty() && !name.contains('/') && !name.contains('\\') && name != ".." && name != "."
+}
+
+const MAX_READABLE_FILE_BYTES: u64 = 256 * 1024;
+
+#[tauri::command]
+pub fn create_file(path: String, content: Option<String>) -> Result<bool, String> {
+    let p = PathBuf::from(&path);
+    if !is_permitted_for_create(&p) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    if p.exists() {
+        return Err("Something is already there.".into());
+    }
+    std::fs::write(&p, content.unwrap_or_default()).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn create_folder(path: String) -> Result<bool, String> {
+    let p = PathBuf::from(&path);
+    if !is_permitted_for_create(&p) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    if p.exists() {
+        return Err("Something is already there.".into());
+    }
+    std::fs::create_dir(&p).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn rename_path(path: String, new_name: String) -> Result<bool, String> {
+    let p = PathBuf::from(&path);
+    if !is_permitted(&p) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    if !is_bare_filename(&new_name) {
+        return Err("That's not a valid name.".into());
+    }
+    let Some(parent) = p.parent() else {
+        return Err("That path has no parent folder.".into());
+    };
+    let target = parent.join(&new_name);
+    if target.exists() {
+        return Err("Something is already named that.".into());
+    }
+    std::fs::rename(&p, &target).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn move_path(path: String, dest_dir: String) -> Result<bool, String> {
+    let p = PathBuf::from(&path);
+    let dest = PathBuf::from(&dest_dir);
+    if !is_permitted(&p) || !is_permitted(&dest) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    let Some(name) = p.file_name() else {
+        return Err("That path has no file name.".into());
+    };
+    let target = dest.join(name);
+    if target.exists() {
+        return Err("Something is already there.".into());
+    }
+    std::fs::rename(&p, &target).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn copy_path(path: String, dest_dir: String) -> Result<bool, String> {
+    let p = PathBuf::from(&path);
+    let dest = PathBuf::from(&dest_dir);
+    if !is_permitted(&p) || !is_permitted(&dest) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    if p.is_dir() {
+        return Err("Copying a folder isn't supported yet — only files.".into());
+    }
+    let Some(name) = p.file_name() else {
+        return Err("That path has no file name.".into());
+    };
+    let target = dest.join(name);
+    if target.exists() {
+        return Err("Something is already there.".into());
+    }
+    std::fs::copy(&p, &target).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn delete_path(path: String) -> Result<bool, String> {
+    let p = PathBuf::from(&path);
+    if !is_permitted(&p) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    // The recycle bin, never a permanent delete — meaningfully safer for a
+    // confirm-gated action than fs::remove_file/remove_dir_all would be.
+    trash::delete(&p).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn read_text_file(path: String) -> Result<String, String> {
+    let p = PathBuf::from(&path);
+    if !is_permitted(&p) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    let meta = std::fs::metadata(&p).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_READABLE_FILE_BYTES {
+        return Err("That file is too large to read here.".into());
+    }
+    let bytes = std::fs::read(&p).map_err(|e| e.to_string())?;
+    String::from_utf8(bytes).map_err(|_| "That doesn't look like plain text.".into())
+}
+
+// ---- inspecting and adding to files -----------------------------------------
+
+#[derive(Serialize)]
+pub struct PathInfo {
+    pub path: String,
+    pub name: String,
+    pub ext: String,
+    #[serde(rename = "isDirectory")]
+    pub is_directory: bool,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: u64,
+    #[serde(rename = "modifiedAt", skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<u64>,
+    /// Entries directly inside, for a folder. `None` for a file.
+    #[serde(rename = "entryCount", skip_serializing_if = "Option::is_none")]
+    pub entry_count: Option<usize>,
+}
+
+#[tauri::command]
+pub fn path_info(path: String) -> Result<PathInfo, String> {
+    let p = PathBuf::from(&path);
+    if !is_permitted(&p) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    let meta = std::fs::metadata(&p).map_err(|e| e.to_string())?;
+    let is_directory = meta.is_dir();
+
+    Ok(PathInfo {
+        path: p.to_string_lossy().to_string(),
+        name: p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone()),
+        ext: p
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default(),
+        is_directory,
+        // A folder's own metadata length is meaningless; the size of what's in
+        // it is a recursive walk, which this command deliberately isn't.
+        size_bytes: if is_directory { 0 } else { meta.len() },
+        modified_at: modified_millis(&meta),
+        entry_count: if is_directory {
+            std::fs::read_dir(&p).ok().map(|entries| entries.count())
+        } else {
+            None
+        },
+    })
+}
+
+#[tauri::command]
+pub fn append_file(path: String, content: String) -> Result<bool, String> {
+    use std::io::Write;
+
+    let p = PathBuf::from(&path);
+    // Appending to a file that exists is a write to that file; creating one is
+    // a write to its folder. Both are checked, which is why this can't be used
+    // to reach somewhere `create_file` couldn't.
+    let permitted = if p.exists() {
+        is_permitted(&p)
+    } else {
+        is_permitted_for_create(&p)
+    };
+    if !permitted {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    if p.is_dir() {
+        return Err("That's a folder.".into());
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&p)
+        .map_err(|e| e.to_string())?;
+    writeln!(file, "{content}").map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn list_dir(path: String, limit: Option<usize>) -> Result<Vec<FileEntry>, String> {
+    let p = PathBuf::from(&path);
+    if !is_permitted(&p) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    if !p.is_dir() {
+        return Err("That isn't a folder.".into());
+    }
+
+    let cap = limit.unwrap_or(100).min(500);
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&p).map_err(|e| e.to_string())?.flatten() {
+        if out.len() >= cap {
+            break;
+        }
+        let meta = entry.metadata().ok();
+        let entry_path = entry.path();
+        let is_directory = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        out.push(FileEntry {
+            path: entry_path.to_string_lossy().to_string(),
+            name: entry.file_name().to_string_lossy().to_string(),
+            ext: entry_path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default(),
+            is_directory,
+            size_bytes: meta.as_ref().filter(|m| m.is_file()).map(|m| m.len()),
+            modified_at: meta.as_ref().and_then(modified_millis),
+        });
+    }
+    // Folders first, then names — the order a file manager shows, because this
+    // is read by someone looking for something rather than by a program.
+    out.sort_by(|a, b| {
+        b.is_directory
+            .cmp(&a.is_directory)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    Ok(out)
+}
+
+/// The handful of folders everyone has, by name rather than by path.
+///
+/// Resolved here rather than in the renderer because the renderer has no
+/// business knowing where the home directory is — and because "Downloads" is a
+/// name, not a path, until someone resolves it against this machine.
+#[tauri::command]
+pub fn known_folder(id: String) -> Result<String, String> {
+    let home = dirs_home().ok_or("I can't find your home folder.")?;
+    let sub = match id.as_str() {
+        "home" => return Ok(home.to_string_lossy().to_string()),
+        "downloads" => "Downloads",
+        "documents" => "Documents",
+        "desktop" => "Desktop",
+        "pictures" => "Pictures",
+        "music" => "Music",
+        "videos" => "Videos",
+        _ => return Err(format!("No known folder called \u{201c}{id}\u{201d}.")),
+    };
+    let path = home.join(sub);
+    if !path.is_dir() {
+        return Err(format!("You don't seem to have a {sub} folder."));
+    }
+    Ok(path.to_string_lossy().to_string())
+}
+
+// ---- system tools -----------------------------------------------------------
+
+
+#[tauri::command]
+pub fn open_system_tool(id: String) -> Result<bool, String> {
+    // Resolved against a fixed table, the same "known id, not an arbitrary
+    // string" shape as `launch_app` — this is not a general launcher.
+    let target = match id.as_str() {
+        "task-manager" => "taskmgr.exe",
+        "device-manager" => "devmgmt.msc",
+        "windows-settings" => "ms-settings:",
+        "control-panel" => "control.exe",
+        _ => return Err(format!("No system tool with id “{id}”.")),
+    };
+    opener_open(target)
 }

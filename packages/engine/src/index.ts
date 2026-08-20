@@ -22,4 +22,20 @@ export { Engine } from './engine';
 export type { EngineIO, EngineOptions, AskOutcome } from './engine';
 
 export { createCoreSkills } from './skills/core-skills';
+export { createWebSearchSkills } from './skills/web-search-skills';
+export { createUtilitySkills } from './skills/utility-skills';
+export { createTextSkills } from './skills/text-skills';
+export { createCalcSkills } from './skills/calc-skills';
+export { createNotesSkills } from './skills/notes-skills';
+export { createOsSkills } from './skills/os-skills';
 export { createCoreGrammar } from './planner/core-grammar';
+export { createExtraGrammar } from './planner/extra-grammar';
+
+export { createPhrasing } from './phrasing';
+export type { Phrasing } from './phrasing';
+
+export { WorkingMemory } from './working-memory';
+
+export { recordEpisodes } from './episodic';
+
+export { SimpleIntelligenceRegistry } from './intelligence-registry';

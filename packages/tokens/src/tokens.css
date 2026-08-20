@@ -19,6 +19,9 @@
   --color-accent: 99 102 241;
   --color-ring: 124 92 255;
   --color-danger: 239 68 68;
+  /* Flat by default. A mixed accent scheme replaces this with a gradient;
+     see accents.ts for why it is separate from --color-primary. */
+  --gradient-primary: none;
   --color-success: 34 197 94;
   --color-warning: 234 179 8;
 
@@ -69,6 +72,17 @@
   --shadow-glow: 0 0 0 1px rgb(109 74 255 / 0.25), 0 8px 30px -6px rgb(109 74 255 / 0.25);
 
   color-scheme: light;
+}
+
+/**
+ * The solid accent surfaces: primary buttons, the logo tile, the send button,
+ * your own messages. Every one of them is a block of accent colour with
+ * nothing showing through, which is exactly where a gradient scheme belongs —
+ * and nowhere else, so tints and rings stay flat.
+ */
+.accent-surface {
+  background-color: rgb(var(--color-primary));
+  background-image: var(--gradient-primary);
 }
 
 @media (prefers-reduced-motion: reduce) {

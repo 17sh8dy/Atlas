@@ -36,8 +36,19 @@ export interface EpisodicEvent {
  * difference between an assistant that learns your vocabulary and one that
  * makes you learn its.
  */
+/**
+ * What a remembered thing *is*.
+ *
+ * `note` and `todo` are list-shaped rather than key-shaped: many facts share
+ * the kind and are told apart by their subject (a timestamp), where an `alias`
+ * or a `preference` has one value per subject. Kept in the same store anyway,
+ * because a second storage schema for "things with a timestamp" would buy
+ * nothing that a filter doesn't.
+ */
+export type FactKind = 'fact' | 'preference' | 'alias' | 'note' | 'todo';
+
 export interface Fact {
-  kind: 'fact' | 'preference' | 'alias';
+  kind: FactKind;
   /** What it's about — the alias name, the preference key. */
   subject: string;
   value: string;

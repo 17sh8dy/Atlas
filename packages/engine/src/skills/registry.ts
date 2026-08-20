@@ -89,14 +89,20 @@ export class SkillRegistry {
    * declared type — means individual skills never each reimplement it, and
    * never disagree about what counts as true.
    */
-  validate(id: string, args: SkillArgs): { ok: true; args: SkillArgs } | { ok: false; error: string } {
+  validate(
+    id: string,
+    args: SkillArgs,
+  ): { ok: true; args: SkillArgs } | { ok: false; error: string } {
     const skill = this.get(id);
     if (!skill) return { ok: false, error: `Unknown action “${id}”.` };
     if (!this.isAvailable(skill)) {
       const missing = (skill.needs ?? []).filter(
         (n) => !this.capabilitiesOf().includes(n as CapabilityName),
       );
-      return { ok: false, error: `${skill.label} isn't available here (needs ${missing.join(', ')}).` };
+      return {
+        ok: false,
+        error: `${skill.label} isn't available here (needs ${missing.join(', ')}).`,
+      };
     }
 
     const spec = skill.params ?? {};
@@ -170,7 +176,10 @@ export class SkillRegistry {
   }
 }
 
-function coerce(value: SkillArgValue, type: 'string' | 'number' | 'boolean'): SkillArgValue | undefined {
+function coerce(
+  value: SkillArgValue,
+  type: 'string' | 'number' | 'boolean',
+): SkillArgValue | undefined {
   if (type === 'string') return String(value);
 
   if (type === 'number') {

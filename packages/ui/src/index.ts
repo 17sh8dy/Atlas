@@ -10,4 +10,8 @@ export type { InputProps } from './components/Input';
 export { Kbd } from './components/Kbd';
 export { Modal } from './components/Dialog';
 export type { ModalProps } from './components/Dialog';
+export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/Tabs';
+export { Switch } from './components/Switch';
+export { SegmentedControl } from './components/SegmentedControl';
+export type { SegmentedControlOption, SegmentedControlProps } from './components/SegmentedControl';
 export * as Icons from './icons';

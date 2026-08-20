@@ -127,7 +127,9 @@ export class Grammar {
    * planning over.
    */
   looksActionable(text: string): boolean {
-    const t = String(text ?? '').trim().toLowerCase();
+    const t = String(text ?? '')
+      .trim()
+      .toLowerCase();
     if (!t) return false;
     if (QUESTION_START.test(t)) return false;
     if (t.endsWith('?')) return false;

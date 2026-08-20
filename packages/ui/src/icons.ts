@@ -8,6 +8,8 @@ export {
   // window chrome
   Minus,
   Square,
+  Maximize,
+  Minimize,
   X,
   Settings,
   Command,
@@ -42,5 +44,14 @@ export {
   MonitorSmartphone,
   CircleDot,
   Circle,
+  // settings sections
+  SlidersHorizontal,
+  Palette,
+  Mic,
+  UserCircle,
+  Power,
+  Bell,
+  Lock,
+  Info,
   type LucideIcon,
 } from 'lucide-react';

@@ -17,3 +17,13 @@ export const easing = {
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
+
+export {
+  ACCENTS,
+  DEFAULT_ACCENT,
+  accentById,
+  accentSwatch,
+  applyAccent,
+  isAccentId,
+} from './accents';
+export type { AccentId, AccentScheme } from './accents';

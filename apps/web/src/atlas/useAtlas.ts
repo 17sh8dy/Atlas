@@ -13,14 +13,28 @@
  * the executor) rather than reimplemented per button.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
-import type { Platform, ResultRow } from '@atlas/core';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Platform, ResultRow, Storage, VoiceProfile } from '@atlas/core';
+import { MemoryStore } from '@atlas/data';
+import type { ProviderKeyId } from '@atlas/data';
+import { createClaudeProvider, createOpenAIProvider } from '@atlas/platform';
 import {
   Engine,
   Grammar,
+  SimpleIntelligenceRegistry,
   SkillRegistry,
+  WorkingMemory,
   createCoreGrammar,
+  createExtraGrammar,
   createCoreSkills,
+  createCalcSkills,
+  createNotesSkills,
+  createOsSkills,
+  createTextSkills,
+  createUtilitySkills,
+  createWebSearchSkills,
+  createPhrasing,
+  recordEpisodes,
   type EngineIO,
 } from '@atlas/engine';
 import type { CapabilityName } from '@atlas/core';
@@ -41,7 +55,14 @@ export interface Entry {
 
 let nextId = 1;
 
-export function useAtlas(platform: Platform, capabilities: readonly CapabilityName[]) {
+export function useAtlas(
+  platform: Platform,
+  capabilities: readonly CapabilityName[],
+  storage: Storage,
+  voiceProfile: VoiceProfile = {},
+  providerKeys: Partial<Record<ProviderKeyId, string>> = {},
+  activeProviderId: string | null = null,
+) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
   const pendingConfirm = useRef<((approved: boolean) => void) | null>(null);
@@ -50,15 +71,50 @@ export function useAtlas(platform: Platform, capabilities: readonly CapabilityNa
     setEntries((prev) => [...prev, { ...entry, id: nextId++ }]);
   }, []);
 
+  const phrasing = useMemo(() => createPhrasing(voiceProfile), [voiceProfile]);
+  const memory = useMemo(() => new MemoryStore(storage), [storage]);
+  // One instance shared between the grammar (which reads it synchronously to
+  // resolve "it"/"the second one") and the engine (which writes to it
+  // whenever a skill renders a result list) — see WorkingMemory's doc comment.
+  const working = useMemo(() => new WorkingMemory(), []);
+
   const engine = useMemo(() => {
     const skills = new SkillRegistry({ capabilities: () => capabilities });
-    skills.registerMany(createCoreSkills(platform));
+    skills.registerMany(createCoreSkills(platform, memory, skills, phrasing));
+    skills.registerMany(createWebSearchSkills(platform));
+    skills.registerMany(createUtilitySkills());
+    skills.registerMany(createTextSkills());
+    skills.registerMany(createCalcSkills());
+    skills.registerMany(createNotesSkills(memory));
+    skills.registerMany(createOsSkills(platform));
 
     const grammar = new Grammar();
-    grammar.addMany(createCoreGrammar());
+    grammar.addMany(createCoreGrammar(working));
+    grammar.addMany(createExtraGrammar());
 
-    return new Engine({ skills, grammar });
-  }, [platform, capabilities]);
+    // Registered unconditionally — `isConfigured()` is false with no saved
+    // key, and `active()` already treats "selected but unconfigured" as
+    // nothing selected (see SimpleIntelligenceRegistry), so there's no
+    // separate platform gate needed here the way skills need `needs: [...]`.
+    const intelligence = new SimpleIntelligenceRegistry();
+    intelligence.register(createClaudeProvider(providerKeys.claude));
+    intelligence.register(createOpenAIProvider(providerKeys.openai));
+    intelligence.setActive(activeProviderId);
+
+    return new Engine({ skills, grammar, voice: voiceProfile, working, intelligence });
+  }, [
+    platform,
+    capabilities,
+    memory,
+    phrasing,
+    voiceProfile,
+    working,
+    providerKeys,
+    activeProviderId,
+  ]);
+
+  // Episodic memory doesn't touch the ask/io path at all — it just listens.
+  useEffect(() => recordEpisodes(engine.bus, memory, engine.skills), [engine, memory]);
 
   const io = useMemo<EngineIO>(
     () => ({
@@ -113,7 +169,10 @@ export function useAtlas(platform: Platform, capabilities: readonly CapabilityNa
     async (skill: string, args: Record<string, string | number | boolean>) => {
       setBusy(true);
       try {
-        await engine.run({ source: 'direct', intent: 'action', confidence: 1, steps: [{ skill, args }] }, io);
+        await engine.run(
+          { source: 'direct', intent: 'action', confidence: 1, steps: [{ skill, args }] },
+          io,
+        );
       } finally {
         setBusy(false);
       }
@@ -132,5 +191,8 @@ export function useAtlas(platform: Platform, capabilities: readonly CapabilityNa
     clear,
     skillCount: engine.skills.available().length,
     skills: engine.skills,
+    greeting: phrasing.greeting(),
+    personalized: Boolean(voiceProfile.userName || voiceProfile.atlasName || voiceProfile.greeting),
+    atlasName: voiceProfile.atlasName?.trim() || 'Atlas',
   };
 }

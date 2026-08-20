@@ -12,6 +12,7 @@ import { createWebPlatform } from './web';
 
 export { createTauriPlatform, isTauri } from './tauri';
 export { createWebPlatform } from './web';
+export { createClaudeProvider, createOpenAIProvider } from './providers';
 
 /** The platform for the current runtime. */
 export function detectPlatform(): Platform {

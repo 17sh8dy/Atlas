@@ -14,6 +14,7 @@
 
 import type { Plan, PlanOutcome, SkillContext, StepOutcome } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
+import { createPhrasing, type Phrasing } from '../phrasing';
 
 export interface ExecutorOptions {
   /** Set false to run every step regardless of failures. */
@@ -21,7 +22,14 @@ export interface ExecutorOptions {
 }
 
 export class Executor {
-  constructor(private readonly skills: SkillRegistry) {}
+  private readonly phrasing: Phrasing;
+
+  constructor(
+    private readonly skills: SkillRegistry,
+    phrasing: Phrasing = createPhrasing(),
+  ) {
+    this.phrasing = phrasing;
+  }
 
   async run(plan: Plan, ctx: SkillContext, options: ExecutorOptions = {}): Promise<PlanOutcome> {
     const stopOnError = options.stopOnError !== false;
@@ -35,8 +43,7 @@ export class Executor {
     // it before it starts rather than watching it happen.
     if (plan.steps.length > 1) {
       const names = plan.steps.map((s) => this.skills.get(s.skill)?.label.toLowerCase() ?? s.skill);
-      const last = names.pop();
-      ctx.say(`Right — ${names.length ? `${names.join(', ')}, then ${last}` : last}.`);
+      ctx.say(this.phrasing.rightThen(names));
     }
 
     let aborted = false;
@@ -46,7 +53,11 @@ export class Executor {
 
       const skill = this.skills.get(step.skill);
       if (!skill) {
-        outcomes.push({ skill: step.skill, ok: false, error: `I don't have an action called “${step.skill}”.` });
+        outcomes.push({
+          skill: step.skill,
+          ok: false,
+          error: `I don't have an action called “${step.skill}”.`,
+        });
         if (stopOnError) aborted = true;
         continue;
       }
@@ -62,7 +73,7 @@ export class Executor {
         const approved = await ctx.confirm(`${skill.label}?`, detail || undefined);
         if (!approved) {
           outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
-          ctx.say('Okay — left alone.');
+          ctx.say(this.phrasing.declined());
           aborted = true;
           break;
         }
@@ -81,7 +92,7 @@ export class Executor {
         // never says the same thing twice.
         if (result.message && !result.spoken) ctx.say(result.message);
       } else {
-        ctx.say(`⚠️ ${result.error ?? "That didn't work."}`);
+        ctx.say(this.phrasing.failed(result.error ?? "That didn't work."));
         if (stopOnError) aborted = true;
       }
     }

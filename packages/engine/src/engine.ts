@@ -21,16 +21,21 @@
  */
 
 import type {
+  IntelligenceProvider,
   IntelligenceRegistry,
   Plan,
   PlanOutcome,
   ResultRow,
   SkillContext,
+  VoiceProfile,
 } from '@atlas/core';
 import { Bus } from './bus';
 import { Grammar } from './planner/grammar';
 import { Executor } from './planner/executor';
 import { SkillRegistry } from './skills/registry';
+import { createPhrasing } from './phrasing';
+import { WorkingMemory } from './working-memory';
+import { buildAugmentedPrompt, formatSourcesFooter, needsWebSearch, runSearch } from './research';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -53,6 +58,15 @@ export interface EngineOptions {
   intelligence?: IntelligenceRegistry;
   /** Below this, a plan is described rather than run. */
   confidenceThreshold?: number;
+  /** Shapes how the executor phrases its own messages (confirmations, failures). */
+  voice?: VoiceProfile;
+  /**
+   * Must be the same instance handed to `createCoreGrammar()`, so a result
+   * list rendered here is visible to the grammar rules that resolve "it" and
+   * "the second one" against it. Defaults to a fresh, empty one — which just
+   * means those rules never have anything to resolve, not an error.
+   */
+  working?: WorkingMemory;
 }
 
 export class Engine {
@@ -62,6 +76,7 @@ export class Engine {
   private readonly executor: Executor;
   private readonly intelligence?: IntelligenceRegistry;
   private readonly threshold: number;
+  private readonly working: WorkingMemory;
 
   constructor(options: EngineOptions) {
     this.skills = options.skills;
@@ -69,7 +84,8 @@ export class Engine {
     this.bus = options.bus ?? new Bus();
     this.intelligence = options.intelligence;
     this.threshold = options.confidenceThreshold ?? 0.5;
-    this.executor = new Executor(this.skills);
+    this.working = options.working ?? new WorkingMemory();
+    this.executor = new Executor(this.skills, createPhrasing(options.voice));
   }
 
   async ask(text: string, io: EngineIO): Promise<AskOutcome> {
@@ -99,7 +115,7 @@ export class Engine {
     }
 
     // 3. Conversation.
-    return this.converse(raw, io);
+    return this.converse(raw, io, ctx);
   }
 
   /** Run a plan built elsewhere — a button, a result row, a saved routine. */
@@ -111,7 +127,10 @@ export class Engine {
     return {
       say: (t: string) => io.say(t),
       confirm: (q: string, d?: string) => io.confirm(q, d),
-      showResults: io.showResults?.bind(io),
+      showResults: (items, meta) => {
+        this.working.setResults(items);
+        io.showResults?.(items, meta);
+      },
       bus: this.bus,
       skills: this.skills,
     };
@@ -182,19 +201,61 @@ export class Engine {
     };
   }
 
-  /** Free-form answering, when a provider is connected. */
-  private async converse(text: string, io: EngineIO): Promise<AskOutcome> {
+  /**
+   * Free-form answering. Before falling back to a plain reply, a question
+   * that smells like it needs current information (see `needsWebSearch`)
+   * gets a search first — this is what makes "what happened in the latest
+   * Fortnite update?" work, since no model's training data has that.
+   */
+  private async converse(text: string, io: EngineIO, ctx: SkillContext): Promise<AskOutcome> {
     const provider = this.intelligence?.active();
+    const searchSkill = this.skills.get('research.search');
+    const canSearch = searchSkill ? this.skills.isAvailable(searchSkill) : false;
+
+    if (canSearch && needsWebSearch(text)) {
+      // Only render the raw result rows when there's no model to turn them
+      // into an actual answer — with a provider, the synthesized reply plus
+      // its sources footer *is* the answer, and showing both would be noise.
+      const searchCtx: SkillContext = provider ? { ...ctx, showResults: undefined } : ctx;
+      const results = await runSearch(text, this.skills, searchCtx);
+
+      if (results.length) {
+        if (provider) {
+          return this.converseWithProvider(
+            provider,
+            buildAugmentedPrompt(text, results),
+            io,
+            formatSourcesFooter(results),
+          );
+        }
+        io.say(
+          `Found ${results.length} result${results.length === 1 ? '' : 's'} for that — see below.`,
+        );
+        return { ok: true, mode: 'chat', text: 'search-results-shown' };
+      }
+      // No results, or the search itself failed — fall through below rather
+      // than a dead end; a stale answer or an honest "I can't" both beat that.
+    }
+
     if (!provider) {
       io.say(this.offlineReply());
       return { ok: false, mode: 'chat', error: 'not-configured' };
     }
 
+    return this.converseWithProvider(provider, text, io);
+  }
+
+  private async converseWithProvider(
+    provider: IntelligenceProvider,
+    promptText: string,
+    io: EngineIO,
+    sourcesFooter = '',
+  ): Promise<AskOutcome> {
     io.typing?.(true);
     return new Promise<AskOutcome>((resolve) => {
       let stream: ReturnType<NonNullable<EngineIO['stream']>> = null;
 
-      provider.ask(text, {
+      provider.ask(promptText, {
         onDelta: (chunk) => {
           if (!stream) {
             io.typing?.(false);
@@ -204,17 +265,22 @@ export class Engine {
         },
         onDone: (full) => {
           io.typing?.(false);
-          if (stream) stream.finish(full);
-          else if (full) io.say(full);
-          resolve({ ok: true, mode: 'chat', text: full });
+          const withSources = sourcesFooter ? full + sourcesFooter : full;
+          if (stream) stream.finish(withSources);
+          else if (withSources) io.say(withSources);
+          resolve({ ok: true, mode: 'chat', text: withSources });
         },
         onError: (reason) => {
           io.typing?.(false);
-          io.say(
-            reason === 'not-configured'
-              ? this.offlineReply()
-              : "I couldn't reach that provider. It's in Settings → Intelligence Providers.",
-          );
+          // 'not-configured'/'offline' are the two sentinel reasons this
+          // interface always understood; anything else is a real provider
+          // error (a rejected key, a rate limit) worth showing verbatim
+          // rather than flattening into one generic line — see
+          // ProviderStreamHandlers.onError's own doc comment.
+          if (reason === 'not-configured') io.say(this.offlineReply());
+          else if (reason === 'offline') {
+            io.say("I couldn't reach that provider. It's in Settings → Developer.");
+          } else io.say(`⚠️ ${reason}`);
           resolve({ ok: false, mode: 'chat', error: reason });
         },
       });
@@ -232,7 +298,7 @@ export class Engine {
     const n = this.skills.available().length;
     return (
       `That one needs an external model, which is optional and off by default ` +
-      `(Settings → Intelligence Providers). Everything else works: I can run ${n} ` +
+      `(Settings → Developer). Everything else works: I can run ${n} ` +
       `actions right now — say “what can you do?” to see them.`
     );
   }

@@ -41,8 +41,8 @@ export function Transcript({ entries, busy, onAnswerConfirm, onRunAction }: Prop
       ))}
 
       {busy && (
-        <div className="flex items-center gap-2 text-sm text-foreground-subtle">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+        <div className="text-foreground-subtle flex items-center gap-2 text-sm">
+          <span className="bg-primary h-1.5 w-1.5 animate-pulse rounded-full" />
           Working…
         </div>
       )}
@@ -63,7 +63,7 @@ function EntryView({
 }) {
   if (entry.kind === 'you') {
     return (
-      <div className="self-end max-w-[80%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm text-primary-foreground">
+      <div className="accent-surface text-primary-foreground max-w-[80%] self-end rounded-2xl rounded-br-md px-4 py-2.5 text-sm">
         {entry.text}
       </div>
     );
@@ -71,7 +71,7 @@ function EntryView({
 
   if (entry.kind === 'atlas') {
     return (
-      <div className="max-w-[85%] whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+      <div className="text-foreground max-w-[85%] whitespace-pre-wrap text-sm leading-relaxed">
         {entry.text}
       </div>
     );
@@ -82,22 +82,22 @@ function EntryView({
     return (
       <div
         className={cn(
-          'max-w-[85%] rounded-xl border p-4 transition duration-fast',
+          'duration-fast max-w-[85%] rounded-xl border p-4 transition',
           answered === 'yes' && 'border-border bg-surface/50 opacity-70',
           answered === 'no' && 'border-border bg-surface/50 opacity-70',
           !answered && 'border-primary/40 bg-primary/5',
         )}
       >
         <div className="flex items-start gap-2.5">
-          <Icons.Shield className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <Icons.Shield className="text-primary mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground">{entry.question}</p>
+            <p className="text-foreground text-sm font-medium">{entry.question}</p>
             {entry.detail && (
-              <p className="mt-1 break-all text-xs text-foreground-subtle">{entry.detail}</p>
+              <p className="text-foreground-subtle mt-1 break-all text-xs">{entry.detail}</p>
             )}
 
             {answered ? (
-              <p className="mt-2 text-xs text-foreground-subtle">
+              <p className="text-foreground-subtle mt-2 text-xs">
                 {answered === 'yes' ? '✓ You approved this.' : '✕ You declined this.'}
               </p>
             ) : (
@@ -118,24 +118,24 @@ function EntryView({
 
   // Results.
   return (
-    <div className="max-w-[92%] overflow-hidden rounded-xl border border-border bg-surface/40">
+    <div className="border-border bg-surface/40 max-w-[92%] overflow-hidden rounded-xl border">
       {entry.meta?.title && (
-        <div className="flex items-baseline justify-between border-b border-border px-4 py-2.5">
-          <span className="text-xs font-medium text-foreground">{entry.meta.title}</span>
+        <div className="border-border flex items-baseline justify-between border-b px-4 py-2.5">
+          <span className="text-foreground text-xs font-medium">{entry.meta.title}</span>
           {entry.meta.subtitle && (
-            <span className="text-xs text-foreground-subtle">{entry.meta.subtitle}</span>
+            <span className="text-foreground-subtle text-xs">{entry.meta.subtitle}</span>
           )}
         </div>
       )}
 
-      <ul className="divide-y divide-border">
+      <ul className="divide-border divide-y">
         {entry.rows?.map((row, i) => (
           <li key={i} className="flex items-center gap-3 px-4 py-2.5">
             <span className="text-base leading-none">{row.icon ?? '•'}</span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm text-foreground">{row.title}</p>
+              <p className="text-foreground truncate text-sm">{row.title}</p>
               {row.subtitle && (
-                <p className="truncate text-xs text-foreground-subtle">{row.subtitle}</p>
+                <p className="text-foreground-subtle truncate text-xs">{row.subtitle}</p>
               )}
             </div>
             <div className="flex shrink-0 gap-1.5">

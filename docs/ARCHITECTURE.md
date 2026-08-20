@@ -177,6 +177,53 @@ normal supported state. The engine depends on this port but needs nothing from
 it — which is the architectural expression of "the engine is the brain, models
 are accessories".
 
+Two real, working implementations exist: Claude and ChatGPT
+(`platform/src/providers.ts`, calling `ask_claude`/`ask_openai` in
+`intelligence.rs`), registered through `SimpleIntelligenceRegistry`
+(`engine/src/intelligence-registry.ts`) — the concrete registry the port
+described but nothing implemented before this. Both are bring-your-own-key:
+Atlas never pays for or supplies API access, and Settings → Developer says so
+explicitly. Keys are stored through the same `Storage` port as everything
+else (`data/src/provider-keys.ts`) — one local JSON file, not a separate
+encrypted keychain; see §8. `active()` treats a selected-but-unconfigured
+provider (a key removed after being chosen) as no provider at all, so the
+engine's offline path handles it correctly without a separate check anywhere
+else.
+
+Both providers are non-streaming: one request, one complete answer, calling
+`onDone` directly and never `onDelta`. `Engine.converseWithProvider` was
+already written to degrade cleanly for a provider that never streams, so a
+real token-streaming version can replace the Rust side later without the
+engine changing.
+
+### 6.4 Web search (`platform.rs::web`, `engine/skills/web-search-skills.ts`)
+
+The one deliberate exception to "no network calls" — gated by a `network`
+capability the same way disk access is gated by `fs`, so a browser build or a
+locked-down environment simply doesn't offer it. Two commands, `web_search`
+and `fetch_page`, follow the same narrow-validated-command shape as the rest
+of `platform.rs`: no raw "fetch anything with any headers," everything they
+return is plain text, and neither executes anything found on a page.
+
+The backend is DuckDuckGo's no-JS HTML results page — no API key, no
+account, matching "works with nothing connected." Parsing is isolated in one
+function (`parse_search_results`) specifically so it can be swapped for a
+different backend (a paid API, a self-hosted SearxNG instance) without
+touching anything above it; see §8 for why that may become necessary sooner
+than later.
+
+`fetch_page`'s target is untrusted in a way `web_search`'s query isn't — it
+can come from a search result Atlas didn't choose — so it gets an extra guard
+`web_search` doesn't need: `is_safe_fetch_target` blocks loopback, private,
+and link-local addresses, so a manipulated result pointing at
+`http://192.168.1.1/` or `http://localhost:PORT/` doesn't get an answer.
+
+The conversational path (`engine/research.ts`) decides *when* to search with
+a small keyword heuristic (`needsWebSearch`), not a real model decision —
+Atlas doesn't have a tool-calling-capable provider yet (§6.3, §8). That
+function is the one thing to replace once it does; nothing else in the
+search path depends on how the decision gets made.
+
 ---
 
 ## 7. Safety
@@ -192,6 +239,11 @@ are accessories".
 | The index reads names, never contents | `platform.rs` | Better matching isn't worth the entire privacy story |
 | Only the user's own folders | `platform.rs` | An index that quietly grew to `C:\` is a different product |
 | Tauri capabilities allow-list | `capabilities/default.json` | Tauri 2 denies by default; the grant is short and contains no shell permission |
+| Network calls happen in Rust, never as a webview `fetch()` | `web.rs` | Outside the CSP entirely; same narrow-command shape as everything else |
+| `fetch_page` refuses loopback/private/link-local targets | `web.rs::is_safe_fetch_target` | A manipulated search result shouldn't be able to make Atlas probe the user's own LAN |
+| Retrieved page content is framed as untrusted reference material, never instructions | `engine/research.ts` | The whole security boundary for what a search result or fetched page can make Atlas do: read it, never obey it |
+| API keys never enter the webview's own network stack | `intelligence.rs` | Same reasoning as web search — the request (and the key on it) goes out from Rust, never a webview `fetch()` |
+| A provider is bring-your-own-key, always | `Developer.tsx`, disclaimer text | Atlas never pays for or supplies AI access — stated on the same screen that collects the key, not buried in a ToS |
 
 ---
 
@@ -209,3 +261,38 @@ Honest uncertainty, recorded rather than buried:
 - **The web build is a real target or it isn't.** Right now it's a useful test
   bed and a graceful fallback. If it's never going to be a product, the honest
   move is to say so and delete the branch in `detectPlatform()`.
+- **DuckDuckGo's HTML endpoint is scraped, not an API — confirmed fragile
+  during development, not just in theory.** It answered a real request with a
+  literal CAPTCHA ("select all squares containing a duck") after a handful of
+  requests in a short window. Atlas recognises that page and reports it
+  honestly rather than returning an empty result list, but the underlying
+  reliability question is real: a user who searches often enough in a
+  session may hit it. `parse_search_results` and `is_anomaly_challenge` are
+  isolated specifically so a more reliable backend — a self-hosted SearxNG
+  instance, or an optional user-provided API key for a paid search API — can
+  replace it without the rest of the search path changing. Worth revisiting
+  once real usage shows how often it actually bites.
+- **`needsWebSearch` is a keyword heuristic standing in for a real decision.**
+  It works for the phrasings it was built for ("latest," "current," "news," …)
+  and will both over-trigger (a question that happens to contain "today" but
+  needs no search) and under-trigger (a stale-info question with no freshness
+  word) versus what a model given real tool-calling could decide. Replacing it
+  is Phase 4's job, once a provider exists that can request tool calls itself
+  — see `research.ts`'s own doc comment for the exact seam.
+- **API keys are stored in the same plain local JSON file as everything
+  else, not an OS keychain.** Reasonable for a personal, single-user local
+  app, and consistent with how the rest of Atlas's settings already work —
+  but a key is more sensitive than a theme preference, and this file has no
+  special protection beyond normal filesystem permissions. Worth revisiting
+  with real OS-keychain integration (Windows Credential Manager, macOS
+  Keychain) if this app is ever used somewhere that bar matters more.
+- **Claude and ChatGPT integrations were never tested against the real
+  Anthropic/OpenAI APIs — no API keys were available during development.**
+  Request/response handling is covered by unit tests against fixtures built
+  from each provider's documented API shape (`intelligence.rs`'s test
+  module), the same rigor as `web_search`'s tests, but unlike `web_search`
+  (which *was* verified live against the real DuckDuckGo — see the entry
+  above) there is no equivalent live proof here yet. Model ids
+  (`claude-3-5-sonnet-20241022`, `gpt-4o-mini`) are hardcoded and will need
+  updating as providers retire old snapshots. First real use should
+  double-check both.

@@ -49,11 +49,11 @@ export function Composer({ onSubmit, busy, placeholder = 'Ask Atlas anything…'
   };
 
   return (
-    <div className="border-t border-border bg-background/80 px-6 py-4 backdrop-blur">
+    <div className="border-border bg-background/80 border-t px-6 py-4 backdrop-blur">
       <div
         className={cn(
-          'flex items-end gap-2 rounded-xl border border-border bg-surface px-3 py-2',
-          'transition duration-fast focus-within:border-border-strong',
+          'border-border bg-surface flex items-end gap-2 rounded-xl border px-3 py-2',
+          'duration-fast focus-within:border-border-strong transition',
         )}
       >
         <textarea
@@ -64,7 +64,7 @@ export function Composer({ onSubmit, busy, placeholder = 'Ask Atlas anything…'
           onKeyDown={onKeyDown}
           placeholder={placeholder}
           className={cn(
-            'flex-1 resize-none bg-transparent py-1.5 text-sm text-foreground',
+            'text-foreground flex-1 resize-none bg-transparent py-1.5 text-sm',
             'placeholder:text-foreground-subtle focus:outline-none',
           )}
         />
@@ -75,7 +75,7 @@ export function Composer({ onSubmit, busy, placeholder = 'Ask Atlas anything…'
           aria-label="Send"
           className={cn(
             'mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
-            'bg-primary text-primary-foreground transition duration-fast',
+            'accent-surface text-primary-foreground duration-fast transition',
             'hover:brightness-110 disabled:opacity-30 disabled:hover:brightness-100',
           )}
         >

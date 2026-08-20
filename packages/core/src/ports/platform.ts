@@ -31,7 +31,9 @@ export type CapabilityName =
   | 'processes' // what's running
   | 'clipboard'
   | 'notifications'
+  | 'os' // the machine itself: lock, power, volume, media keys
   | 'windows' // Atlas's own window: show, hide, position
+  | 'network' // search the web, fetch a page
   | 'ai'; // an intelligence provider is connected
 
 export interface FileEntry {
@@ -61,11 +63,45 @@ export interface SystemSnapshot {
   uptimeSeconds: number;
 }
 
+/** What a single path is: a file or a folder, how big, when it changed. */
+export interface PathInfo {
+  path: string;
+  name: string;
+  ext: string;
+  isDirectory: boolean;
+  sizeBytes: number;
+  modifiedAt?: number;
+  /** Entries directly inside, for a folder. Absent for a file. */
+  entryCount?: number;
+}
+
+/** The folders every machine has, addressed by name rather than by path. */
+export type KnownFolder =
+  'home' | 'downloads' | 'documents' | 'desktop' | 'pictures' | 'music' | 'videos';
+
+export type PowerAction = 'shutdown' | 'restart' | 'sign-out';
+export type MediaKey = 'play-pause' | 'next' | 'previous' | 'stop';
+
 export interface ProcessEntry {
   pid: number;
   name: string;
   cpuPercent?: number;
   memoryBytes?: number;
+}
+
+/** One hit from a web search. Titles, links and snippets only — never executable. */
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+/** A page's readable text, for when a search snippet alone isn't enough. */
+export interface WebPage {
+  title: string;
+  url: string;
+  /** Headings/paragraphs/list items only — not a full article extractor. */
+  text: string;
 }
 
 /**
@@ -112,4 +148,62 @@ export interface Platform {
   showWindow?(): Promise<void>;
   hideWindow?(): Promise<void>;
   toggleWindow?(): Promise<void>;
+
+  /**
+   * File and folder operations, gated by `fs` like `openPath`/`revealPath`.
+   * Every implementation re-validates the path server-side — a path from the
+   * renderer is a claim, not a fact, the same rule that governs `openPath`.
+   */
+  createFile?(path: string, content?: string): Promise<boolean>;
+  createFolder?(path: string): Promise<boolean>;
+  renamePath?(path: string, newName: string): Promise<boolean>;
+  movePath?(path: string, destDir: string): Promise<boolean>;
+  copyPath?(path: string, destDir: string): Promise<boolean>;
+  /** Sends to the OS recycle bin, never a permanent delete. */
+  deletePath?(path: string): Promise<boolean>;
+  /** Plain text only, size-capped. Rejects binary content and huge files. */
+  readTextFile?(path: string): Promise<string>;
+
+  /** What a path is, without opening it. */
+  pathInfo?(path: string): Promise<PathInfo>;
+  /** Add a line to a file, creating it if it isn't there yet. */
+  appendFile?(path: string, content: string): Promise<boolean>;
+  /** One folder's direct contents — not a recursive walk. */
+  listDir?(path: string, limit?: number): Promise<FileEntry[]>;
+  /** Resolve "Downloads" and friends against this machine. */
+  knownFolder?(id: KnownFolder): Promise<string>;
+
+  /**
+   * Launch a known Windows system utility (Task Manager, Device Manager, …)
+   * by id — the same "resolve by id against a server-enumerated list" shape
+   * as `launchApp`, not a path or command string.
+   */
+  openSystemTool?(id: string): Promise<boolean>;
+
+  /**
+   * The machine itself, gated by `os`.
+   *
+   * Every one of these is a single named operation with an enumerated
+   * argument — there is no "send this key" or "run this command", because a
+   * general version of any of them would undo the point of having no `exec`.
+   */
+  lockWorkstation?(): Promise<boolean>;
+  powerAction?(action: PowerAction): Promise<boolean>;
+  mediaKey?(key: MediaKey): Promise<boolean>;
+  /** Nudge the volume by notches, the way the keyboard keys do. */
+  setVolume?(direction: 'up' | 'down', steps?: number): Promise<boolean>;
+  toggleMute?(): Promise<boolean>;
+  displayOff?(): Promise<boolean>;
+  emptyRecycleBin?(): Promise<boolean>;
+
+  /**
+   * Search the web and fetch a page's readable text. The only two methods on
+   * this port that leave the machine entirely, gated by `network` the same
+   * way disk access is gated by `fs` — a browser build or a locked-down
+   * environment can decline it, and the affected skills simply disappear
+   * rather than fail. Both return plain text: neither is a way to run
+   * anything found on a page, only to read it.
+   */
+  searchWeb?(query: string): Promise<WebSearchResult[]>;
+  fetchPage?(url: string): Promise<WebPage>;
 }

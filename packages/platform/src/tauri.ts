@@ -16,6 +16,9 @@ import type {
   Platform,
   ProcessEntry,
   SystemSnapshot,
+  WebPage,
+  PathInfo,
+  WebSearchResult,
 } from '@atlas/core';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -40,7 +43,8 @@ export function createTauriPlatform(): Platform {
     launchApp: (id) => invoke<boolean>('launch_app', { id }),
 
     systemInfo: () => invoke<SystemSnapshot>('system_info'),
-    runningProcesses: (limit) => invoke<ProcessEntry[]>('running_processes', { limit: limit ?? null }),
+    runningProcesses: (limit) =>
+      invoke<ProcessEntry[]>('running_processes', { limit: limit ?? null }),
 
     readClipboard: async () => {
       const { readText } = await import('@tauri-apps/plugin-clipboard-manager');
@@ -55,6 +59,44 @@ export function createTauriPlatform(): Platform {
     showWindow: () => invoke<void>('show_window'),
     hideWindow: () => invoke<void>('hide_window'),
     toggleWindow: () => invoke<void>('toggle_window'),
+
+    createFile: (path, content) =>
+      invoke<boolean>('create_file', { path, content: content ?? null }),
+    createFolder: (path) => invoke<boolean>('create_folder', { path }),
+    renamePath: (path, newName) => invoke<boolean>('rename_path', { path, newName }),
+    movePath: (path, destDir) => invoke<boolean>('move_path', { path, destDir }),
+    copyPath: (path, destDir) => invoke<boolean>('copy_path', { path, destDir }),
+    deletePath: (path) => invoke<boolean>('delete_path', { path }),
+    readTextFile: (path) => invoke<string>('read_text_file', { path }),
+
+    pathInfo: (path) => invoke<PathInfo>('path_info', { path }),
+    appendFile: (path, content) => invoke<boolean>('append_file', { path, content }),
+    listDir: (path, limit) => invoke<FileEntry[]>('list_dir', { path, limit: limit ?? null }),
+    knownFolder: (id) => invoke<string>('known_folder', { id }),
+
+    lockWorkstation: () => invoke<boolean>('lock_workstation'),
+    powerAction: (action) => invoke<boolean>('power_action', { action }),
+    mediaKey: (key) => invoke<boolean>('media_key', { key }),
+    setVolume: (direction, steps) =>
+      invoke<boolean>('set_volume', { direction, steps: steps ?? null }),
+    toggleMute: () => invoke<boolean>('toggle_mute'),
+    displayOff: () => invoke<boolean>('display_off'),
+    emptyRecycleBin: () => invoke<boolean>('empty_recycle_bin'),
+
+    openSystemTool: (id) => invoke<boolean>('open_system_tool', { id }),
+
+    searchWeb: (query) => invoke<WebSearchResult[]>('web_search', { query }),
+    fetchPage: (url) => invoke<WebPage>('fetch_page', { url }),
+
+    notify: async (title, body) => {
+      const { isPermissionGranted, requestPermission, sendNotification } =
+        await import('@tauri-apps/plugin-notification');
+      let granted = await isPermissionGranted();
+      if (!granted) granted = (await requestPermission()) === 'granted';
+      if (!granted) return false;
+      sendNotification({ title, body });
+      return true;
+    },
   };
 }
 

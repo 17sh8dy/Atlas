@@ -1,7 +1,8 @@
 import { Button, Icons } from '@atlas/ui';
 import { useTheme } from '../app/theme';
 
-/** Minimal dark/light switch. Full theme settings arrive in Phase 7. */
+/** Quick dark/light toggle for the title bar. Full appearance controls, including
+ * "system" mode, live in Settings → Appearance. */
 export function ThemeToggle() {
   const { resolved, setMode } = useTheme();
   const next = resolved === 'dark' ? 'light' : 'dark';
@@ -13,11 +14,7 @@ export function ThemeToggle() {
       aria-label={`Switch to ${next} theme`}
       onClick={() => setMode(next)}
     >
-      {resolved === 'dark' ? (
-        <Icons.Sun className="h-4 w-4" />
-      ) : (
-        <Icons.Moon className="h-4 w-4" />
-      )}
+      {resolved === 'dark' ? <Icons.Sun className="h-4 w-4" /> : <Icons.Moon className="h-4 w-4" />}
     </Button>
   );
 }
