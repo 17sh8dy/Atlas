@@ -15,6 +15,8 @@
 
 import type { AppEntry, KnownFolder, Memory, Platform, ResultRow, Skill } from '@atlas/core';
 import { createPhrasing, type Phrasing } from '../phrasing';
+import { rankMatches, nearMatches, RANK } from '../text/fuzzy';
+import { resolveSite } from '../text/sites';
 import { evaluateExpression } from './math';
 import { convertUnit } from './units';
 import type { SkillRegistry } from './registry';
@@ -717,14 +719,29 @@ export function createCoreSkills(
         if (ok) return { ok: true, message: `No app called “${wanted}” — opening ${url} instead.` };
       }
 
+      // Then the sites people name without a domain. This runs *after* the
+      // installed apps deliberately: "open discord" means the program when
+      // it's installed, and the website when it isn't. Typo tolerance comes
+      // from the same matcher the app list uses, so "youtub" lands here too.
+      if (!matches.length && platform.openUrl) {
+        const site = resolveSite(wanted);
+        if (site) {
+          const ok = await platform.openUrl(site.url);
+          if (ok) return { ok: true, message: phrasing.opening(site.name) };
+        }
+      }
+
+      // Suggestions use the wider net on purpose — see `nearMatches`.
       const near = matches.length
         ? matches
-        : apps
-            .map((app) => ({ app, rank: editDistance(appKey(wanted), appKey(app.name), 6) }))
-            .filter((m) => m.rank <= 6)
-            .sort((a, b) => a.rank - b.rank);
+        : nearMatches(apps, wanted, (a) => a.name).map((m) => ({ app: m.item, rank: m.rank }));
 
-      if (!near.length) return { ok: false, error: `I can't find an app called “${wanted}”.` };
+      if (!near.length) {
+        return {
+          ok: false,
+          error: `I couldn't figure out which app you meant by “${wanted}”. It isn't installed here under that name.`,
+        };
+      }
 
       ctx.showResults?.(
         near.slice(0, 6).map((m) => ({
@@ -1298,57 +1315,6 @@ function describeDuration(seconds: number): string {
   return `${seconds} second${seconds === 1 ? '' : 's'}`;
 }
 
-/**
- * How an app name is compared: lowercase, alphanumerics only.
- *
- * "SteelSeries GG", "steelseries.gg" and "Steel Series GG" all reduce to the
- * same key, which is what makes the spacing and punctuation people use in
- * speech stop mattering.
- */
-function appKey(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-/**
- * Damerau-Levenshtein distance, capped early.
- *
- * Plain Levenshtein charges 2 for a transposition, which is the single most
- * common typing mistake ("steelseires"). Counting it as 1 is the difference
- * between finding the app and telling someone it isn't installed.
- */
-function editDistance(a: string, b: string, max: number): number {
-  if (Math.abs(a.length - b.length) > max) return max + 1;
-
-  let previous: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
-  let beforePrevious: number[] = [];
-
-  for (let i = 1; i <= a.length; i++) {
-    const current = [i, ...Array<number>(b.length).fill(0)];
-    let best = current[0]!;
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      let value = Math.min(current[j - 1]! + 1, previous[j]! + 1, previous[j - 1]! + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
-        value = Math.min(value, beforePrevious[j - 2]! + 1);
-      }
-      current[j] = value;
-      best = Math.min(best, value);
-    }
-    if (best > max) return max + 1;
-    beforePrevious = previous;
-    previous = current;
-  }
-  return previous[b.length]!;
-}
-
-/** A typo budget that grows with the word: 1 for short names, up to 3. */
-function typoBudget(key: string): number {
-  if (key.length <= 4) return 0;
-  if (key.length <= 8) return 1;
-  if (key.length <= 14) return 2;
-  return 3;
-}
-
 interface AppMatch {
   app: AppEntry;
   /** Lower is better. */
@@ -1358,40 +1324,29 @@ interface AppMatch {
 /**
  * Resolve a spoken name against the installed apps.
  *
- * The chain is ordered by how sure each step is: an exact key, then a prefix,
- * then a word-for-word subset ("steelseries gg" finding "SteelSeries GG
- * Client"), then the alias table, and only then a typo-tolerant pass. Anything
- * looser than this starts launching the wrong program, which is worse than
- * saying "I couldn't find it".
+ * The ranking chain itself now lives in `../text/fuzzy`, because none of it
+ * was ever specific to applications — websites and every future named thing
+ * resolve through the same code. What stays here is the one app-only step:
+ * the colloquial alias table, which handles names that are not misspellings
+ * ("vscode" is not a typo for "Visual Studio Code") and so cannot be derived
+ * by distance.
  */
 function matchApps(apps: readonly AppEntry[], wanted: string): AppMatch[] {
-  const key = appKey(wanted);
-  if (!key) return [];
-
-  const scored: AppMatch[] = [];
-  for (const app of apps) {
-    const appName = appKey(app.name);
-    if (appName === key) scored.push({ app, rank: 0 });
-    else if (appName.startsWith(key)) scored.push({ app, rank: 1 + appName.length / 1000 });
-    else if (appName.includes(key)) scored.push({ app, rank: 2 + appName.length / 1000 });
+  const direct = rankMatches(apps, wanted, (a) => a.name);
+  if (direct.length && direct[0]!.rank < RANK.typo) {
+    return direct.map((m) => ({ app: m.item, rank: m.rank }));
   }
-  if (scored.length) return scored.sort((a, b) => a.rank - b.rank);
 
+  // The alias table sits between certainty and guesswork: an alias hit is
+  // surer than a typo hit, so it is consulted before the fuzzy results are
+  // accepted, but after an exact or prefix match has had its chance.
   const aliased = APP_ALIASES[wanted.trim().toLowerCase()];
   if (aliased) {
-    const key2 = appKey(aliased);
-    const hit = apps.filter((a) => appKey(a.name).includes(key2));
-    if (hit.length) return hit.map((app) => ({ app, rank: 3 }));
+    const hit = rankMatches(apps, aliased, (a) => a.name);
+    if (hit.length) return hit.map((m) => ({ app: m.item, rank: RANK.alias }));
   }
 
-  const budget = typoBudget(key);
-  if (budget === 0) return [];
-  for (const app of apps) {
-    const appName = appKey(app.name);
-    const distance = editDistance(key, appName, budget);
-    if (distance <= budget) scored.push({ app, rank: 4 + distance });
-  }
-  return scored.sort((a, b) => a.rank - b.rank);
+  return direct.map((m) => ({ app: m.item, rank: m.rank }));
 }
 
 /** Bare "steelseries.gg" shaped — a name with a dot and a short suffix. */

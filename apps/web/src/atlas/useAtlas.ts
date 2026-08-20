@@ -182,6 +182,37 @@ export function useAtlas(
 
   const clear = useCallback(() => setEntries([]), []);
 
+  /**
+   * Put text on the clipboard for the UI.
+   *
+   * Goes through the `Platform` port first, which is the same route the
+   * `clipboard.copy` skill takes — one clipboard implementation, not a second
+   * one living in a component. `navigator.clipboard` is the fallback for the
+   * browser build, where the port has no clipboard to offer.
+   */
+  const copy = useCallback(
+    async (text: string): Promise<boolean> => {
+      const value = String(text ?? '');
+      if (!value.trim()) return false;
+
+      if (platform.writeClipboard) {
+        try {
+          if (await platform.writeClipboard(value)) return true;
+        } catch {
+          // fall through — a failing port is a reason to try the other route,
+          // not a reason to tell the user copying is broken
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(value);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [platform],
+  );
+
   return {
     entries,
     busy,
@@ -189,6 +220,7 @@ export function useAtlas(
     runAction,
     answerConfirm,
     clear,
+    copy,
     skillCount: engine.skills.available().length,
     skills: engine.skills,
     greeting: phrasing.greeting(),

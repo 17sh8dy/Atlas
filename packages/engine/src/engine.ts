@@ -39,6 +39,7 @@ import { createPhrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
 import { buildAugmentedPrompt, formatSourcesFooter, needsWebSearch, runSearch } from './research';
 import { refusalFor, screenRequest } from './safety/content-policy';
+import { normalizeRequest } from './text/normalize';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -101,7 +102,29 @@ export class Engine {
     // 1. Grammar — the fast path. Parsing is pure: it reads the text and
     //    builds a plan object, and nothing runs until the executor is handed
     //    one, so the policy check below still sits ahead of every action.
-    const matched = this.grammar.parse(raw);
+    let matched = this.grammar.parse(raw);
+    /** What the rest of the pipeline reads: the tidied text once it earned it. */
+    let understood = raw;
+
+    // 1b. Second attempt, on the request with its conversational wrapper
+    //     removed. The grammar's rules are anchored on purpose — an
+    //     unanchored "open X" would claim "remind me not to open Steam" — so
+    //     "yo and open YouTube" misses every one of them despite being
+    //     completely clear. Rather than loosen every rule, strip the greeting
+    //     and run the same rules again.
+    //
+    //     Only ever a *second* attempt: raw text that already matched is
+    //     never re-interpreted, so this cannot change how an understood
+    //     sentence behaves.
+    const normalized = normalizeRequest(raw);
+    const didNormalize = normalized.length > 0 && normalized !== raw;
+    if (!matched && didNormalize) {
+      const retry = this.grammar.parse(normalized);
+      if (retry) {
+        matched = retry;
+        understood = normalized;
+      }
+    }
 
     // 2. Content policy. Placed here, between understanding the request and
     //    executing anything, because a refusal has to happen before the first
@@ -110,7 +133,12 @@ export class Engine {
     //    and passes; an instruction to go and fetch explicit material does
     //    not. Refusing sexual content involving minors ignores that
     //    distinction and applies to any phrasing at all.
-    const actionable = Boolean(matched) || this.grammar.looksActionable(raw);
+    const actionable =
+      Boolean(matched) ||
+      this.grammar.looksActionable(raw) ||
+      (didNormalize && this.grammar.looksActionable(normalized));
+    // Screened on the raw text as well as the tidied one, so filler can never
+    // be a way to smuggle something past the check.
     const screened = screenRequest(raw, actionable);
     if (!screened.allowed) {
       // Deliberately carries the reason and not the text. Nothing downstream
@@ -129,8 +157,9 @@ export class Engine {
 
     // 3. Triage — questions are conversation, not planning. Skipping this is
     //    how assistants end up trying to "run" a question.
-    if (this.grammar.looksActionable(raw)) {
-      const proposed = await this.planWithAI(raw);
+    const instruction = actionable && !this.isQuestion(raw);
+    if (instruction) {
+      const proposed = await this.planWithAI(understood);
       if (proposed) {
         const outcome = await this.executor.run(proposed, ctx);
         this.bus.emit('engine:done', { mode: 'command', plan: proposed, outcome });
@@ -138,8 +167,23 @@ export class Engine {
       }
     }
 
+    // 3b. An instruction Atlas understood the shape of but could not resolve.
+    //     Without this it falls into conversation and gets answered with a
+    //     paragraph about external models — which is both wrong and useless,
+    //     because no model was ever needed to open an app. Ask the one
+    //     question that would settle it instead.
+    if (instruction && !this.intelligence?.active()) {
+      io.say(this.unresolvedReply(understood));
+      return { ok: false, mode: 'chat', error: 'unresolved' };
+    }
+
     // 4. Conversation.
-    return this.converse(raw, io, ctx);
+    return this.converse(understood, io, ctx);
+  }
+
+  /** Question-shaped, and therefore conversation rather than an instruction. */
+  private isQuestion(text: string): boolean {
+    return text.trim().endsWith('?');
   }
 
   /** Run a plan built elsewhere — a button, a result row, a saved routine. */
@@ -309,6 +353,26 @@ export class Engine {
         },
       });
     });
+  }
+
+  /**
+   * What to say when the request was clearly an instruction, but nothing
+   * matched it.
+   *
+   * The old behaviour here was to fall through to `offlineReply()`, which
+   * blamed a missing external model. That was wrong twice over: no model is
+   * needed to open an application, and telling someone about a setting they
+   * do not need is an implementation detail leaking into a conversation. A
+   * short question gets the user moving; a paragraph about providers does not.
+   */
+  private unresolvedReply(text: string): string {
+    const target = /^\s*(?:open|launch|start|run|go to|visit|play)\s+(.+?)\s*[?.!]*$/i.exec(text);
+    const named = target?.[1]?.trim();
+
+    if (named) {
+      return `I couldn't work out what “${named}” is — I don't have an app or a site by that name. What should I open?`;
+    }
+    return "I didn't catch what you wanted me to do there. Say it as an instruction — “open Steam”, “find my invoices” — or ask “what can you do?” for the full list.";
   }
 
   /**

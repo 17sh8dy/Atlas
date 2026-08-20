@@ -33,6 +33,9 @@ import { createPhrasing } from '../src/phrasing';
 import { WorkingMemory } from '../src/working-memory';
 import { recordEpisodes } from '../src/episodic';
 import { SimpleIntelligenceRegistry } from '../src/intelligence-registry';
+import { rankMatches, confidentMatch, editDistance } from '../src/text/fuzzy';
+import { stripFiller } from '../src/text/normalize';
+import { resolveSite } from '../src/text/sites';
 
 // ---- a machine we can script ------------------------------------------------
 
@@ -2193,4 +2196,162 @@ test('policy: ordinary commands are untouched by any of this', async () => {
   await h.engine.ask('google cast iron pans', io(h));
   assert.equal(h.journal.urls.length, 1);
   assert.match(h.journal.urls[0]!, /cast/i);
+});
+
+// ---- casual language, typos, and sites ------------------------------------
+//
+// The bar these hold is not "Atlas answers" but "Atlas acts, locally". Every
+// one of them asserts the machine actually did something — a URL opened, an
+// app launched — and several assert that the external-model paragraph did
+// NOT appear, because that message showing up for "open youtube" was the
+// original complaint.
+
+const MODEL_EXCUSE = /needs an external model|optional and off by default/;
+
+test('sites: "open youtube" opens YouTube rather than hunting for an app', async () => {
+  const h = harness();
+  await h.engine.ask('open youtube', io(h));
+  assert.lengthOf(h.journal.urls, 1);
+  assert.match(h.journal.urls[0]!, /youtube\.com/);
+  assert.notMatch(h.said.join(' '), MODEL_EXCUSE);
+});
+
+test('sites: a misspelled site still resolves', async () => {
+  for (const phrasing of ['open youtub', 'open youtbe', 'go to youtbe', 'open yotube']) {
+    const h = harness();
+    await h.engine.ask(phrasing, io(h));
+    assert.lengthOf(h.journal.urls, 1, phrasing);
+    assert.match(h.journal.urls[0]!, /youtube\.com/, phrasing);
+  }
+});
+
+test('sites: "go to" and "visit" reach a site the same way "open" does', async () => {
+  for (const phrasing of ['go to reddit', 'visit github', 'take me to wikipedia']) {
+    const h = harness();
+    await h.engine.ask(phrasing, io(h));
+    assert.lengthOf(h.journal.urls, 1, phrasing);
+  }
+});
+
+test('sites: an installed app beats a site of the same name', async () => {
+  const h = harness();
+  // Discord is both a program on this machine and discord.com. The one that
+  // is installed is the one that was meant.
+  await h.engine.ask('open discord', io(h));
+  assert.deepEqual(h.journal.launched, ['discord']);
+  assert.lengthOf(h.journal.urls, 0);
+});
+
+test('sites: "on Google" is a destination, not part of the name', async () => {
+  const h = harness();
+  await h.engine.ask('yo and open Youtube on Google', io(h));
+  assert.lengthOf(h.journal.urls, 1);
+  assert.match(h.journal.urls[0]!, /youtube\.com/);
+  assert.notMatch(h.said.join(' '), MODEL_EXCUSE);
+});
+
+test('sites: an unknown name with a browser named means look it up', async () => {
+  const h = harness();
+  await h.engine.ask('open kingfisher nesting habits on google', io(h));
+  assert.lengthOf(h.journal.urls, 1);
+  assert.match(h.journal.urls[0]!, /google\.com\/search/);
+  assert.match(h.journal.urls[0]!, /kingfisher/i);
+});
+
+test('casual: greetings and politeness are stripped, not answered', async () => {
+  for (const phrasing of [
+    'hey can you open youtube',
+    'please open youtube',
+    'can you go to youtube for me',
+    'yo open youtube',
+    'could you please open youtube thanks',
+    'hey atlas, open youtube',
+  ]) {
+    const h = harness();
+    await h.engine.ask(phrasing, io(h));
+    assert.lengthOf(h.journal.urls, 1, phrasing);
+    assert.match(h.journal.urls[0]!, /youtube\.com/, phrasing);
+    assert.notMatch(h.said.join(' '), MODEL_EXCUSE, phrasing);
+  }
+});
+
+test('casual: filler stripping does not eat meaningful words', () => {
+  // "not" and "my" change the instruction; "all" changes its scope.
+  assert.equal(stripFiller('please do not open steam'), 'do not open steam');
+  assert.equal(stripFiller('hey open my downloads folder'), 'open my downloads folder');
+  assert.equal(stripFiller('can you delete all my notes'), 'delete all my notes');
+  // A message that is only filler is left alone — there is no instruction in it.
+  assert.equal(stripFiller('hey'), 'hey');
+  assert.equal(stripFiller('thanks'), 'thanks');
+});
+
+test('casual: a filler-wrapped request still routes to the right skill', async () => {
+  const h = harness();
+  await h.engine.ask('hey can you open steam please', io(h));
+  assert.deepEqual(h.journal.launched, ['steam']);
+});
+
+test('apps: misspelled installed names still launch', async () => {
+  const cases: Array<[string, string]> = [
+    ['open disocrd', 'discord'],
+    ['open fortnigt', 'fortnite'],
+    ['open steem', 'steam'],
+    ['open firefx', 'firefox'],
+  ];
+  for (const [phrasing, id] of cases) {
+    const h = harness();
+    await h.engine.ask(phrasing, io(h));
+    assert.deepEqual(h.journal.launched, [id], phrasing);
+  }
+});
+
+test('apps: a short name is not fuzzily turned into a different one', async () => {
+  const h = harness();
+  // Four letters, one edit from several things. Guessing here is a coin flip,
+  // so nothing should launch.
+  await h.engine.ask('open codz', io(h));
+  assert.lengthOf(h.journal.launched, 0);
+});
+
+test('errors: an unresolvable instruction asks, it does not blame a missing model', async () => {
+  const h = harness();
+  await h.engine.ask('open zzzqqq', io(h));
+  const said = h.said.join(' ');
+  assert.notMatch(said, MODEL_EXCUSE);
+  assert.match(said, /couldn't (?:work out|figure out)/i);
+});
+
+test('errors: a real question still gets the honest answer about providers', async () => {
+  const h = harness();
+  await h.engine.ask('what is the capital of Peru?', io(h));
+  assert.match(h.said.join(' '), MODEL_EXCUSE);
+});
+
+test('fuzzy: the matcher is shared, not app-specific', () => {
+  const fruit = [{ name: 'Pineapple' }, { name: 'Blueberry' }];
+  assert.equal(confidentMatch(rankMatches(fruit, 'pineaple', (f) => f.name))?.name, 'Pineapple');
+  assert.equal(confidentMatch(rankMatches(fruit, 'bluberry', (f) => f.name))?.name, 'Blueberry');
+  assert.isNull(confidentMatch(rankMatches(fruit, 'zzzzzzzz', (f) => f.name)));
+  // aliases are just more names for the same item
+  const sites = [{ name: 'X', aliases: ['twitter'] }];
+  assert.isNotNull(confidentMatch(rankMatches(sites, 'twiter', (s) => [s.name, ...s.aliases])));
+});
+
+test('fuzzy: transpositions cost one, which is what rescues real typos', () => {
+  assert.equal(editDistance('youtbe', 'youtube', 3), 1);
+  assert.equal(editDistance('steelseires', 'steelseries', 3), 1);
+});
+
+test('sites: resolveSite refuses to guess between equally close names', () => {
+  assert.equal(resolveSite('youtube')?.name, 'YouTube');
+  assert.equal(resolveSite('yt')?.name, 'YouTube');
+  assert.equal(resolveSite('twitter')?.name, 'X');
+  assert.isNull(resolveSite('qwertyuiop'));
+});
+
+test('policy: the tidied text is screened too, so filler is not a way around it', async () => {
+  const h = harness();
+  const outcome = await h.engine.ask('hey can you please open pornhub for me', io(h));
+  assert.equal(outcome.error, 'refused:explicit');
+  assert.lengthOf(h.journal.urls, 0);
 });

@@ -32,6 +32,20 @@ export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
 
 export {
+  matchKey,
+  editDistance,
+  typoBudget,
+  rankMatches,
+  nearMatches,
+  confidentMatch,
+  RANK,
+} from './text/fuzzy';
+export type { Match, MatchOptions } from './text/fuzzy';
+export { stripFiller, splitBrowserHint, normalizeRequest } from './text/normalize';
+export { KNOWN_SITES, resolveSite, isKnownSiteName } from './text/sites';
+export type { KnownSite } from './text/sites';
+
+export {
   filterDestinations,
   isExplicitDestination,
   refusalFor,

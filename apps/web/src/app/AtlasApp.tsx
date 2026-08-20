@@ -183,6 +183,7 @@ function Ready({
             onAsk={atlas.ask}
             onRunAction={atlas.runAction}
             onAnswerConfirm={atlas.answerConfirm}
+          onCopy={atlas.copy}
           />
         ) : (
           <Settings

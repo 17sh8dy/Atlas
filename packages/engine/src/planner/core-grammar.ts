@@ -15,6 +15,8 @@
 import type { GrammarRule } from './grammar';
 import { plan, step } from './grammar';
 import type { WorkingMemory } from '../working-memory';
+import { splitBrowserHint } from '../text/normalize';
+import { resolveSite } from '../text/sites';
 
 /** Strip filler so "open up the calculator please" leaves "calculator". */
 function clean(s: string): string {
@@ -945,6 +947,53 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
     // --- Open an application ---------------------------------------------------
     // Last, because it's the greediest: anything still shaped like "open X"
     // after the specific rules have declined is treated as an app name.
+    // --- Open a site, or open something in the browser -----------------------
+    // Sits just ahead of `appOpen` and handles the two things that rule
+    // cannot: the web-flavoured verbs ("go to youtube"), and a trailing
+    // destination hint ("open youtube on Google"). Left to `appOpen`, the hint
+    // becomes part of the name and Atlas hunts for an application called
+    // "youtube on google".
+    //
+    // Where the target is *not* a site it knows, this rule hands back rather
+    // than guessing — except when a browser was named outright, since "open X
+    // on Google" with an unknown X is a request to look X up, which is a thing
+    // Atlas can do locally and correctly.
+    {
+      name: 'openSite',
+      order: -1.2,
+      pathSafe: false,
+      test(_lower, raw) {
+        const m = raw.match(
+          /^\s*(?:(open|launch|start|run)|(go to|goto|visit|browse to|browse|pull up|bring up|take me to))\s+(.+?)\s*[?.!]*$/i,
+        );
+        if (!m) return null;
+        const webVerb = Boolean(m[2]);
+        const captured = m[3];
+        if (!captured) return null;
+
+        const { text, wantsBrowser } = splitBrowserHint(captured);
+        const target = clean(text);
+        if (!target || REFERENTIAL.test(target.trim().toLowerCase())) return null;
+        // File talk belongs to the file rules, which already had their turn.
+        if (FILE_NOUN.test(target)) return null;
+
+        const site = resolveSite(target);
+
+        if (wantsBrowser) {
+          return site
+            ? plan(step('web.open', { url: site.url }), 'open-site')
+            : plan(step('web.search', { query: target }), 'web-search');
+        }
+
+        // No hint. Only the web verbs may claim a bare name here; "open X"
+        // stays with `appOpen`, so an installed program still wins over a
+        // site of the same name.
+        if (!webVerb) return null;
+        if (site) return plan(step('web.open', { url: site.url }), 'open-site');
+        return plan(step('app.open', { name: target }), 'open-app', 0.85);
+      },
+    },
+
     {
       name: 'appOpen',
       order: -1,

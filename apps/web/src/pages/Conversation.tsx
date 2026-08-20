@@ -29,6 +29,7 @@ interface Props {
   onAsk(text: string): void;
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onAnswerConfirm(approved: boolean): void;
+  onCopy(text: string): Promise<boolean>;
 }
 
 export function Conversation({
@@ -41,6 +42,7 @@ export function Conversation({
   onAsk,
   onRunAction,
   onAnswerConfirm,
+  onCopy,
 }: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -59,6 +61,7 @@ export function Conversation({
             busy={busy}
             onAnswerConfirm={onAnswerConfirm}
             onRunAction={onRunAction}
+            onCopy={onCopy}
           />
         )}
       </div>
