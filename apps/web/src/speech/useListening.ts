@@ -74,9 +74,27 @@ export function useListening(platform: Platform, options: Options): Listening {
 
   const supported = Boolean(platform.transcribeSpeech);
 
+  /**
+   * Report a failure to the screen *and* to the diagnostics file.
+   *
+   * Both, not either. The screen is where a person sees it; the file is where
+   * it can still be read when the thing that broke is the rendering, or when
+   * the report arrives second-hand as "it just didn't do anything".
+   */
+  const fail = useCallback(
+    (message: string) => {
+      setError(message);
+      void platformRef.current.logDiagnostic?.('listening', message).catch(() => {
+        // A diagnostics channel that throws must not become the thing being
+        // diagnosed.
+      });
+    },
+    [],
+  );
+
   const start = useCallback(async () => {
     if (!platformRef.current.transcribeSpeech) {
-      setError('This build has no listening engine.');
+      fail('This build has no listening engine.');
       return;
     }
     setError(null);
@@ -84,7 +102,7 @@ export function useListening(platform: Platform, options: Options): Listening {
       {
         onState: setState,
         onSpeechStart: () => latest.current.onSpeechStart?.(),
-        onError: setError,
+        onError: fail,
         onUtterance: async ({ audio }) => {
           const transcribe = platformRef.current.transcribeSpeech;
           if (!transcribe) return;
@@ -102,7 +120,7 @@ export function useListening(platform: Platform, options: Options): Listening {
               latest.current.onTranscript(heard.text.trim());
             }
           } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
+            fail(err instanceof Error ? err.message : String(err));
           } finally {
             setTranscribing(false);
           }
@@ -110,7 +128,22 @@ export function useListening(platform: Platform, options: Options): Listening {
       },
       { silenceMs: latest.current.silenceMs },
     );
-  }, [recorder]);
+  }, [recorder, fail]);
+
+  /**
+   * The caller fires this and forgets it, so the catch has to be here.
+   *
+   * `void listening.start()` at the call site would turn anything that
+   * escaped into an unhandled rejection — silence, which is the one outcome
+   * a microphone button must never produce.
+   */
+  const startSafely = useCallback(async () => {
+    try {
+      await start();
+    } catch (err) {
+      fail(`Listening could not start (${err instanceof Error ? err.message : String(err)}).`);
+    }
+  }, [start, fail]);
 
   const stop = useCallback(() => recorder.stop(), [recorder]);
   const level = useCallback(() => recorder.level(), [recorder]);
@@ -126,7 +159,7 @@ export function useListening(platform: Platform, options: Options): Listening {
   // that loop down and rebuild it sixty times a second — and every effect that
   // legitimately depends on "the microphone" would fire on every render.
   return useMemo(
-    () => ({ start, stop, state, transcribing, supported, level, error, setDucked }),
-    [start, stop, state, transcribing, supported, level, error, setDucked],
+    () => ({ start: startSafely, stop, state, transcribing, supported, level, error, setDucked }),
+    [startSafely, stop, state, transcribing, supported, level, error, setDucked],
   );
 }

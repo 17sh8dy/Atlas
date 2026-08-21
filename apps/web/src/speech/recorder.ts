@@ -157,6 +157,16 @@ export class Recorder {
     this.handlers = handlers;
     this.silenceMs = options?.silenceMs ?? 900;
 
+    // `mediaDevices` is absent rather than failing in a non-secure context,
+    // and reading through it would throw a TypeError that says nothing about
+    // microphones. Named here so the message points at the real problem.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      handlers.onError?.(
+        'This page cannot reach the microphone at all — the browser exposes no capture API here.',
+      );
+      return;
+    }
+
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -182,6 +192,32 @@ export class Recorder {
     }
 
     this.stream = stream;
+
+    // Everything from here on is guarded, and that is not defensive habit: an
+    // exception thrown building the graph used to escape this method, escape
+    // the hook that called it, and land as an unhandled rejection — leaving a
+    // screen that said "microphone off" with no error anywhere, which is the
+    // exact failure shape that cost a debugging session on the speaking side.
+    // A microphone that will not open has to say so.
+    try {
+      await this.build(stream);
+    } catch (err) {
+      this.stop();
+      handlers.onError?.(
+        `The microphone opened but its audio graph failed (${
+          err instanceof Error ? err.message : String(err)
+        }).`,
+      );
+      return;
+    }
+
+    this.reset();
+    this.measuringUntil = performance.now() + FLOOR_SAMPLE_MS;
+    this.setState('waiting');
+  }
+
+  /** Wire the capture graph. Separated so `start` can guard it as one thing. */
+  private async build(stream: MediaStream): Promise<void> {
     const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
     this.ctx = ctx;
     if (ctx.state === 'suspended') await ctx.resume();
@@ -210,10 +246,6 @@ export class Recorder {
     mute.gain.value = 0;
     this.processor.connect(mute);
     mute.connect(ctx.destination);
-
-    this.reset();
-    this.measuringUntil = performance.now() + FLOOR_SAMPLE_MS;
-    this.setState('waiting');
   }
 
   private reset() {

@@ -127,6 +127,8 @@ export function createTauriPlatform(): Platform {
       invoke<Transcript>('transcribe_speech', new Uint8Array(audio), {
         headers: hints ? { 'Atlas-Hints': encodeURIComponent(hints) } : {},
       }),
+
+    logDiagnostic: (scope, message) => invoke<void>('log_diagnostic', { scope, message }),
   };
 }
 

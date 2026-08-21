@@ -189,6 +189,16 @@ export interface Platform {
    */
   transcribeSpeech?(audio: ArrayBuffer, hints?: string): Promise<Transcript>;
 
+  /**
+   * Write a line to the app's diagnostics file.
+   *
+   * A second channel out of the webview, for failures the UI cannot be
+   * trusted to show — because twice now the thing that broke was the code
+   * that would have displayed the breakage. Never leaves the machine, and
+   * nothing reads it back automatically.
+   */
+  logDiagnostic?(scope: string, message: string): Promise<void>;
+
   /** Atlas's own window. */
   showWindow?(): Promise<void>;
   hideWindow?(): Promise<void>;

@@ -10,6 +10,7 @@
 //! were doing, is an assistant. That is what the global shortcut and the
 //! hide-on-blur behaviour below are for.
 
+mod diagnostics;
 mod intelligence;
 #[cfg(windows)]
 mod listen;
@@ -161,6 +162,8 @@ pub fn run() {
             speech::speech_voices,
             speech::synthesize_speech,
             listen::transcribe_speech,
+            diagnostics::log_diagnostic,
+            diagnostics::read_diagnostics,
             web::web_search,
             web::fetch_page,
             intelligence::ask_claude,
