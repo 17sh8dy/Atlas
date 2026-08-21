@@ -4,18 +4,19 @@ Phases are completed one at a time, in full. A phase is done when it typechecks,
 lints, has tests where the logic is non-trivial, and actually runs — not when
 the code exists.
 
-## Where things stand (2026-08-19)
+## Where things stand (2026-08-21)
 
-**Done:** Phases 0, 1, 2, plus **6 and 7 delivered early** on 2026-08-17 and an
-unnumbered interlude that took the catalog to **100 actions** and rebuilt the
-window chrome and app resolution. Phase 4 is **half-built**: Claude and ChatGPT
-are real, local models are not.
+**Done:** Phases 0, 1, 2, **8**, plus **6 and 7 delivered early** on 2026-08-17
+and an unnumbered interlude that took the catalog to **100 actions** and rebuilt
+the window chrome and app resolution. Phase 4 is **half-built**: Claude and
+ChatGPT are real, local models are not.
 
 **Next:** Phase 3 — persistence. Conversation history still dies with the
 process, and `files.find` still walks the disk on every query.
 
-**Version:** still `0.1.0`, and deliberately so until Phase 8 — see
-[Versioning](#versioning).
+**Version:** still `0.1.0`. Phase 8 is now complete, which is the trigger the
+Versioning section names for **0.5.0** — the bump is owed and has not been
+taken. Three files move together; see [Versioning](#versioning).
 
 **Open question blocking nothing yet, but real:** every file command is limited
 to `%USERPROFILE%` (`is_permitted` in `platform.rs`), and the index only covers
@@ -25,8 +26,16 @@ designed, not a bug, so widening it is a decision to make deliberately (a
 user-managed allowed-folders list is the obvious shape) rather than a limit to
 quietly raise.
 
-**Baseline, verified 2026-08-19 before commit `790ee7d`:** `pnpm typecheck`
-(7 packages), `pnpm lint` clean, **129 engine tests + 13 data tests**.
+**Baseline, verified 2026-08-21:** `pnpm typecheck` (7 packages), `pnpm lint`
+clean, **163 engine tests + 13 data tests**. ⚠️ There is no root `test` script;
+run `pnpm --filter @atlas/engine test` and `pnpm --filter @atlas/data test`.
+
+**The window's middle caption button maximises** rather than filling the
+monitor, as of 2026-08-21. tao already trims a maximised borderless window to
+the work area in its own `WM_NCCALCSIZE` handler, so it needs no geometry of
+our own, and it agrees with the double-click on the drag region — which was
+already invoking `internal_toggle_maximize` while the button did something
+else entirely.
 
 ---
 
@@ -303,16 +312,18 @@ brushes against "an agent that acts unprompted" in the not-doing list below.
 (`time.timer` exists, but it is in-session only.) Design this before building
 it.
 
-## Phase 8 — Voice 🟡 speaking built, listening deferred
+## Phase 8 — Voice ✅ speaking and listening both built
 
-**The undecided question got decided, and only half of it got built.**
+**Both halves are in.** Atlas reads its replies aloud and hears you, and
+neither needs a network.
 
-**Speaking — done.** Atlas reads its replies aloud through a bundled neural
-engine. The three options considered were Windows SAPI voices, a networked
-cloud voice, and a local neural engine; the first was rejected because this
-machine ships only American voices and a British one needs a language pack
-the user installs by hand — an assistant that sounds right only after a
-system-settings detour sounds wrong. The second breaks local-first outright.
+### Speaking — done
+
+The three options considered were Windows SAPI voices, a networked cloud
+voice, and a local neural engine. The first was rejected because this machine
+ships only American voices and a British one needs a language pack the user
+installs by hand — an assistant that sounds right only after a system-settings
+detour sounds wrong. The second broke local-first outright.
 
 - **Engine:** Piper, pinned to the **archived MIT release** (`2023.11.14-2`).
   Development moved to `OHF-Voice/piper1-gpl`, which is GPL and would dictate
@@ -326,29 +337,100 @@ system-settings detour sounds wrong. The second breaks local-first outright.
   different. The five male options are five *regions* — Surrey, London,
   Birmingham, Yorkshire, Newcastle — because options that sound alike are not
   options. Pace is real (the model's length scale) and is the one slider.
-- **Playback** is `PlaySoundW` from the `windows` crate already used by
-  `os.rs`, not an audio crate: asynchronous, one utterance at a time, and
-  passing null stops it. No volume control, which the system mixer already has.
+- **Playback happens in the webview**, not in Rust. It was `PlaySoundW`
+  originally; that failed silently, because asynchronous winmm playback does
+  not outlive the `spawn_blocking` thread that starts it, and it was the wrong
+  seam anyway — audio played by the OS is audio the page cannot analyse.
+  `speech.rs` returns WAV bytes and `speech/player.ts` owns the rest.
 - **Off by default.** An assistant that starts talking unasked is startling.
-- Cost: the installer goes from 3.6 MB to ~88 MB. That was a deliberate trade
-  for a voice that works offline and sounds right.
 
-**Still open in this phase:**
+⚠️ **The bug that cost a session, written down so it is not rediscovered:**
+a Tauri command returning `tauri::ipc::Response` only arrives as an
+`ArrayBuffer` over the custom-protocol IPC, which the page reaches by
+`fetch`ing `http://ipc.localhost`. Our CSP declared no `connect-src`, so it
+inherited `default-src 'self'`, that fetch was blocked, and Tauri silently
+fell back to the postMessage transport — where a raw body over 1 KB is
+serialised into a JSON array of numbers. `decodeAudioData` rejects an `Array`,
+the rejection was swallowed, and a 97 KB utterance became silence with no
+error anywhere. **Tauri does not add the ipc source to a custom CSP.** If
+`app.security.csp` is set at all, it must include
+`connect-src ipc: http://ipc.localhost`.
 
-- **Listening (STT)** — unchanged and still deferred. Speech recognition in
-  this engine wants a network round trip, which sits badly beside working with
-  nothing connected. Not half-built.
-- **Weather** — deferred, and the one item on the original list that
-  conflicts with local-first-by-default. If it ships, it's opt-in with the
-  user's own API key, disclosed in Settings → Privacy — never on by default.
+### Listening — done
+
+The deferral reason was real and no longer holds: every convenient
+speech-recognition API is a microphone with a network cable on it, which an
+assistant whose thesis is "nothing is sent anywhere" cannot ship. whisper.cpp
+settles it locally.
+
+- **Engine:** whisper.cpp (`ggml-org/whisper.cpp`, MIT), pinned to build tag
+  `b4938`, plain x64 CPU build. Not the cuBLAS builds (670 MB, and this is an
+  AMD machine) and not the BLAS one — it is already faster than real time.
+- **Model:** `ggml-base.en.bin` (~148 MB, MIT). Chosen over `tiny.en`, which
+  mishears names and technical words often enough that you stop trusting it.
+  An assistant you have to repeat yourself to is worse than a text box.
+- **Rust transcribes; the webview records.** The mirror of speaking, split for
+  the mirror of its reason: the model needs the machine, the microphone needs
+  echo cancellation, a resampler, a level meter and a silence gate that the
+  browser already has. It also means the Rust half of the app has no way to
+  start listening — it can only be handed something already recorded.
+- **Two ways in, because they are different acts.** The composer's mic button
+  dictates into the text box, where you read it before sending — a transcriber
+  that acts on what it *thinks* it heard eventually deletes something. The
+  voice screen is a place you go: it listens, answers aloud, listens again,
+  and talking over Atlas cuts him off. Listening is confined to that screen
+  and the microphone closes when you leave it.
+- **The prompt is part of the engine.** Without a vocabulary line whisper
+  hears the product's own name as "at this"; with one, the same audio
+  transcribes correctly. The names of installed apps are appended to it,
+  fetched only when the microphone is first wanted, so "open CrosshairX"
+  survives the trip. Bounded, because the initial prompt shares the model's
+  224-token context with the audio.
+- **The gate is measured, not fixed.** A headset and a laptop array differ by
+  more than speech differs from silence, so the noise floor is sampled for
+  400 ms and the threshold sits a multiple above it. 300 ms of pre-roll is
+  kept, because detection necessarily lags the first syllable.
+- **Off by default, and enforced.** While `listening.enabled` is false nothing
+  calls `getUserMedia`, the button that opens the voice screen is absent
+  rather than disabled, and the stored value must read exactly `"true"` — a
+  half-written preferences file cannot open a microphone.
+
+⚠️ **WebView2 asks for microphone permission itself**, with its own prompt
+("http://tauri.localhost wants to use your microphones") drawn in the
+webview's process and anchored to the window's top-left. wry only registers a
+`PermissionRequested` handler for clipboard, so everything else falls through
+to WebView2's default UI. If that prompt turns out not to persist between
+launches, the fix is a `PermissionRequested` handler consulting Atlas's own
+setting — deliberately not built yet, because the setting is the consent and
+duplicating it before knowing it is needed adds COM plumbing for nothing.
+
+### Online voices — opt-in, and not a speed feature
+
+Speaking and listening can go through a connected service instead. Off by
+default and unreachable unless both the switch is on and a key is saved.
+
+The obvious pitch is speed and it is **false on this hardware, measured**:
+Piper synthesises a sentence in ~0.2 s (RTF 0.067) and whisper `base.en`
+transcribes a three-second clip in 0.9 s including model load. A round trip
+cannot match either. What a service offers is a different voice and a larger
+transcription model that copes better with accents, noise and unfamiliar
+names — so that, plus a plain statement that audio is sent, is what the
+setting says. On a slower machine the argument may invert; that is why it is
+a preference rather than a recommendation.
+
+The network path lives in `voice_cloud.rs` alone, and the port exposes
+`synthesizeSpeechOnline` / `transcribeSpeechOnline` as separate methods rather
+than a flag, so a call site shows which one it is without following anything.
+
+### Still open in this phase
+
+- **Weather** — deferred, and the one item on the original list that conflicts
+  with local-first-by-default. If it ships, it's opt-in with the user's own
+  API key, disclosed in Settings → Privacy — never on by default.
 - A "stop talking" skill, so speech can be cut from the conversation rather
-  than only from Settings.
-- **Weather** — deferred, and the one item on the original list that
-  conflicts with local-first-by-default. If it ships, it's opt-in with the
-  user's own API key, disclosed in Settings → Privacy (the placeholder shell
-  for this already exists from Phase 1) — never on by default.
-- Multiple voice options, speed/volume, push-to-talk, interrupt-while-speaking
-  all sit behind the TTS/STT decision above.
+  than only from Settings or by talking over it.
+- The voice screen's visualiser reads real amplitude but is a plain pair of
+  rings; it was specified as something richer.
 - **Ship this as 0.5.0** — see Versioning below.
 
 ## Phase 9 — Awareness
