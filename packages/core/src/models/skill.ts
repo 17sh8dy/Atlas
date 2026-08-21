@@ -19,6 +19,12 @@
  * There is deliberately no "dangerous" tier. A thing either needs asking about
  * or it doesn't; a third level only invites arguing about which bucket
  * something belongs in.
+ *
+ * The test for `confirm` is whether the action *changes something closing a
+ * window will not undo* — writing, renaming, moving, deleting, clearing,
+ * powering off. Opening, showing and searching are `safe`, even though they
+ * reach outside Atlas, because asking "are you sure you want to open Steam"
+ * of someone who just said "open Steam" is asking the same question twice.
  */
 export type SkillRisk = 'safe' | 'confirm';
 

@@ -7,10 +7,25 @@
  * almost none do, and the impossible ones are simply invisible), and against a
  * test platform.
  *
- * Anything that touches the world outside Atlas is `risk: 'confirm'`. That is a
- * deliberately low bar — launching an app and opening a file both clear it —
- * because the cost of one extra click is trivial next to an assistant that
- * opens things you didn't ask for.
+ * ── What needs asking about, and what doesn't ───────────────────────────────
+ * `risk: 'confirm'` used to mean "touches the world outside Atlas", which put
+ * a card in front of *opening* things. That bar was set on the reasoning that
+ * one extra click is trivial next to an assistant that opens things you didn't
+ * ask for — and it was wrong twice over. When you did ask, the extra click is
+ * not trivial: it is the entire interaction, asked again. And once you are
+ * talking rather than typing, a card is not one click, it is a trip back to
+ * the keyboard, which is the exact thing being talked to was supposed to
+ * remove.
+ *
+ * The line is now what the action *does*, not how far it reaches. Opening,
+ * showing and searching change nothing that closing a window does not undo, so
+ * they run. Writing, renaming, moving, deleting, clearing and powering the
+ * machine off do not undo, so they still ask.
+ *
+ * Note what this does not weaken: `safety/content-policy.ts` screens every
+ * outward-reaching destination at `SkillRegistry.invoke`, which is below this
+ * and unaffected by risk. A search Atlas should refuse is still refused; it is
+ * only the "are you sure" in front of the ones it should allow that has gone.
  */
 
 import type { AppEntry, KnownFolder, Memory, Platform, ResultRow, Skill } from '@atlas/core';
@@ -330,7 +345,7 @@ export function createCoreSkills(
     domain: 'files',
     description: 'Open a file or folder with whatever the system uses for it.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     params: { path: { type: 'string', required: true, description: 'full path' } },
     async run(args) {
       const ok = await platform.openPath!(String(args.path));
@@ -347,7 +362,7 @@ export function createCoreSkills(
     domain: 'files',
     description: 'Reveal a file in the system file manager without opening it.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     params: { path: { type: 'string', required: true, description: 'full path' } },
     async run(args) {
       const ok = await platform.revealPath!(String(args.path));
@@ -364,7 +379,7 @@ export function createCoreSkills(
     domain: 'files',
     description: 'Open whatever a remembered name refers to (see memory.remember).',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     examples: ['open my work folder'],
     params: { subject: { type: 'string', required: true, description: 'the remembered name' } },
     async run(args) {
@@ -652,7 +667,7 @@ export function createCoreSkills(
     domain: 'files',
     description: 'Open Downloads, Documents, Desktop, Pictures, Music or Videos.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     examples: ['open my downloads', 'open my documents folder'],
     params: {
       folder: {
@@ -689,7 +704,7 @@ export function createCoreSkills(
     domain: 'apps',
     description: 'Launch an installed application by name.',
     needs: ['apps'],
-    risk: 'confirm',
+    risk: 'safe',
     examples: ['open steam', 'launch discord'],
     params: { name: { type: 'string', required: true, description: 'the application name' } },
     async run(args, ctx) {
@@ -929,7 +944,7 @@ export function createCoreSkills(
     description:
       'Launch a known Windows system utility: Task Manager, Device Manager, Windows Settings, or Control Panel.',
     needs: ['system'],
-    risk: 'confirm',
+    risk: 'safe',
     examples: ['open task manager', 'open device manager'],
     params: {
       tool: {
@@ -957,7 +972,7 @@ export function createCoreSkills(
     domain: 'web',
     description: 'Open an http or https URL in the default browser.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     params: { url: { type: 'string', required: true, description: 'the address' } },
     async run(args) {
       const url = String(args.url).trim();
@@ -983,7 +998,7 @@ export function createCoreSkills(
     domain: 'web',
     description: 'Search the web for something.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     params: { query: { type: 'string', required: true, description: 'what to search for' } },
     async run(args) {
       const query = String(args.query).trim();
@@ -1002,7 +1017,7 @@ export function createCoreSkills(
     domain: 'web',
     description: 'Search YouTube for something.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     params: { query: { type: 'string', required: true, description: 'what to search for' } },
     async run(args) {
       const query = String(args.query).trim();
@@ -1021,7 +1036,7 @@ export function createCoreSkills(
     domain: 'web',
     description: 'Search the web for images of something.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     examples: ['find images of red pandas'],
     params: { query: { type: 'string', required: true, description: 'what to look for' } },
     async run(args) {
@@ -1041,7 +1056,7 @@ export function createCoreSkills(
     domain: 'web',
     description: 'Find a place on a map, or get directions to it.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     examples: ['map of Kyoto', 'directions to Denver airport'],
     params: {
       place: { type: 'string', required: true, description: 'the place to look up' },
@@ -1068,7 +1083,7 @@ export function createCoreSkills(
     domain: 'web',
     description: 'Look a subject up on Wikipedia.',
     needs: ['fs'],
-    risk: 'confirm',
+    risk: 'safe',
     examples: ['wikipedia the Voyager program'],
     params: { query: { type: 'string', required: true, description: 'the subject' } },
     async run(args) {
@@ -1088,7 +1103,7 @@ export function createCoreSkills(
     domain: 'web',
     description: 'Open a web browser — a named one if it is installed, otherwise whichever one is.',
     needs: ['apps'],
-    risk: 'confirm',
+    risk: 'safe',
     examples: ['open any browser', 'open a browser'],
     params: {
       name: { type: 'string', required: false, description: 'a particular browser, e.g. firefox' },

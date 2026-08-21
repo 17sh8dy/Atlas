@@ -42,6 +42,7 @@ import {
   createUtilitySkills,
   createWebSearchSkills,
   createPhrasing,
+  readAffirmation,
   recordEpisodes,
   type EngineIO,
 } from '@atlas/engine';
@@ -167,10 +168,17 @@ export function useAtlas(
         new Promise<boolean>((resolve) => {
           pendingConfirm.current = resolve;
           push({ kind: 'confirm', question, detail });
+          // Spoken as well as shown. A question that only exists on a card is
+          // a question someone who is talking never hears, and they are left
+          // waiting on an assistant that has quietly stopped.
+          speakIfEnabled(detail ? `${question} ${detail}` : question);
         }),
     }),
     [push, speakIfEnabled],
   );
+
+  /** Said while a confirmation was open, and not an answer to it. */
+  const queued = useRef<string | null>(null);
 
   /** Answer the outstanding confirmation, and mark its card as decided. */
   const answerConfirm = useCallback((approved: boolean) => {
@@ -195,7 +203,28 @@ export function useAtlas(
   const ask = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || busy) return;
+      if (!trimmed) return;
+
+      /**
+       * An outstanding confirmation owns whatever you say next.
+       *
+       * Without this the answer is simply dropped: `busy` stays true for as
+       * long as the executor is awaiting the card, so "yes" arrived, matched
+       * the early return, and vanished — which from the outside looks like
+       * Atlas getting stuck on his own question.
+       */
+      if (pendingConfirm.current) {
+        push({ kind: 'you', text: trimmed });
+        const answer = readAffirmation(trimmed);
+        answerConfirm(answer === 'yes');
+        // Something that is neither yes nor no is a new instruction, not an
+        // answer. The pending action is declined rather than left hanging, and
+        // what was actually said is queued for once the executor has unwound.
+        if (answer === null) queued.current = trimmed;
+        return;
+      }
+
+      if (busy) return;
       push({ kind: 'you', text: trimmed });
       setBusy(true);
       try {
@@ -204,8 +233,24 @@ export function useAtlas(
         setBusy(false);
       }
     },
-    [busy, engine, io, push],
+    [busy, engine, io, push, answerConfirm],
   );
+
+  /**
+   * Run whatever was said over a confirmation, once the engine is free.
+   *
+   * A ref rather than state: this is a handoff between two turns, not
+   * something the screen renders, and putting it in state would re-render the
+   * transcript to carry a string nobody can see.
+   */
+  const askRef = useRef(ask);
+  askRef.current = ask;
+  useEffect(() => {
+    if (busy || !queued.current) return;
+    const next = queued.current;
+    queued.current = null;
+    void askRef.current(next);
+  }, [busy]);
 
   /** Run a row's action — the same executor path a typed command takes. */
   const runAction = useCallback(

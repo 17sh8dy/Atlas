@@ -18,6 +18,7 @@ import type {
   WebSearchResult,
 } from '@atlas/core';
 import { Engine } from '../src/engine';
+import { readAffirmation } from '../src/text/affirmation';
 import { Grammar } from '../src/planner/grammar';
 import { SkillRegistry } from '../src/skills/registry';
 import { createCoreSkills } from '../src/skills/core-skills';
@@ -779,17 +780,32 @@ test('executor: a safe skill runs without asking', async () => {
 
 test('executor: a risky skill asks first', async () => {
   const h = harness();
-  await h.engine.ask('open steam', io(h));
+  await h.engine.ask('delete D:\\Dev\\old.txt', io(h));
   assert.equal(h.confirmsAsked.length, 1);
-  assert.deepEqual(h.journal.launched, ['steam']);
+  assert.deepEqual(h.journal.deleted, ['D:\\Dev\\old.txt']);
 });
 
 test('executor: declining means nothing happens', async () => {
   const h = harness();
   h.confirmAnswer = false;
-  await h.engine.ask('open steam', io(h));
-  assert.deepEqual(h.journal.launched, []);
+  await h.engine.ask('delete D:\\Dev\\old.txt', io(h));
+  assert.deepEqual(h.journal.deleted, []);
   assert.match(h.said.join(' '), /left alone/i);
+});
+
+/**
+ * The policy, pinned.
+ *
+ * Opening something you just named is not a decision worth taking twice, and
+ * behind a voice it is not one extra click but a trip back to the keyboard.
+ * This is the test that fails if "reaches outside Atlas" ever creeps back in
+ * as the definition of risky.
+ */
+test('executor: opening what you just named runs without asking', async () => {
+  const h = harness();
+  await h.engine.ask('open steam', io(h));
+  assert.equal(h.confirmsAsked.length, 0);
+  assert.deepEqual(h.journal.launched, ['steam']);
 });
 
 test('executor: a declined step aborts the rest of the plan', async () => {
@@ -801,13 +817,14 @@ test('executor: a declined step aborts the rest of the plan', async () => {
       intent: 'test',
       confidence: 1,
       steps: [
-        { skill: 'app.open', args: { name: 'steam' } },
+        { skill: 'files.delete', args: { path: 'D:\\Dev\\old.txt' } },
         { skill: 'files.open', args: { path: 'D:\\a.txt' } },
       ],
     },
     io(h),
   );
   assert.equal(outcome.aborted, true);
+  assert.equal(h.journal.deleted.length, 0);
   assert.equal(h.journal.opened.length, 0);
 });
 
@@ -2354,4 +2371,43 @@ test('policy: the tidied text is screened too, so filler is not a way around it'
   const outcome = await h.engine.ask('hey can you please open pornhub for me', io(h));
   assert.equal(outcome.error, 'refused:explicit');
   assert.lengthOf(h.journal.urls, 0);
+});
+
+// ---- affirmations --------------------------------------------------------------
+//
+// A confirmation can be answered out loud, which needs the small closed set of
+// ways people say yes and no. Deterministic on purpose: this is not a job that
+// wants a model, and a model that occasionally reads "no" as agreement would be
+// answering "shall I delete this?" on your behalf.
+
+test('affirmation: plain yes and no', () => {
+  assert.equal(readAffirmation('yes'), 'yes');
+  assert.equal(readAffirmation('no'), 'no');
+  assert.equal(readAffirmation('yeah'), 'yes');
+  assert.equal(readAffirmation('nope'), 'no');
+  assert.equal(readAffirmation('do it'), 'yes');
+  assert.equal(readAffirmation('cancel'), 'no');
+});
+
+test('affirmation: punctuation and case are noise', () => {
+  assert.equal(readAffirmation('Yes!'), 'yes');
+  assert.equal(readAffirmation('  YES.  '), 'yes');
+  assert.equal(readAffirmation('No, thanks'), 'no');
+  assert.equal(readAffirmation("Don't"), 'no');
+});
+
+test('affirmation: a whole sentence is not an answer', () => {
+  // The point of the null: "no, open Firefox instead" is an instruction that
+  // begins with a refusal, and reading it as a bare "no" throws the rest away.
+  assert.equal(readAffirmation('no, open firefox instead'), null);
+  assert.equal(readAffirmation('yes and then open steam'), null);
+  assert.equal(readAffirmation('what can you do?'), null);
+  assert.equal(readAffirmation(''), null);
+});
+
+test('affirmation: never matches a word inside another', () => {
+  // The reason the table is whole-utterance rather than prefix-matched.
+  assert.equal(readAffirmation('yesterday'), null);
+  assert.equal(readAffirmation('notes'), null);
+  assert.equal(readAffirmation('november'), null);
 });
