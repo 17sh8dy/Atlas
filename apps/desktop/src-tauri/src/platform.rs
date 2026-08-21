@@ -812,6 +812,14 @@ pub fn open_system_tool(id: String) -> Result<bool, String> {
         "device-manager" => "devmgmt.msc",
         "windows-settings" => "ms-settings:",
         "control-panel" => "control.exe",
+        // The shells. File Explorer is here rather than treated as an
+        // installed application because it is not one — it has no Start
+        // Menu entry to match against, so "open File Explorer" found
+        // nothing and said so, which is a strange thing to be told about
+        // the file manager.
+        "file-explorer" => "explorer.exe",
+        "this-pc" => "shell:MyComputerFolder",
+        "recycle-bin" => "shell:RecycleBinFolder",
         _ => return Err(format!("No system tool with id “{id}”.")),
     };
     opener_open(target)

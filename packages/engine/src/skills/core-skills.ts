@@ -70,7 +70,46 @@ const SYSTEM_TOOL_NAMES: Record<string, string> = {
   'device-manager': 'Device Manager',
   'windows-settings': 'Windows Settings',
   'control-panel': 'Control Panel',
+  'file-explorer': 'File Explorer',
+  'this-pc': 'This PC',
+  'recycle-bin': 'the Recycle Bin',
 };
+
+/**
+ * The name to match on, and what it matched.
+ *
+ * ── Why the verb has to be peeled off *here* ────────────────────────────────
+ * "open open steam" reaches the grammar as a perfectly ordinary sentence: the
+ * first "open" is the verb, and everything after it is the name. So the name
+ * becomes "open steam", nothing is installed under it, and Atlas reports that
+ * honestly and uselessly. Voice makes this common — a stutter, a false start,
+ * or the transcriber hearing the wake of a previous word.
+ *
+ * The obvious fix is to let the grammar swallow repeated verbs. It cannot:
+ * "open Open Cut" is the same shape and the second "open" is the first word of
+ * the application's name. Only the layer holding the list of installed
+ * applications can tell those apart, which is this one.
+ *
+ * So the name is tried as given, and a leading verb is peeled off only when
+ * that found nothing. Installed applications win, exactly as they win over
+ * site names — "Open Cut" matches on the first attempt and never reaches the
+ * retry.
+ */
+function resolveAppName(apps: AppEntry[], name: string) {
+  const matches = matchApps(apps, name);
+  if (matches.length) return { wanted: name, matches };
+
+  const stripped = name.replace(/^\s*(?:open|launch|start|run)\s+/i, '').trim();
+  if (stripped && stripped !== name) {
+    const retry = matchApps(apps, stripped);
+    if (retry.length) return { wanted: stripped, matches: retry };
+  }
+
+  // Nothing either way. The *original* is what gets reported, because that is
+  // what was asked for and "I couldn't find open steam" is at least a true
+  // account of what Atlas heard.
+  return { wanted: name, matches };
+}
 
 export function createCoreSkills(
   platform: Platform,
@@ -708,9 +747,8 @@ export function createCoreSkills(
     examples: ['open steam', 'launch discord'],
     params: { name: { type: 'string', required: true, description: 'the application name' } },
     async run(args, ctx) {
-      const wanted = String(args.name).trim();
       const apps = await platform.listApps!();
-      const matches = matchApps(apps, wanted);
+      const { wanted, matches } = resolveAppName(apps, String(args.name).trim());
 
       if (matches.length) {
         const best = matches[0]!;
@@ -942,15 +980,23 @@ export function createCoreSkills(
     icon: '🛠️',
     domain: 'system',
     description:
-      'Launch a known Windows system utility: Task Manager, Device Manager, Windows Settings, or Control Panel.',
+      'Launch a known Windows shell or utility: File Explorer, This PC, the Recycle Bin, Task Manager, Device Manager, Windows Settings, or Control Panel.',
     needs: ['system'],
     risk: 'safe',
-    examples: ['open task manager', 'open device manager'],
+    examples: ['open file explorer', 'open task manager', 'open the recycle bin'],
     params: {
       tool: {
         type: 'string',
         required: true,
-        enum: ['task-manager', 'device-manager', 'windows-settings', 'control-panel'],
+        enum: [
+          'task-manager',
+          'device-manager',
+          'windows-settings',
+          'control-panel',
+          'file-explorer',
+          'this-pc',
+          'recycle-bin',
+        ],
         description: 'which system tool to open',
       },
     },

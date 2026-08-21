@@ -121,6 +121,11 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       { id: 'crosshairx', name: 'CrosshairX', target: 'crosshairx.exe' },
       { id: 'notepad++', name: 'Notepad++', target: 'notepad++.exe' },
       { id: 'fortnite', name: 'Fortnite', target: 'FortniteClient.exe' },
+      // Its name begins with the verb, which is the whole point: peeling a
+      // stuttered "open" must never reach an app actually called Open Cut.
+      // Not last in this list on purpose — a test below asserts what "the last
+      // one" resolves to.
+      { id: 'opencut', name: 'Open Cut', target: 'OpenCut.exe' },
       { id: 'epic-games-launcher', name: 'Epic Games Launcher', target: 'EpicGamesLauncher.exe' },
     ],
     launchApp: async (id) => {
@@ -2410,4 +2415,73 @@ test('affirmation: never matches a word inside another', () => {
   assert.equal(readAffirmation('yesterday'), null);
   assert.equal(readAffirmation('notes'), null);
   assert.equal(readAffirmation('november'), null);
+});
+
+// ---- opening things by name ----------------------------------------------------
+//
+// Every case here is one Brandon actually hit. "open File Explorer" offered to
+// be taught what File Explorer meant, and "open open steam" said the same — both
+// because a rule claimed the phrase before the rule that could have handled it.
+
+test('the shells open, despite their names containing file words', async () => {
+  const h = harness();
+  await h.engine.ask('open file explorer', io(h));
+  assert.deepEqual(h.journal.systemTools, ['file-explorer']);
+});
+
+test('this pc and the recycle bin open too', async () => {
+  const h = harness();
+  await h.engine.ask('open this pc', io(h));
+  await h.engine.ask('open the recycle bin', io(h));
+  assert.deepEqual(h.journal.systemTools, ['this-pc', 'recycle-bin']);
+});
+
+test('emptying the recycle bin is still not opening it', () => {
+  const h = harness();
+  // The word "recycle bin" appears in both, so the open rule has to decline
+  // the destructive phrasing or it would quietly swallow it.
+  assert.equal(h.engine.grammar.parse('empty the recycle bin')?.steps[0].skill, 'system.emptyRecycleBin');
+});
+
+test('a stuttered verb still opens the app', async () => {
+  const h = harness();
+  await h.engine.ask('open open steam', io(h));
+  assert.deepEqual(h.journal.launched, ['steam']);
+});
+
+test('peeling a stuttered verb never steals from an app named after one', async () => {
+  const h = harness();
+  await h.engine.ask('open open cut', io(h));
+  // "Open Cut" matches on the first attempt, so the retry never runs.
+  assert.deepEqual(h.journal.launched, ['opencut']);
+});
+
+test('a remembered name still needs the possessive that taught it', () => {
+  const h = harness();
+  assert.equal(h.engine.grammar.parse('open my work folder')?.steps[0].skill, 'files.openAlias');
+  // Without "my" this is a request to open something called that, not a
+  // lookup of a name Atlas was taught.
+  assert.notEqual(h.engine.grammar.parse('open file explorer')?.steps[0].skill, 'files.openAlias');
+});
+
+test('a remembered name no longer has to be about files', () => {
+  const h = harness();
+  const parsed = h.engine.grammar.parse('open my gaming rig');
+  assert.equal(parsed?.steps[0].skill, 'files.openAlias');
+  assert.equal(parsed?.steps[0].args.subject, 'gaming rig');
+});
+
+test('plain file talk still belongs to the file rules', () => {
+  const h = harness();
+  // The veto that was too blunt still has to fire when the target really is
+  // nothing but a file noun.
+  assert.notEqual(h.engine.grammar.parse('open documents')?.steps[0].skill, 'app.open');
+});
+
+test('a target made only of file nouns is still file talk', () => {
+  const h = harness();
+  // Two file nouns, not one — the veto strips all of them, so this stays away
+  // from app.open even though removing the first would leave "folder" behind.
+  assert.notEqual(h.engine.grammar.parse('open invoice folder')?.steps[0].skill, 'app.open');
+  assert.notEqual(h.engine.grammar.parse('open the pdf document')?.steps[0].skill, 'app.open');
 });

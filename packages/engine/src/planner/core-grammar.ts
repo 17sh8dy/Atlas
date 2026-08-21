@@ -35,6 +35,16 @@ const REFERENTIAL = /^(it|that|this|them|those|the (first|second|third|last) one
 const FILE_NOUN =
   /\b(file|files|document|documents|pdf|photo|photos|picture|pictures|image|images|video|videos|screenshot|screenshots|folder|folders|spreadsheet|invoice|invoices|note|notes|report|resume|cv|download|downloads)\b/i;
 
+/**
+ * The same set, for removing *every* file noun rather than testing for one.
+ *
+ * A separate constant because a `/g` regex carries `lastIndex` between calls,
+ * and sharing one instance between a `.test()` and a `.replace()` makes the
+ * test skip matches on every other call — a bug that looks like the grammar
+ * being intermittently wrong.
+ */
+const FILE_NOUNS_GLOBAL = new RegExp(FILE_NOUN.source, 'gi');
+
 /** A Windows drive path, a UNC path, or a POSIX absolute path, at the start of a string. */
 const ABS_PATH_START = /^(?:[a-z]:[\\/]|\\\\|~?\/)/i;
 
@@ -685,6 +695,33 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         if (/\bcontrol panel\b/.test(lower)) {
           return plan(step('system.openTool', { tool: 'control-panel' }), 'system-tool');
         }
+        // The shells, and the reason this rule has to run this early: "File
+        // Explorer" contains the word "file", so the file rules below claimed
+        // it long before the app rules got a look — which is how asking for
+        // the file manager produced an offer to teach Atlas what "File
+        // Explorer" means.
+        //
+        // Unlike the utilities above, these three require an opening verb.
+        // "task manager" names one thing and nothing else, but "my computer"
+        // is a phrase that turns up in sentences about the machine rather than
+        // about the folder — "restart my computer" being the one that caught
+        // this, and it is a bad sentence to get wrong.
+        const opening = /\b(?:open|show|launch|start|bring up|go to)\b/.test(lower);
+        if (opening && /\b(?:file explorer|windows explorer|explorer)\b/.test(lower)) {
+          return plan(step('system.openTool', { tool: 'file-explorer' }), 'system-tool');
+        }
+        if (opening && /\b(?:this pc|my computer)\b/.test(lower)) {
+          return plan(step('system.openTool', { tool: 'this-pc' }), 'system-tool');
+        }
+        // Opening the bin only. Emptying it is `system.emptyRecycleBin`, which
+        // is still confirm-gated — that one does not come back.
+        if (
+          opening &&
+          /\brecycle bin\b/.test(lower) &&
+          !/\b(?:empty|clear|delete)\b/.test(lower)
+        ) {
+          return plan(step('system.openTool', { tool: 'recycle-bin' }), 'system-tool');
+        }
         return null;
       },
     },
@@ -887,9 +924,18 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
       test(_lower, raw) {
         const captured = raw.match(/^\s*(?:open|show|reveal)\s+(.+?)\s*[?.!]*$/i)?.[1];
         if (!captured) return null;
+        // The possessive is what makes this a *remembered name*, and it is
+        // checked before `clean()` strips it. Without it the rule claimed
+        // anything containing a file word — "File Explorer", "Notes",
+        // "Photos" — and answered a request to open an application with an
+        // offer to teach Atlas what its name meant.
+        if (!/^\s*(?:my|our)\s+/i.test(captured)) return null;
         const target = clean(captured);
         if (!target || REFERENTIAL.test(target)) return null;
-        if (!FILE_NOUN.test(target)) return null;
+        // A file noun is no longer required. "remember my gaming rig is
+        // D:\\Games" was always allowed, so "open my gaming rig" has to work
+        // too — and with the possessive present there is nothing left to
+        // confuse this with.
         return plan(step('files.openAlias', { subject: target }), 'open-alias', 0.85);
       },
     },
@@ -1013,8 +1059,14 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
 
         const target = clean(captured);
         if (!target) return null;
-        // File talk belongs to the file rules, which already had their turn.
-        if (FILE_NOUN.test(target)) return null;
+        // File talk belongs to the file rules, which already had their turn —
+        // but only when the target *is* file talk. "documents" is; "File
+        // Explorer" is a name that happens to contain a file word, and
+        // vetoing that left no rule at all willing to handle the request. So
+        // the veto now applies only when removing the file nouns leaves
+        // nothing behind. Every one of them, not just the first: "invoice
+        // folder" is two file nouns and is still entirely file talk.
+        if (FILE_NOUN.test(target) && !target.replace(FILE_NOUNS_GLOBAL, '').trim()) return null;
 
         // Slightly under the usual grammar confidence: the app might not exist,
         // and the skill will say so.
