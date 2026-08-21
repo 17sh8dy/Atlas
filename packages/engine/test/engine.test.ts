@@ -2485,3 +2485,72 @@ test('a target made only of file nouns is still file talk', () => {
   assert.notEqual(h.engine.grammar.parse('open invoice folder')?.steps[0].skill, 'app.open');
   assert.notEqual(h.engine.grammar.parse('open the pdf document')?.steps[0].skill, 'app.open');
 });
+
+// ---- the policy, after opening stopped being confirm-gated ---------------------
+//
+// Thirteen skills moved from `risk: 'confirm'` to `safe`, and most of them are
+// the outward-reaching ones — web.search, searchImages, web.open, openBrowser.
+// A confirm card used to put a human between an explicit query and the browser.
+// It no longer does, so these pin that the card was never what was stopping it:
+// the policy sits at the registry, below risk, and is unaffected by the change.
+
+test('policy: every skill that stopped asking still refuses explicit work', async () => {
+  const cases: Array<[string, Record<string, string>]> = [
+    ['web.search', { query: 'porn' }],
+    ['web.searchImages', { query: 'porn' }],
+    ['web.searchYoutube', { query: 'porn' }],
+    ['web.open', { url: 'https://xvideos.com' }],
+    // `name`, not `url`: this skill opens *a browser*, never a destination, so
+    // its only destination-shaped argument is the one it actually takes.
+    ['web.openBrowser', { name: 'porn' }],
+    ['app.open', { name: 'porn' }],
+  ];
+
+  for (const [skill, args] of cases) {
+    const h = harness();
+    const result = await h.engine.skills.invoke(skill, args, io(h));
+    assert.isFalse(result.ok, `${skill} ran when it should have refused`);
+    assert.match(String(result.error), /don't search for, open, or play pornography/, skill);
+    assert.deepEqual(h.journal.urls, [], `${skill} reached the browser`);
+    assert.deepEqual(h.web.searchedQueries, [], `${skill} reached a search`);
+  }
+});
+
+test('policy: a now-unconfirmed search is still refused end to end', async () => {
+  const h = harness();
+  // Previously a card stood between this and the browser. Now nothing does
+  // except the policy, which is the point of the test.
+  const outcome = await h.engine.ask('search for images of porn', io(h));
+  assert.isFalse(outcome.ok);
+  assert.deepEqual(h.confirmsAsked, []);
+  assert.deepEqual(h.web.searchedQueries, []);
+  assert.deepEqual(h.journal.urls, []);
+});
+
+/**
+ * Voice hears the refusal.
+ *
+ * The refusal goes out through `io.say`, which is the same channel the spoken
+ * reply reads from — so in the voice screen it is heard, not merely displayed.
+ * That matters because the alternative is the failure confirmations had: a
+ * message that exists only on a card, and an assistant that appears to have
+ * gone quiet for no reason.
+ */
+test('policy: a refusal is said, so voice mode hears it too', async () => {
+  const h = harness();
+  await h.engine.ask('play some porn', io(h));
+  assert.isNotEmpty(h.said, 'the refusal never reached the channel speech reads');
+  assert.match(h.said.join(' '), /don't search for, open, or play pornography/);
+});
+
+test('policy: a spoken request is screened exactly like a typed one', async () => {
+  // Voice reaches the engine through the same `ask` a keystroke does — there
+  // is no second entry point — so this pins that equivalence rather than the
+  // transport. If a voice-only path is ever added, this is the test that has
+  // to be given a reason to still pass.
+  const h = harness();
+  const typed = await h.engine.ask('search the web for porn', io(h));
+  const spoken = await h.engine.ask('Search the web for porn.', io(h));
+  assert.equal(typed.error, 'refused:explicit');
+  assert.equal(spoken.error, 'refused:explicit');
+});
