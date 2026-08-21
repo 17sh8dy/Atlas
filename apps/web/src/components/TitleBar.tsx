@@ -123,21 +123,13 @@ export function TitleBar({ right, onLogoClick }: Props) {
           onClick={onLogoClick}
           aria-label="Back to Atlas"
           title="Back to Atlas"
-          className="duration-fast hover:bg-surface flex select-none items-center gap-2.5 px-4 transition"
+          className="duration-fast hover:bg-surface flex select-none items-center px-4 transition"
         >
-          <div className="accent-surface text-primary-foreground grid h-5 w-5 place-items-center rounded-md">
-            <Icons.Compass className="h-3 w-3" />
-          </div>
-          <span className="text-foreground text-[13px] font-semibold tracking-tight">Atlas</span>
-          <span className="text-foreground-subtle text-[11px]">Navigator Engine</span>
+          <Wordmark />
         </button>
       ) : (
-        <div className="flex select-none items-center gap-2.5 px-4">
-          <div className="accent-surface text-primary-foreground grid h-5 w-5 place-items-center rounded-md">
-            <Icons.Compass className="h-3 w-3" />
-          </div>
-          <span className="text-foreground text-[13px] font-semibold tracking-tight">Atlas</span>
-          <span className="text-foreground-subtle text-[11px]">Navigator Engine</span>
+        <div className="flex select-none items-center px-4">
+          <Wordmark />
         </div>
       )}
       <div data-tauri-drag-region className="flex-1" />
@@ -169,6 +161,44 @@ export function TitleBar({ right, onLogoClick }: Props) {
         </div>
       )}
     </header>
+  );
+}
+
+/**
+ * The mark, the name, and what powers it.
+ *
+ * The two runs of text share a **baseline**. Centring them independently —
+ * which is what a plain `items-center` row does — left the 11px run sitting
+ * two pixels above the 13px one, because a smaller font's baseline falls
+ * higher inside a centred line box. Two pixels is not enough to look like a
+ * mistake and is exactly enough to look careless: the tagline read as floating
+ * beside the name rather than as set on the same line as it.
+ *
+ * Every element here is a `span` because this renders inside a `<button>`,
+ * which may not contain a `<div>`.
+ */
+function Wordmark() {
+  return (
+    <span className="flex items-center gap-2.5">
+      {/* The mark is centred against the text, not baseline-aligned with it: a
+          square has no baseline worth sharing, and sitting its bottom edge on
+          the text's would drop it below the middle of the bar. Which is why
+          the type is nested one level deeper — a baseline row that also holds
+          the mark takes its height from the text and centres the mark inside
+          that, which tips the whole group two pixels high instead. */}
+      <span className="accent-surface text-primary-foreground grid h-5 w-5 shrink-0 place-items-center rounded-md">
+        <Icons.Compass className="h-3 w-3" />
+      </span>
+      {/* `leading-none` on both: with each line box tight to its own glyphs,
+          the baseline is set by the font alone and neither run can drift when
+          the inherited line height changes underneath them. */}
+      <span className="flex items-baseline gap-2.5">
+        <span className="text-foreground text-[13px] font-semibold leading-none tracking-tight">
+          Atlas
+        </span>
+        <span className="text-foreground-subtle text-[11px] leading-none">Navigator Engine</span>
+      </span>
+    </span>
   );
 }
 
