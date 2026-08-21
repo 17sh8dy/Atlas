@@ -268,6 +268,21 @@ providers first inverted that. Closing this phase means making Ollama real.
 **Also outstanding:** Gemini, and a generic provider contract for endpoints
 that don't exist yet (the Developer tab already documents the contract).
 
+**Decision (Brandon, 2026-08-21): ordinary conversation waits for Cortex.**
+Saying "hello" to Atlas today gets a deterministic reply from `phrasing.ts`,
+and that is where it stays. The obvious shortcut — route small talk to
+whichever cloud provider happens to be configured — is refused, because it
+would make the *most common* thing anyone says to an assistant the one thing
+that needs a key and a network, which inverts the thesis at the exact point a
+first-time user meets it.
+
+[Cortex](file:///D:/Dev/Cortex) is the intended answer: a local model, on this
+machine, for the conversational tail that grammar cannot cover. It is not
+ready — v0.1 is explicitly educational and is not wired to anything — so the
+sequence is Ollama or Cortex first, conversation second. Until then, small
+talk being a little stiff is the honest cost of not having a local model yet,
+and is preferable to it being fluent only for people who have paid for one.
+
 ## Phase 5 — Routines
 
 - "Save that as my morning routine", then "run my morning routine".

@@ -20,6 +20,8 @@
  * dragging a re-render along behind every sample.
  */
 
+import { fillBands } from './spectrum';
+
 export type SpeechState = 'idle' | 'loading' | 'speaking';
 
 type Listener = (state: SpeechState) => void;
@@ -102,6 +104,23 @@ export class SpeechPlayer {
 
     // Gently expanded: raw means hover low and make the blob look timid.
     return Math.min(1, mean * 1.8);
+  }
+
+  /**
+   * The shape of what is being said, as one 0–1 value per band.
+   *
+   * `level()` answers "how loud", which makes a circle that pulses. This
+   * answers "loud where", which is what lets a shape move differently for a
+   * vowel than for a consonant — the difference between a meter and something
+   * that looks like it is speaking.
+   */
+  bands(out: Float32Array): void {
+    if (!this.analyser || this.state !== 'speaking') {
+      out.fill(0);
+      return;
+    }
+    this.analyser.getByteFrequencyData(this.frequencies);
+    fillBands(this.frequencies, out);
   }
 
   async play(audio: ArrayBuffer): Promise<void> {

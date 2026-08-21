@@ -312,6 +312,12 @@ function Ready({
     [voice, listening],
   );
 
+  /** The spectrum the orb draws, from whichever side is making sound. */
+  const voiceBands = useCallback(
+    (out: Float32Array) => (speakingRef.current ? voice.bands(out) : listening.bands(out)),
+    [voice, listening],
+  );
+
   /** The last thing Atlas actually said, for the screen to show in text. */
   const lastReply = useMemo(() => {
     for (let i = atlas.entries.length - 1; i >= 0; i--) {
@@ -464,6 +470,7 @@ function Ready({
           <VoiceScreen
             phase={phase}
             level={voiceLevel}
+            bands={voiceBands}
             heard={heard}
             reply={lastReply}
             handsFree={listeningPrefs.handsFree}

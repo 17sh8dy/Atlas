@@ -24,6 +24,8 @@ export interface Speech {
   supported: boolean;
   /** Read from an animation frame, never from render. 0 when silent. */
   level(): number;
+  /** Per-band amplitude, filled into the caller's array. Zeroed when silent. */
+  bands(out: Float32Array): void;
   /**
    * Why the last attempt made no sound, or null.
    *
@@ -98,6 +100,7 @@ export function useSpeech(platform: Platform, route: VoiceRoute = LOCAL): Speech
 
   const stop = useCallback(() => player.stop(), [player]);
   const level = useCallback(() => player.level(), [player]);
+  const bands = useCallback((out: Float32Array) => player.bands(out), [player]);
 
   const supported = Boolean(platform.synthesizeSpeech);
 
@@ -105,7 +108,7 @@ export function useSpeech(platform: Platform, route: VoiceRoute = LOCAL): Speech
   // `level` from an animation frame, and a new object on every render would
   // restart that loop continuously.
   return useMemo(
-    () => ({ speak, stop, state, supported, level, lastError }),
-    [speak, stop, state, supported, level, lastError],
+    () => ({ speak, stop, state, supported, level, bands, lastError }),
+    [speak, stop, state, supported, level, bands, lastError],
   );
 }

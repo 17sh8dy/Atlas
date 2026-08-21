@@ -10,20 +10,17 @@
  * where he listens" is a thing a person can hold in their head.
  *
  * ── The visualiser is a status light, not decoration ────────────────────────
- * It reads the real signal — the microphone's level while you talk, the
+ * It reads the real signal — the microphone's spectrum while you talk, the
  * synthesised audio's while Atlas answers — so it cannot show the wrong
  * state. A spinner would be honest about *waiting* and dishonest about
  * everything else: it would keep spinning through a dead microphone, a muted
- * input, a stalled transcriber. This moves when sound moves, and is still
- * when there is none.
+ * input, a stalled transcriber. This moves when sound moves.
  *
- * It updates from an animation frame writing a CSS variable, never from React
- * state. Sixty renders a second to move a circle would be sixty reconciliations
- * of a screen that is otherwise still.
+ * See `components/VoiceOrb` for how it is drawn and why it is a canvas.
  */
 
-import { useEffect, useRef } from 'react';
 import { Icons, cn } from '@atlas/ui';
+import { VoiceOrb } from '../components/VoiceOrb';
 
 export type VoicePhase =
   /** Microphone closed. Nothing is being captured. */
@@ -43,6 +40,8 @@ interface Props {
   phase: VoicePhase;
   /** Live 0–1 amplitude. Read on every frame, never rendered. */
   level(): number;
+  /** Per-band amplitude, filled into the caller's array. Read every frame. */
+  bands(out: Float32Array): void;
   /** The last thing Atlas heard you say. */
   heard: string | null;
   /** The last thing Atlas said back. */
@@ -67,6 +66,7 @@ const LABEL: Record<VoicePhase, string> = {
 export function VoiceScreen({
   phase,
   level,
+  bands,
   heard,
   reply,
   handsFree,
@@ -74,34 +74,7 @@ export function VoiceScreen({
   onToggle,
   onClose,
 }: Props) {
-  const orb = useRef<HTMLDivElement>(null);
   const live = phase !== 'off';
-
-  /**
-   * The amplitude loop.
-   *
-   * Smoothed on the way in, because the raw value is jittery enough to make
-   * the orb buzz rather than breathe, and a display that buzzes reads as
-   * broken however accurate it is. Decays faster than it rises so the ring
-   * follows a syllable up and settles down after it, the way a level meter
-   * does.
-   */
-  useEffect(() => {
-    if (!live) {
-      orb.current?.style.setProperty('--voice-level', '0');
-      return;
-    }
-    let frame = 0;
-    let smoothed = 0;
-    const tick = () => {
-      const next = level();
-      smoothed = next > smoothed ? smoothed + (next - smoothed) * 0.5 : smoothed * 0.86;
-      orb.current?.style.setProperty('--voice-level', smoothed.toFixed(3));
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [live, level]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-8 py-10">
@@ -110,55 +83,22 @@ export function VoiceScreen({
           type="button"
           onClick={onToggle}
           aria-label={live ? 'Stop listening' : 'Start listening'}
-          className="group relative grid h-40 w-40 place-items-center rounded-full outline-none"
+          className="relative grid h-60 w-60 place-items-center rounded-full outline-none"
         >
-          {/* Two rings driven by the same variable at different gains: the
-              outer one overshoots, which is what makes a loud syllable read
-              as a pulse rather than as a step. */}
-          <span
-            ref={orb}
-            className={cn(
-              'absolute inset-0 rounded-full transition-colors',
-              live ? 'bg-primary/10' : 'bg-surface',
-            )}
-            style={{ ['--voice-level' as string]: '0' }}
-          >
-            <span
-              className={cn(
-                'absolute inset-0 rounded-full',
-                live ? 'bg-primary/15' : 'bg-transparent',
-              )}
-              style={{
-                transform: 'scale(calc(1 + var(--voice-level) * 0.34))',
-                opacity: 'calc(0.35 + var(--voice-level) * 0.65)',
-              }}
-            />
-            <span
-              className={cn(
-                'absolute inset-4 rounded-full',
-                live ? 'bg-primary/25' : 'bg-transparent',
-              )}
-              style={{ transform: 'scale(calc(1 + var(--voice-level) * 0.18))' }}
-            />
+          <span className="pointer-events-none absolute inset-0 grid place-items-center">
+            <VoiceOrb phase={phase} bands={bands} level={level} size={240} />
           </span>
 
-          {/* The idle breath. Only while the microphone is open and nothing is
-              being said — a still screen would be indistinguishable from a
-              frozen one, and this is the difference between "waiting for you"
-              and "stopped working". */}
+          {/* The mark sits inside the shape rather than beside it, so the one
+              thing you press is the one thing that is moving. */}
           <span
             className={cn(
-              'accent-surface text-primary-foreground relative grid h-20 w-20 place-items-center rounded-full',
+              'accent-surface text-primary-foreground relative grid h-16 w-16 place-items-center rounded-full',
               'duration-base transition',
-              phase === 'listening' && 'motion-safe:animate-pulse',
               !live && 'opacity-60 grayscale',
             )}
           >
-            {live ? (
-              <Icons.Mic className="h-8 w-8" />
-            ) : (
-              <Icons.MicOff className="h-8 w-8" />
-            )}
+            {live ? <Icons.Mic className="h-6 w-6" /> : <Icons.MicOff className="h-6 w-6" />}
           </span>
         </button>
 

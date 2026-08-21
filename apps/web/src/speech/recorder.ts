@@ -25,6 +25,8 @@
  * without degrading one of them.
  */
 
+import { fillBands } from './spectrum';
+
 export type ListeningState =
   /** Not recording. The microphone is closed and the OS indicator is off. */
   | 'idle'
@@ -145,6 +147,16 @@ export class Recorder {
     let total = 0;
     for (let i = 0; i < usable; i++) total += this.levels[i]!;
     return Math.min(1, total / usable / 255 / 0.55);
+  }
+
+  /** The shape of what is being heard. See `SpeechPlayer.bands`. */
+  bands(out: Float32Array): void {
+    if (!this.analyser || this.state === 'idle') {
+      out.fill(0);
+      return;
+    }
+    this.analyser.getByteFrequencyData(this.levels);
+    fillBands(this.levels, out);
   }
 
   /** True while Atlas should be treated as talking over the microphone. */

@@ -33,6 +33,8 @@ export interface Listening {
   supported: boolean;
   /** Read from an animation frame, never from render. 0 when closed. */
   level(): number;
+  /** Per-band amplitude, filled into the caller's array. Zeroed when closed. */
+  bands(out: Float32Array): void;
   /** Why the last attempt heard nothing, or null. */
   error: string | null;
   /** Raise the speech gate while Atlas is talking, so he cannot interrupt himself. */
@@ -151,6 +153,7 @@ export function useListening(platform: Platform, options: Options): Listening {
 
   const stop = useCallback(() => recorder.stop(), [recorder]);
   const level = useCallback(() => recorder.level(), [recorder]);
+  const bands = useCallback((out: Float32Array) => recorder.bands(out), [recorder]);
   const setDucked = useCallback((ducked: boolean) => recorder.setDucked(ducked), [recorder]);
 
   // Closing the microphone when the app goes away is not politeness, it is the
@@ -163,7 +166,17 @@ export function useListening(platform: Platform, options: Options): Listening {
   // that loop down and rebuild it sixty times a second — and every effect that
   // legitimately depends on "the microphone" would fire on every render.
   return useMemo(
-    () => ({ start: startSafely, stop, state, transcribing, supported, level, error, setDucked }),
-    [startSafely, stop, state, transcribing, supported, level, error, setDucked],
+    () => ({
+      start: startSafely,
+      stop,
+      state,
+      transcribing,
+      supported,
+      level,
+      bands,
+      error,
+      setDucked,
+    }),
+    [startSafely, stop, state, transcribing, supported, level, bands, error, setDucked],
   );
 }
