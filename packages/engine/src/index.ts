@@ -20,6 +20,7 @@ export type { ExecutorOptions } from './planner/executor';
 
 export { Engine } from './engine';
 export type { EngineIO, EngineOptions, AskOutcome } from './engine';
+export type { EngineStage, EngineStatus } from './status';
 
 export { createCoreSkills } from './skills/core-skills';
 export { createWebSearchSkills } from './skills/web-search-skills';

@@ -241,6 +241,7 @@ function Ready({
           <Conversation
             entries={atlas.entries}
             busy={atlas.busy}
+            status={atlas.status}
             skills={atlas.skills}
             greeting={atlas.greeting}
             personalized={atlas.personalized}
@@ -248,7 +249,7 @@ function Ready({
             onAsk={atlas.ask}
             onRunAction={atlas.runAction}
             onAnswerConfirm={atlas.answerConfirm}
-          onCopy={atlas.copy}
+            onCopy={atlas.copy}
           />
         ) : (
           <Settings

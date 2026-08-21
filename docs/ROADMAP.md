@@ -260,6 +260,32 @@ providers first inverted that. Closing this phase means making Ollama real.
 **Also outstanding:** Gemini, and a generic provider contract for endpoints
 that don't exist yet (the Developer tab already documents the contract).
 
+**Escalation is now visible (2026-08-20).** The engine always decided, tier by
+tier, when a request needed a model — but it did so silently, and every request
+showed the same `Working…` whether it opened an app in 40ms or waited four
+seconds on a network round trip. `packages/engine/src/status.ts` adds an
+`EngineStatus` channel: the engine announces a **stage** (`working` /
+`searching` / `switching` / `thinking`) whenever the *kind* of work changes, and
+`EngineIO.status` carries it to whatever surface is driving. It replaces the
+`typing?(on: boolean)` hook, which the engine called and no surface ever
+implemented.
+
+Design notes worth keeping:
+
+- The label comes from **`phrasing.ts`**, not the UI, so a personalised Atlas
+  stays consistent — and the switch line **names the provider**
+  ("Switching to Claude…"). In a local-first assistant, the moment a question
+  leaves the machine is exactly the moment worth showing rather than hiding.
+- Statuses are mirrored onto the **bus** (`engine:status`), so anything else can
+  react to an escalation without being wired into the io object.
+- The engine emits **stages, not durations**. The minimum display time that
+  stops a fast hand-off flickering (`MIN_STATUS_MS` in `useAtlas.ts`) is a
+  presentation concern and lives in the surface; tests wait for nothing.
+- ⚠️ A provider may call `onDone` **synchronously** inside `ask` — the in-memory
+  test providers do. Both announcement sites are guarded by a `settled` flag,
+  or `Thinking…` would be announced *after* the clear and stranded on screen
+  forever, on precisely the fast path where it should never appear.
+
 ## Phase 5 — Routines
 
 - "Save that as my morning routine", then "run my morning routine".

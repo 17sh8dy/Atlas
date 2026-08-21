@@ -24,6 +24,27 @@ export interface Phrasing {
   failed(detail: string): string;
   /** What Atlas says the first time a conversation opens. */
   greeting(): string;
+
+  // ── Status labels ────────────────────────────────────────────────────────
+  // Shown while Atlas is still working, not after. They live here for the same
+  // reason every other string does: one place decides how Atlas sounds. All
+  // are phrased in the continuous present, because that is what a progress
+  // line is for.
+  /** Local work is under way. */
+  working(): string;
+  /** Reaching out to the web for current information. */
+  searching(): string;
+  /**
+   * Handing over to an intelligence provider.
+   *
+   * Takes the provider's own label, so the line names where the question is
+   * actually going — "Switching to Claude" answers a question that
+   * "Switching models" leaves open, and this is the one moment where a
+   * local-first assistant owes the user that detail.
+   */
+  switchingTo(providerLabel: string): string;
+  /** The provider has it and is generating an answer. */
+  thinking(): string;
 }
 
 /**
@@ -56,5 +77,13 @@ export function createPhrasing(profile: VoiceProfile = {}): Phrasing {
         ? `Hey ${userName} — I'm ${atlasName}. What do you need?`
         : `Hey — I'm ${atlasName}. What do you need?`;
     },
+
+    working: () => 'Working…',
+    searching: () => 'Searching the web…',
+    // Falls back to the generic line only when a provider has no label of its
+    // own, which a well-formed provider always does.
+    switchingTo: (providerLabel) =>
+      providerLabel?.trim() ? `Switching to ${providerLabel.trim()}…` : 'Switching models…',
+    thinking: () => 'Thinking…',
   };
 }

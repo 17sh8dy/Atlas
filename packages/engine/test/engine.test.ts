@@ -18,6 +18,7 @@ import type {
   WebSearchResult,
 } from '@atlas/core';
 import { Engine } from '../src/engine';
+import type { EngineStatus } from '../src/status';
 import { Grammar } from '../src/planner/grammar';
 import { SkillRegistry } from '../src/skills/registry';
 import { createCoreSkills } from '../src/skills/core-skills';
@@ -317,6 +318,8 @@ interface Harness {
   web: WebIndex;
   confirmAnswer: boolean;
   confirmsAsked: string[];
+  /** Every status the engine announced, in order. `null` = cleared. */
+  stages: (EngineStatus | null)[];
 }
 
 function harness(
@@ -384,6 +387,7 @@ function harness(
     memory,
     confirmAnswer: true,
     confirmsAsked: [],
+    stages: [],
   };
   return h;
 }
@@ -396,7 +400,13 @@ function io(h: Harness) {
       return h.confirmAnswer;
     },
     showResults: (items: ResultRow[]) => h.rows.push(...items),
+    status: (update: EngineStatus | null) => h.stages.push(update),
   };
+}
+
+/** Just the stage names the engine announced, for readable assertions. */
+function stageNames(h: Harness): string[] {
+  return h.stages.map((s) => s?.stage ?? 'cleared');
 }
 
 // ---- phrasing -----------------------------------------------------------------
@@ -2354,4 +2364,155 @@ test('policy: the tidied text is screened too, so filler is not a way around it'
   const outcome = await h.engine.ask('hey can you please open pornhub for me', io(h));
   assert.equal(outcome.error, 'refused:explicit');
   assert.lengthOf(h.journal.urls, 0);
+});
+
+
+// ---- escalation status --------------------------------------------------------
+//
+// The visible half of the tool-first promise. Atlas already decided, tier by
+// tier, how much machinery a request needed; these tests hold it to SAYING so,
+// because a silent four-second pause is indistinguishable from a hang.
+
+test('status: a local command never announces a stage', async () => {
+  const h = harness();
+  await h.engine.ask('open steam', io(h));
+  assert.deepEqual(stageNames(h), []);
+});
+
+test('status: a question with no provider never announces a stage', async () => {
+  const h = harness(undefined, { provider: null });
+  await h.engine.ask('what is the meaning of life?', io(h));
+  assert.deepEqual(stageNames(h), []);
+});
+
+test('status: escalating to a provider announces the switch, then clears', async () => {
+  const provider = makeProvider({ reply: 'Because it is.' });
+  const h = harness(undefined, { provider });
+
+  await h.engine.ask('why is the sky blue?', io(h));
+
+  // The provider here answers synchronously, so 'thinking' is correctly
+  // skipped - it would describe work that was already finished.
+  assert.deepEqual(stageNames(h), ['switching', 'cleared']);
+  assert.equal(h.stages[h.stages.length - 1], null, 'the last update must clear the line');
+});
+
+test('status: the switch names the provider it is switching to', async () => {
+  const provider = makeProvider({ reply: 'ok' });
+  const h = harness(undefined, { provider });
+
+  await h.engine.ask('why is the sky blue?', io(h));
+
+  const first = h.stages[0];
+  assert.equal(first?.stage, 'switching');
+  assert.equal(first?.label, 'Switching to Test Provider…');
+  assert.equal(first?.providerId, 'test-provider');
+});
+
+test('status: a local provider is flagged as local', async () => {
+  const provider = makeProvider({ reply: 'ok' });
+  const h = harness(undefined, { provider });
+  await h.engine.ask('why is the sky blue?', io(h));
+  assert.equal(h.stages[0]?.local, true);
+});
+
+test('status: the line is cleared even when the provider fails', async () => {
+  const provider = makeProvider({ error: 'offline' });
+  const h = harness(undefined, { provider });
+
+  await h.engine.ask('why is the sky blue?', io(h));
+
+  assert.equal(
+    h.stages[h.stages.length - 1],
+    null,
+    'a failed provider must not strand the status line on screen',
+  );
+});
+
+test('status: an engine driven without a status handler still works', async () => {
+  const provider = makeProvider({ reply: 'fine' });
+  const h = harness(undefined, { provider });
+  const bare = {
+    say: (t: string) => h.said.push(t),
+    confirm: async () => true,
+  };
+
+  await h.engine.ask('why is the sky blue?', bare);
+  assert.ok(h.said.join(' ').includes('fine'));
+});
+
+test('status: every announcement is mirrored onto the bus', async () => {
+  const provider = makeProvider({ reply: 'ok' });
+  const h = harness(undefined, { provider });
+  const seen: (EngineStatus | null)[] = [];
+  h.engine.bus.on('engine:status', (u) => seen.push(u as EngineStatus | null));
+
+  await h.engine.ask('why is the sky blue?', io(h));
+
+  assert.deepEqual(
+    seen.map((s) => s?.stage ?? 'cleared'),
+    stageNames(h),
+    'the bus copy and the io copy must not drift',
+  );
+});
+
+test('phrasing: status labels read as progress, not as replies', () => {
+  const p = createPhrasing();
+  assert.equal(p.working(), 'Working…');
+  assert.equal(p.searching(), 'Searching the web…');
+  assert.equal(p.thinking(), 'Thinking…');
+  assert.equal(p.switchingTo('Claude'), 'Switching to Claude…');
+});
+
+test('phrasing: an unlabelled provider falls back to the generic switch line', () => {
+  const p = createPhrasing();
+  assert.equal(p.switchingTo('   '), 'Switching models…');
+});
+
+test('status: a provider that takes time announces Thinking before it answers', async () => {
+  // The realistic case. Every other provider in these tests answers inside
+  // `ask`, which correctly SKIPS 'thinking' - but a real one goes over a
+  // network, and that gap is the entire reason this feature exists.
+  const slow: IntelligenceProvider = {
+    id: 'slow',
+    label: 'Slow Provider',
+    isConfigured: () => true,
+    isLocal: () => false,
+    ask(_prompt, handlers) {
+      setTimeout(() => handlers.onDone('eventually'), 5);
+    },
+  };
+  const h = harness(undefined, { provider: slow });
+
+  await h.engine.ask('why is the sky blue?', io(h));
+
+  assert.deepEqual(stageNames(h), ['switching', 'thinking', 'cleared']);
+  assert.equal(h.stages[1]?.label, 'Thinking…');
+  assert.equal(h.stages[1]?.local, false, 'a remote provider must not claim to be local');
+  assert.ok(h.said.join(' ').includes('eventually'));
+});
+
+test('status: planning through a provider announces and then clears', async () => {
+  // An instruction the grammar cannot parse escalates to the AI planner. That
+  // is a hand-off too, and it used to be just as silent.
+  const slow: IntelligenceProvider = {
+    id: 'slow',
+    label: 'Slow Provider',
+    isConfigured: () => true,
+    isLocal: () => false,
+    ask(_prompt, handlers) {
+      setTimeout(() => handlers.onDone('not json at all'), 5);
+    },
+  };
+  const h = harness(undefined, { provider: slow });
+
+  await h.engine.ask('do the thing with the stuff', io(h));
+
+  assert.equal(h.stages[0]?.stage, 'switching', 'the planner hand-off must announce itself');
+  assert.ok(stageNames(h).includes('thinking'));
+  assert.equal(
+    h.stages[h.stages.length - 1],
+    null,
+    'an unparseable plan must still clear the status line',
+  );
 });

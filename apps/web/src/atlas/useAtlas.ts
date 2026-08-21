@@ -43,6 +43,7 @@ import {
   createPhrasing,
   recordEpisodes,
   type EngineIO,
+  type EngineStatus,
 } from '@atlas/engine';
 import type { CapabilityName } from '@atlas/core';
 
@@ -62,6 +63,21 @@ export interface Entry {
 
 let nextId = 1;
 
+/**
+ * How long a status line stays up before it may be replaced.
+ *
+ * Without this, "Switching to Claude…" can appear and vanish inside a single
+ * frame on a fast hand-off, which reads as a glitch rather than as
+ * information — the eye registers that something flickered but not what it
+ * said. 420ms is long enough to read three words and short enough that it
+ * never feels like the app is padding its own progress.
+ *
+ * It lives here, in the surface, and not in the engine: the engine reports
+ * what is happening, and how long a human needs to see that is a
+ * presentation decision. A test driving the same engine waits for nothing.
+ */
+const MIN_STATUS_MS = 420;
+
 export function useAtlas(
   platform: Platform,
   capabilities: readonly CapabilityName[],
@@ -75,6 +91,71 @@ export function useAtlas(
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
   const pendingConfirm = useRef<((approved: boolean) => void) | null>(null);
+
+  // ── Status line ──────────────────────────────────────────────────────────
+  const [status, setStatus] = useState<EngineStatus | null>(null);
+  /** Mirrors `status` for the callback below, which must not re-create. */
+  const statusRef = useRef<EngineStatus | null>(null);
+  const shownAt = useRef(0);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Show a stage, honouring the minimum display time.
+   *
+   * If the current line has not been up long enough, the next one is queued
+   * rather than dropped, so a fast sequence still reads as a sequence instead
+   * of collapsing to whatever happened to be last.
+   */
+  const showStatus = useCallback((update: EngineStatus | null) => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+
+    const apply = () => {
+      shownAt.current = Date.now();
+      statusRef.current = update;
+      setStatus(update);
+    };
+
+    const remaining = MIN_STATUS_MS - (Date.now() - shownAt.current);
+    // Only hold when something is actually on screen to protect. Going from
+    // nothing to something is always immediate — that is the responsiveness
+    // the whole feature is for.
+    if (statusRef.current && remaining > 0) {
+      holdTimer.current = setTimeout(apply, remaining);
+    } else {
+      apply();
+    }
+  }, []);
+
+  /**
+   * Clear the line immediately, ignoring the minimum display time.
+   *
+   * Used at the start of a request. The hold exists to stop a line flickering
+   * mid-answer, but it must never make the NEXT request feel slow: without
+   * this, asking a second question within 420ms of the first finishing would
+   * queue the new "Switching…" behind the old line's leftover hold, which is
+   * the exact opposite of what the hold is for.
+   */
+  const resetStatus = useCallback(() => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    shownAt.current = 0;
+    statusRef.current = null;
+    setStatus(null);
+  }, []);
+
+  // A pending hold must not outlive the component, or it fires setState on an
+  // unmounted tree the next time Settings is opened mid-answer.
+  useEffect(
+    () => () => {
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    },
+    [],
+  );
 
   const push = useCallback((entry: Omit<Entry, 'id'>) => {
     setEntries((prev) => [...prev, { ...entry, id: nextId++ }]);
@@ -156,13 +237,20 @@ export function useAtlas(
         speakIfEnabled(text);
       },
       showResults: (rows, meta) => push({ kind: 'results', rows, meta }),
-      confirm: (question, detail) =>
-        new Promise<boolean>((resolve) => {
+      confirm: (question, detail) => {
+        // A question on screen is not "work in progress" — it is Atlas
+        // waiting on the user. Leaving a spinner up next to it would suggest
+        // the app is busy when the only thing missing is an answer.
+        showStatus(null);
+        return new Promise<boolean>((resolve) => {
           pendingConfirm.current = resolve;
           push({ kind: 'confirm', question, detail });
-        }),
+        });
+      },
+      status: (update) => showStatus(update),
+
     }),
-    [push, speakIfEnabled],
+    [push, speakIfEnabled, showStatus],
   );
 
   /** Answer the outstanding confirmation, and mark its card as decided. */
@@ -191,13 +279,19 @@ export function useAtlas(
       if (!trimmed || busy) return;
       push({ kind: 'you', text: trimmed });
       setBusy(true);
+      resetStatus();
       try {
         await engine.ask(trimmed, io);
       } finally {
         setBusy(false);
+        // The engine clears its own status on every normal path; this is the
+        // backstop for the abnormal one. If `ask` threw, the last stage would
+        // otherwise stay on screen forever, claiming Atlas is still thinking
+        // about a request it has already given up on.
+        resetStatus();
       }
     },
-    [busy, engine, io, push],
+    [busy, engine, io, push, resetStatus],
   );
 
   /** Run a row's action — the same executor path a typed command takes. */
@@ -252,6 +346,11 @@ export function useAtlas(
   return {
     entries,
     busy,
+    /**
+     * What Atlas is doing, when it is worth saying. Null on the fast local
+     * path, where the work finishes before a label would be readable.
+     */
+    status,
     ask,
     runAction,
     answerConfirm,

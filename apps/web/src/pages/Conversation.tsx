@@ -13,7 +13,7 @@
  * can't do.
  */
 
-import type { SkillRegistry } from '@atlas/engine';
+import type { EngineStatus, SkillRegistry } from '@atlas/engine';
 import { Icons } from '@atlas/ui';
 import { Composer } from '../components/Composer';
 import { Transcript } from '../components/Transcript';
@@ -22,6 +22,8 @@ import type { Entry } from '../atlas/useAtlas';
 interface Props {
   entries: Entry[];
   busy: boolean;
+  /** What Atlas is doing, when it is worth naming. */
+  status?: EngineStatus | null;
   skills: SkillRegistry;
   greeting: string;
   personalized: boolean;
@@ -35,6 +37,7 @@ interface Props {
 export function Conversation({
   entries,
   busy,
+  status,
   skills,
   greeting,
   personalized,
@@ -59,6 +62,7 @@ export function Conversation({
           <Transcript
             entries={entries}
             busy={busy}
+            status={status}
             onAnswerConfirm={onAnswerConfirm}
             onRunAction={onRunAction}
             onCopy={onCopy}

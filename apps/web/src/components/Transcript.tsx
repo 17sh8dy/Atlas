@@ -13,22 +13,32 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Icons, cn } from '@atlas/ui';
+import type { EngineStatus } from '@atlas/engine';
 import type { Entry } from '../atlas/useAtlas';
 
 interface Props {
   entries: Entry[];
   busy: boolean;
+  /** What Atlas is doing, when it is worth naming. */
+  status?: EngineStatus | null;
   onAnswerConfirm(approved: boolean): void;
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onCopy(text: string): Promise<boolean>;
 }
 
-export function Transcript({ entries, busy, onAnswerConfirm, onRunAction, onCopy }: Props) {
+export function Transcript({
+  entries,
+  busy,
+  status,
+  onAnswerConfirm,
+  onRunAction,
+  onCopy,
+}: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [entries.length, busy]);
+  }, [entries.length, busy, status?.label]);
 
   return (
     <div className="flex flex-col gap-3 px-6 py-5">
@@ -42,14 +52,64 @@ export function Transcript({ entries, busy, onAnswerConfirm, onRunAction, onCopy
         />
       ))}
 
-      {busy && (
-        <div className="text-foreground-subtle flex items-center gap-2 text-sm">
-          <span className="bg-primary h-1.5 w-1.5 animate-pulse rounded-full" />
-          Working…
-        </div>
-      )}
+      {busy && <StatusLine status={status} />}
 
       <div ref={endRef} />
+    </div>
+  );
+}
+
+/**
+ * The one line that says what Atlas is doing.
+ *
+ * It replaces a permanent "Working…", which was the same whether Atlas opened
+ * an app in forty milliseconds or spent four seconds on a network round trip.
+ * Naming the stage is what makes a long pause legible instead of alarming —
+ * and naming the PROVIDER is the part that matters most in a local-first
+ * assistant, because "Switching to Claude…" is the moment the user's question
+ * stops being handled on their own machine. That deserves to be visible
+ * rather than inferred.
+ *
+ * Falls back to the generic line when no stage is set, which is the ordinary
+ * case for local commands that finish too fast to narrate.
+ */
+function StatusLine({ status }: { status?: EngineStatus | null }) {
+  const stage = status?.stage ?? 'working';
+  const Icon =
+    stage === 'searching' ? Icons.Globe : stage === 'working' ? Icons.Activity : Icons.Sparkles;
+
+  return (
+    <div
+      className="text-foreground-subtle flex items-center gap-2 text-sm"
+      // Announced politely so a screen reader hears the escalation without
+      // it interrupting whatever is already being read.
+      role="status"
+      aria-live="polite"
+    >
+      <span
+        className={cn(
+          'grid h-5 w-5 place-items-center rounded-md transition',
+          // The hand-off to a model is the one stage worth colouring. Tinting
+          // every stage would make the accent meaningless; tinting none would
+          // lose the only moment a user might want to notice.
+          stage === 'switching' || stage === 'thinking'
+            ? 'bg-primary/10 text-primary'
+            : 'text-foreground-subtle',
+        )}
+      >
+        <Icon className={cn('h-3.5 w-3.5', stage !== 'working' && 'animate-pulse')} />
+      </span>
+
+      <span className="animate-pulse">{status?.label ?? 'Working…'}</span>
+
+      {/* Only ever shown for a provider that runs on this machine, because
+          that is the reassuring case and the one worth a word. A remote
+          provider is already named in the label itself. */}
+      {status?.local && (
+        <span className="border-border text-foreground-subtle rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+          on this device
+        </span>
+      )}
     </div>
   );
 }

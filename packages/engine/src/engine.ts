@@ -35,7 +35,8 @@ import { Bus } from './bus';
 import { Grammar } from './planner/grammar';
 import { Executor } from './planner/executor';
 import { SkillRegistry } from './skills/registry';
-import { createPhrasing } from './phrasing';
+import { createPhrasing, type Phrasing } from './phrasing';
+import type { EngineStatus } from './status';
 import { WorkingMemory } from './working-memory';
 import { buildAugmentedPrompt, formatSourcesFooter, needsWebSearch, runSearch } from './research';
 import { refusalFor, screenRequest } from './safety/content-policy';
@@ -48,7 +49,15 @@ export interface EngineIO {
   showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string }): void;
   /** Streaming conversation, when the surface supports it. */
   stream?(): { append(chunk: string): void; finish(full: string): void } | null;
-  typing?(on: boolean): void;
+  /**
+   * What Atlas is doing right now; null when it has stopped.
+   *
+   * Emitted whenever the KIND of work changes — most importantly when a
+   * request stops being answerable locally and escalates to a model, which is
+   * the one pause long enough that silence reads as a fault. A surface that
+   * ignores this behaves exactly as it did before; nothing here is required.
+   */
+  status?(update: EngineStatus | null): void;
 }
 
 export type AskOutcome =
@@ -81,6 +90,7 @@ export class Engine {
   private readonly intelligence?: IntelligenceRegistry;
   private readonly threshold: number;
   private readonly working: WorkingMemory;
+  private readonly phrasing: Phrasing;
 
   constructor(options: EngineOptions) {
     this.skills = options.skills;
@@ -89,7 +99,41 @@ export class Engine {
     this.intelligence = options.intelligence;
     this.threshold = options.confidenceThreshold ?? 0.5;
     this.working = options.working ?? new WorkingMemory();
-    this.executor = new Executor(this.skills, createPhrasing(options.voice));
+    // One instance, shared with the executor. Two would be a way for the
+    // status line and the replies underneath it to drift apart in tone.
+    this.phrasing = createPhrasing(options.voice);
+    this.executor = new Executor(this.skills, this.phrasing);
+  }
+
+  /**
+   * Announce a stage, and mirror it onto the bus.
+   *
+   * The bus copy is what lets anything else in the app react to an escalation
+   * without being wired into the io object — the voice layer, a tray icon,
+   * a future usage log.
+   */
+  private announce(io: EngineIO, update: EngineStatus | null): void {
+    io.status?.(update);
+    this.bus.emit('engine:status', update);
+  }
+
+  /** Build the status for a hand-off to a provider. */
+  private switchingTo(provider: IntelligenceProvider): EngineStatus {
+    return {
+      stage: 'switching',
+      label: this.phrasing.switchingTo(provider.label),
+      providerId: provider.id,
+      local: provider.isLocal(),
+    };
+  }
+
+  private thinkingWith(provider: IntelligenceProvider): EngineStatus {
+    return {
+      stage: 'thinking',
+      label: this.phrasing.thinking(),
+      providerId: provider.id,
+      local: provider.isLocal(),
+    };
   }
 
   async ask(text: string, io: EngineIO): Promise<AskOutcome> {
@@ -159,7 +203,7 @@ export class Engine {
     //    how assistants end up trying to "run" a question.
     const instruction = actionable && !this.isQuestion(raw);
     if (instruction) {
-      const proposed = await this.planWithAI(understood);
+      const proposed = await this.planWithAI(understood, io);
       if (proposed) {
         const outcome = await this.executor.run(proposed, ctx);
         this.bus.emit('engine:done', { mode: 'command', plan: proposed, outcome });
@@ -213,9 +257,14 @@ export class Engine {
    * half-run plan, so the bar for accepting one is: it validates completely,
    * or it isn't a plan.
    */
-  private async planWithAI(text: string): Promise<Plan | null> {
+  private async planWithAI(text: string, io: EngineIO): Promise<Plan | null> {
     const provider = this.intelligence?.active();
     if (!provider) return null;
+
+    // Planning is an escalation too, even though what comes back is a plan
+    // rather than prose. From the outside it is the same several-second pause,
+    // so it gets the same explanation.
+    this.announce(io, this.switchingTo(provider));
 
     const prompt = [
       'Turn the user request into a JSON plan. Reply with JSON only, no prose.',
@@ -239,7 +288,18 @@ export class Engine {
         onDone: (full) => finish(full),
         onError: () => finish(null),
       });
+      // After `ask` is under way, not before: "Thinking" should mean the
+      // request is actually in flight. Guarded by the same `settled` flag the
+      // resolver uses, so a provider that answers synchronously never shows a
+      // stage it has already finished.
+      if (!settled) this.announce(io, this.thinkingWith(provider));
     });
+
+    // Cleared here rather than in each branch below. Every path out of this
+    // method either runs a plan or falls through to conversation, and both
+    // announce their own next stage — but a `return null` that left the last
+    // status on screen would strand it there forever.
+    this.announce(io, null);
     if (!reply) return null;
 
     let parsed: unknown;
@@ -285,6 +345,7 @@ export class Engine {
       // into an actual answer — with a provider, the synthesized reply plus
       // its sources footer *is* the answer, and showing both would be noise.
       const searchCtx: SkillContext = provider ? { ...ctx, showResults: undefined } : ctx;
+      this.announce(io, { stage: 'searching', label: this.phrasing.searching() });
       const results = await runSearch(text, this.skills, searchCtx);
 
       if (results.length) {
@@ -319,27 +380,46 @@ export class Engine {
     io: EngineIO,
     sourcesFooter = '',
   ): Promise<AskOutcome> {
-    io.typing?.(true);
+    // Two stages, not one. "Switching" names where the question is going;
+    // "Thinking" says it has arrived. Splitting them is what turns a silent
+    // multi-second gap into something legible — and with today's providers
+    // being one-shot rather than streaming (see `intelligence.rs`), this is
+    // the ONLY feedback between the question and the finished answer.
+    this.announce(io, this.switchingTo(provider));
+
     return new Promise<AskOutcome>((resolve) => {
       let stream: ReturnType<NonNullable<EngineIO['stream']>> = null;
+      /**
+       * Whether the provider has already answered.
+       *
+       * A provider is free to call `onDone` synchronously inside `ask` — the
+       * in-memory ones in the tests do exactly that. Without this flag the
+       * "Thinking" announcement below would run AFTER the clearing one and
+       * strand the label on screen forever, on precisely the fast path where
+       * it should never have appeared at all.
+       */
+      let settled = false;
 
       provider.ask(promptText, {
         onDelta: (chunk) => {
           if (!stream) {
-            io.typing?.(false);
+            settled = true;
+            this.announce(io, null);
             stream = io.stream?.() ?? null;
           }
           stream?.append(chunk);
         },
         onDone: (full) => {
-          io.typing?.(false);
+          settled = true;
+          this.announce(io, null);
           const withSources = sourcesFooter ? full + sourcesFooter : full;
           if (stream) stream.finish(withSources);
           else if (withSources) io.say(withSources);
           resolve({ ok: true, mode: 'chat', text: withSources });
         },
         onError: (reason) => {
-          io.typing?.(false);
+          settled = true;
+          this.announce(io, null);
           // 'not-configured'/'offline' are the two sentinel reasons this
           // interface always understood; anything else is a real provider
           // error (a rejected key, a rate limit) worth showing verbatim
@@ -352,6 +432,11 @@ export class Engine {
           resolve({ ok: false, mode: 'chat', error: reason });
         },
       });
+
+      // Announced once the request is genuinely in flight, so "Thinking" never
+      // appears before anything is thinking — and skipped entirely if the
+      // provider already answered, which is what `settled` is guarding.
+      if (!settled) this.announce(io, this.thinkingWith(provider));
     });
   }
 
