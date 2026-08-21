@@ -13,7 +13,7 @@
  * Tauri and the bar degrades to a plain header.
  */
 
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Icons, cn } from '@atlas/ui';
 import { isTauri } from '@atlas/platform';
@@ -27,11 +27,7 @@ interface Props {
 export function TitleBar({ right, onLogoClick }: Props) {
   const native = isTauri();
 
-  const [fullscreen, setFullscreen] = useState(false);
-  /** Where the window was before it filled the screen, to put it back. */
-  const windowedBounds = useRef<{ x: number; y: number; width: number; height: number } | null>(
-    null,
-  );
+  const [maximized, setMaximized] = useState(false);
 
   const windowAction = async (action: 'minimize' | 'close') => {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
@@ -43,74 +39,70 @@ export function TitleBar({ right, onLogoClick }: Props) {
   };
 
   /**
-   * Full screen, done as a borderless window rather than `setFullscreen`.
+   * Maximise and restore — the OS's own, not an imitation of it.
    *
-   * Both look identical — the window has no decorations either way — but a
-   * borderless window that covers a whole monitor is promoted by the desktop
-   * compositor to a fullscreen flip, and on some GPU/high-refresh combinations
-   * that path draws the pointer twice: the hardware cursor plus a larger copy
-   * that lags behind it, most obvious when hovering, because that is when the
-   * two disagree about which cursor shape to show.
+   * This button used to fill the entire monitor: a borderless window sized to
+   * the screen, held over the taskbar with `alwaysOnTop` and left one pixel
+   * short at the bottom so the compositor would not promote it to a fullscreen
+   * flip (which, on this machine, drew the pointer twice). It worked, and it
+   * was still the wrong control. The middle button of a Windows 11 caption bar
+   * maximises: the window fills the *work area*, the taskbar stays where it
+   * is, alt-tab keeps behaving, and the change of size is the system's own
+   * animation rather than an instant jump to full bleed.
    *
-   * The window is therefore one pixel SHORT of the monitor. Covering it and
-   * overhanging it both count as covering it; leaving a row uncovered is what
-   * actually fails the test. The gap sits on the bottom edge, under the
-   * composer, where there is nothing to see.
+   * Deferring to `toggleMaximize` also settles a disagreement that was already
+   * sitting in this bar — double-clicking a drag region asks Tauri to
+   * maximise, so the title bar held two different ideas of "make it bigger".
+   * Now the button, the double-click, Win+Up and dragging to the top edge all
+   * mean the same thing.
    *
-   * `alwaysOnTop` is what puts it over the taskbar, which the OS fullscreen
-   * state used to do for us.
+   * A maximised window stops short of covering the monitor, so the duplicated
+   * cursor the old code was written around cannot arise here. It also needs no
+   * geometry of its own: tao trims a maximised borderless window to the work
+   * area in its own `WM_NCCALCSIZE` handler.
    */
-  const toggleFullscreen = async () => {
-    const [{ getCurrentWindow, currentMonitor }, { PhysicalPosition, PhysicalSize }] =
-      await Promise.all([import('@tauri-apps/api/window'), import('@tauri-apps/api/dpi')]);
+  const toggleMaximize = useCallback(async () => {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
     const win = getCurrentWindow();
+    await win.toggleMaximize();
+    setMaximized(await win.isMaximized());
+  }, []);
 
-    if (fullscreen) {
-      await win.setAlwaysOnTop(false);
-      const previous = windowedBounds.current;
-      if (previous) {
-        await win.setPosition(new PhysicalPosition(previous.x, previous.y));
-        await win.setSize(new PhysicalSize(previous.width, previous.height));
-      }
-      setFullscreen(false);
-      return;
-    }
+  /**
+   * Keep the glyph honest.
+   *
+   * The window can be maximised without this button ever being pressed —
+   * double-clicking the drag region, Win+Up, dragging to the top edge, the
+   * snap assistant. A window that is maximised while its button still offers
+   * to maximise is the giveaway of app-drawn chrome that only half-joined the
+   * OS, so the state is read back off the window on every resize rather than
+   * tracked locally.
+   */
+  useEffect(() => {
+    if (!native) return;
 
-    // `setSize` sets the *inner* size while `outerPosition` reports the frame,
-    // and on Windows 11 a resizable window's frame includes an invisible
-    // ~8px drag border. Mixing the two makes the window grow every round trip
-    // and sit a border's width off the left edge, so measure the inset once
-    // and keep inner sizes with inner sizes.
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
 
-    const monitor = await currentMonitor();
-    if (!monitor) {
-      // No monitor to measure: fall back to the OS state rather than doing
-      // nothing. Duplicated cursor beats a dead button.
-      await win.setFullscreen(true);
-      setFullscreen(true);
-      return;
-    }
+    void (async () => {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const win = getCurrentWindow();
+      const sync = () =>
+        void win.isMaximized().then((value) => {
+          if (!cancelled) setMaximized(value);
+        });
+      sync();
+      const stop = await win.onResized(sync);
+      // The component may have unmounted while that was in flight.
+      if (cancelled) stop();
+      else unlisten = stop;
+    })();
 
-    const outer = await win.outerPosition();
-    const inner = await win.innerPosition();
-    const innerSize = await win.innerSize();
-    windowedBounds.current = {
-      x: outer.x,
-      y: outer.y,
-      width: innerSize.width,
-      height: innerSize.height,
+    return () => {
+      cancelled = true;
+      unlisten?.();
     };
-
-    const insetX = inner.x - outer.x;
-    const insetY = inner.y - outer.y;
-
-    await win.setAlwaysOnTop(true);
-    await win.setPosition(
-      new PhysicalPosition(monitor.position.x - insetX, monitor.position.y - insetY),
-    );
-    await win.setSize(new PhysicalSize(monitor.size.width, monitor.size.height - 1));
-    setFullscreen(true);
-  };
+  }, [native]);
 
   return (
     <header className="border-border bg-background/80 flex h-11 shrink-0 items-stretch border-b backdrop-blur">
@@ -146,14 +138,10 @@ export function TitleBar({ right, onLogoClick }: Props) {
             <Icons.Minus className="h-3.5 w-3.5" />
           </WindowButton>
           <WindowButton
-            label={fullscreen ? 'Exit full screen' : 'Full screen'}
-            onClick={toggleFullscreen}
+            label={maximized ? 'Restore down' : 'Maximise'}
+            onClick={() => void toggleMaximize()}
           >
-            {fullscreen ? (
-              <Icons.Minimize className="h-3.5 w-3.5" />
-            ) : (
-              <Icons.Maximize className="h-3.5 w-3.5" />
-            )}
+            {maximized ? <RestoreGlyph /> : <MaximizeGlyph />}
           </WindowButton>
           <WindowButton label="Close" onClick={() => windowAction('close')} danger>
             <Icons.X className="h-3.5 w-3.5" />
@@ -199,6 +187,36 @@ function Wordmark() {
         <span className="text-foreground-subtle text-[11px] leading-none">Navigator Engine</span>
       </span>
     </span>
+  );
+}
+
+/**
+ * The caption glyphs, drawn here rather than drawn from the icon set.
+ *
+ * `Icons` is a curated vocabulary shared across the app; these two belong to
+ * no vocabulary. They are the shapes Windows itself draws in this exact
+ * corner, and the details that make them read as native — square corners, a
+ * plain unrounded outline, the restore pair with its front window lower-left —
+ * are invisible until they are wrong and are not what a general-purpose icon
+ * set is for. The stroke weight matches the lucide glyphs either side so the
+ * three buttons read as one row.
+ */
+function MaximizeGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden="true">
+      <rect x="4" y="4" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function RestoreGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden="true">
+      {/* The window behind, drawn as the corner of it still showing. */}
+      <path d="M8 8V4h12v12h-4" fill="none" stroke="currentColor" strokeWidth="2" />
+      {/* The window in front. */}
+      <rect x="4" y="8" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" />
+    </svg>
   );
 }
 
