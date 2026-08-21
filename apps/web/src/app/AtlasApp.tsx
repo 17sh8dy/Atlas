@@ -35,6 +35,7 @@ import { TitleBar } from '../components/TitleBar';
 import { Conversation } from '../pages/Conversation';
 import { Settings } from '../pages/Settings';
 import { useAtlas } from '../atlas/useAtlas';
+import { useSpeech } from '../speech/useSpeech';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 type Screen = 'conversation' | 'settings';
@@ -132,6 +133,9 @@ function Ready({
   onProviderChange: () => void;
   onSpeechSaved: () => void;
 }) {
+  // One player for the whole app: Settings previews through it, replies speak
+  // through it, and the voice screen's visualiser reads its analyser.
+  const voice = useSpeech(platform);
   const [screen, setScreen] = useState<Screen>('conversation');
   const [homeFading, setHomeFading] = useState(false);
   const atlas = useAtlas(
@@ -142,6 +146,7 @@ function Ready({
     providerKeys,
     activeProviderId,
     speech,
+    voice.speak,
   );
 
   /**
@@ -165,17 +170,16 @@ function Ready({
    */
   const onSpeechPreview = useCallback(
     (voiceId: string) => {
-      void platform.stopSpeaking?.();
-      void platform
-        .speak?.('Good evening. All systems are online.', { voiceId, pace: speech.pace })
-        ?.catch(() => {});
+      voice.stop();
+      void voice.speak('Good evening. All systems are online.', {
+        voiceId,
+        pace: speech.pace,
+      });
     },
-    [platform, speech.pace],
+    [voice, speech.pace],
   );
 
-  const onSpeechStop = useCallback(() => {
-    void platform.stopSpeaking?.();
-  }, [platform]);
+  const onSpeechStop = useCallback(() => voice.stop(), [voice]);
 
   // Clicking the logo is "go home," the way it is on a website — back to the
   // welcome screen, not just back to the conversation tab. An instant swap
@@ -266,6 +270,7 @@ function Ready({
             onSpeechChange={onSpeechChange}
             onSpeechPreview={onSpeechPreview}
             onSpeechStop={onSpeechStop}
+            speechError={voice.lastError}
           />
         )}
       </div>

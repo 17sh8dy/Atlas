@@ -44,6 +44,7 @@ interface Props {
   onSpeechChange(next: Partial<SpeechPreferences>): void;
   onSpeechPreview(voiceId: string): void;
   onSpeechStop(): void;
+  speechError: string | null;
 }
 
 const SECTIONS = [
@@ -74,6 +75,7 @@ export function Settings({
   onSpeechChange,
   onSpeechPreview,
   onSpeechStop,
+  speechError,
 }: Props) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -102,12 +104,13 @@ export function Settings({
             </TabsContent>
             <TabsContent value="voice">
               <Voice
-            voices={speechVoices}
-            preferences={speech}
-            onChange={onSpeechChange}
-            onPreview={onSpeechPreview}
-            onStop={onSpeechStop}
-          />
+                voices={speechVoices}
+                preferences={speech}
+                onChange={onSpeechChange}
+                onPreview={onSpeechPreview}
+                onStop={onSpeechStop}
+                error={speechError}
+              />
             </TabsContent>
             <TabsContent value="personalization">
               <Personalization

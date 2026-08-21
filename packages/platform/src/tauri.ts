@@ -103,14 +103,47 @@ export function createTauriPlatform(): Platform {
     // point this at an executable or pass engine flags — the same narrow shape
     // every other command here has.
     speechVoices: () => invoke<SpeechVoice[]>('speech_voices'),
-    speak: (text, options) =>
-      invoke<boolean>('speak_text', {
+    // The command returns a `tauri::ipc::Response`, so a WAV crosses as bytes
+    // rather than as an array of a hundred thousand numbers. What those bytes
+    // *arrive* as depends on which IPC transport Tauri picked, which is why
+    // the result goes through `toArrayBuffer` — see the note on it.
+    synthesizeSpeech: async (text, options) => {
+      const audio = await invoke<unknown>('synthesize_speech', {
         text,
         voiceId: options?.voiceId,
         pace: options?.pace,
-      }),
-    stopSpeaking: () => invoke<boolean>('stop_speaking'),
+      });
+      return toArrayBuffer(audio);
+    },
   };
+}
+
+/**
+ * Whatever the IPC handed back, as an `ArrayBuffer`.
+ *
+ * Tauri has two transports for a command result and they do not agree on how
+ * bytes look on arrival. The custom-protocol transport answers with
+ * `application/octet-stream` and the page reads a real `ArrayBuffer`. The
+ * `postMessage` fallback cannot carry bytes, so a payload over 1 KB is
+ * serialised as a JSON array of numbers instead — which every consumer here
+ * would then quietly reject, because `decodeAudioData` wants a buffer and an
+ * `Array` has no `byteLength` to fail a length check on. Silence, no error.
+ *
+ * The fallback is not hypothetical: it is what runs whenever the app's CSP
+ * omits `connect-src ipc: http://ipc.localhost`, since blocking that fetch is
+ * exactly how Tauri decides the custom protocol is unavailable. The CSP now
+ * allows it, so the fast path is the normal one — this is here so that a
+ * transport change can never again turn into a feature that makes no sound.
+ */
+function toArrayBuffer(value: unknown): ArrayBuffer {
+  if (value instanceof ArrayBuffer) return value;
+  if (ArrayBuffer.isView(value)) {
+    // A view may cover part of a larger buffer; copy the window it describes
+    // rather than handing out the whole thing.
+    return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
+  }
+  if (Array.isArray(value)) return Uint8Array.from(value as number[]).buffer;
+  return new ArrayBuffer(0);
 }
 
 /**

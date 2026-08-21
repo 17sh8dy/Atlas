@@ -26,9 +26,11 @@ interface Props {
   onChange(next: Partial<SpeechPreferences>): void;
   onPreview(voiceId: string): void;
   onStop(): void;
+  /** Why the last attempt made no sound. Shown rather than swallowed. */
+  error: string | null;
 }
 
-export function Voice({ voices, preferences, onChange, onPreview, onStop }: Props) {
+export function Voice({ voices, preferences, onChange, onPreview, onStop, error }: Props) {
   const [previewing, setPreviewing] = useState<string | null>(null);
 
   // The engine reports no completion event, so the label returns on a timer
@@ -73,6 +75,18 @@ export function Voice({ voices, preferences, onChange, onPreview, onStop }: Prop
 
   return (
     <div className="flex flex-col gap-5">
+      {error && (
+        <Surface className="border-warning/40 bg-warning/5 flex items-start gap-3 p-4">
+          <Icons.Info className="text-warning mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0">
+            <h2 className="text-foreground text-sm font-medium">That made no sound</h2>
+            <p className="text-foreground-subtle mt-1 break-words text-xs leading-relaxed">
+              {error}
+            </p>
+          </div>
+        </Surface>
+      )}
+
       <Surface className="flex items-start justify-between gap-4 p-4">
         <div className="min-w-0">
           <h2 className="text-foreground text-sm font-medium">Speak replies</h2>

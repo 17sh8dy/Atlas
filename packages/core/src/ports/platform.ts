@@ -148,20 +148,19 @@ export interface Platform {
   notify?(title: string, body?: string): Promise<boolean>;
 
   /**
-   * Speech, gated by the `speech` capability.
+   * Speech, gated by the `speech` capability. Synthesis happens on this
+   * machine, so it resolves without a network call and keeps working with
+   * nothing connected — the same rule every other method here follows.
    *
-   * Synthesis happens on this machine, so these resolve without a network
-   * call and keep working with nothing connected — the same rule every other
-   * method here follows.
-   *
-   * `speak` resolves once the words have been *handed to the speaker*, not
-   * once they finish playing. A caller that waited for the end of a sentence
-   * would block the conversation on the length of the reply, which is exactly
-   * backwards: the transcript should already be readable while it is spoken.
+   * ── Why this returns audio instead of playing it ────────────────────────
+   * The platform's job is the part that needs the machine: a neural model and
+   * a CPU. Playback needs speakers, which the surface already has, and a
+   * surface that holds the audio can analyse it — which is what lets a
+   * visualiser react to Atlas's actual voice rather than to a guess. An
+   * earlier version played the sound in Rust and the page could not see a
+   * single sample of it.
    */
-  speak?(text: string, options?: SpeechOptions): Promise<boolean>;
-  /** Cut off whatever is currently being said. Safe to call when silent. */
-  stopSpeaking?(): Promise<boolean>;
+  synthesizeSpeech?(text: string, options?: SpeechOptions): Promise<ArrayBuffer>;
   /** The voices this machine can actually produce. */
   speechVoices?(): Promise<SpeechVoice[]>;
 
