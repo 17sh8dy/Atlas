@@ -23,6 +23,7 @@
  */
 
 import type { SpeechOptions, SpeechVoice } from '../models/speech';
+import type { Transcript } from '../models/listening';
 
 /** Names the engine checks before offering a skill. */
 export type CapabilityName =
@@ -37,6 +38,7 @@ export type CapabilityName =
   | 'windows' // Atlas's own window: show, hide, position
   | 'network' // search the web, fetch a page
   | 'speech' // say things out loud, locally
+  | 'listening' // transcribe what you say, locally
   | 'ai'; // an intelligence provider is connected
 
 export interface FileEntry {
@@ -163,6 +165,29 @@ export interface Platform {
   synthesizeSpeech?(text: string, options?: SpeechOptions): Promise<ArrayBuffer>;
   /** The voices this machine can actually produce. */
   speechVoices?(): Promise<SpeechVoice[]>;
+
+  /**
+   * Listening, gated by the `listening` capability.
+   *
+   * ── Why this takes audio instead of opening the microphone ──────────────
+   * The mirror of `synthesizeSpeech`, and split for the mirror of its reason.
+   * The platform's job is the part that needs the machine: a neural model and
+   * a CPU. Recording needs a microphone, which the surface already has along
+   * with the echo cancellation, the level meter and the silence detection
+   * that decides when a sentence ended — none of which an implementation
+   * behind this port could see.
+   *
+   * It also means no implementation of this port can start listening. It can
+   * only be handed something already recorded, by a surface the user has
+   * given permission to. That property is worth more than the convenience of
+   * a `startListening()` would have been.
+   *
+   * Audio is 16 kHz mono WAV. `hints` is extra vocabulary — the names of
+   * installed apps, say — appended to whatever the engine already expects to
+   * hear, because a transcriber that mishears the thing you own is a
+   * transcriber you stop using.
+   */
+  transcribeSpeech?(audio: ArrayBuffer, hints?: string): Promise<Transcript>;
 
   /** Atlas's own window. */
   showWindow?(): Promise<void>;

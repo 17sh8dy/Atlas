@@ -46,7 +46,13 @@
     "resources": {
       "vendor/piper/piper": "vendor/piper/piper",
       "vendor/piper/en_GB-vctk-medium.onnx": "vendor/piper/en_GB-vctk-medium.onnx",
-      "vendor/piper/en_GB-vctk-medium.onnx.json": "vendor/piper/en_GB-vctk-medium.onnx.json"
+      "vendor/piper/en_GB-vctk-medium.onnx.json": "vendor/piper/en_GB-vctk-medium.onnx.json",
+      "vendor/whisper/whisper-cli.exe": "vendor/whisper/whisper-cli.exe",
+      "vendor/whisper/ggml-base.en.bin": "vendor/whisper/ggml-base.en.bin",
+      "vendor/whisper/whisper.dll": "vendor/whisper/whisper.dll",
+      "vendor/whisper/ggml.dll": "vendor/whisper/ggml.dll",
+      "vendor/whisper/ggml-base.dll": "vendor/whisper/ggml-base.dll",
+      "vendor/whisper/ggml-cpu-*.dll": "vendor/whisper/"
     }
   }
 }

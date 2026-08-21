@@ -12,6 +12,8 @@
 
 mod intelligence;
 #[cfg(windows)]
+mod listen;
+#[cfg(windows)]
 mod os;
 mod platform;
 #[cfg(windows)]
@@ -71,11 +73,11 @@ fn toggle_window(app: tauri::AppHandle) {
 /// instead of offering them and failing. The desktop build has everything; the
 /// browser build answers this very differently.
 ///
-/// `speech` is the one entry that is conditional: it is reported only when the
-/// engine and voice model are really on disk. Capability absence is data here,
-/// not an exception — the registry hides skills whose capabilities are
-/// missing, so a build without the voice files is honestly quieter rather than
-/// subtly broken.
+/// `speech` and `listening` are the conditional entries: each is reported only
+/// when its engine and model are really on disk. Capability absence is data
+/// here, not an exception — the registry hides skills whose capabilities are
+/// missing, so a build without the voice files is honestly quieter, and one
+/// without the listening files honestly deaf, rather than subtly broken.
 #[tauri::command]
 fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
     let mut names = vec![
@@ -92,6 +94,9 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
     ];
     if speech::available(&app) {
         names.push("speech");
+    }
+    if listen::available(&app) {
+        names.push("listening");
     }
     names
 }
@@ -155,6 +160,7 @@ pub fn run() {
             os::empty_recycle_bin,
             speech::speech_voices,
             speech::synthesize_speech,
+            listen::transcribe_speech,
             web::web_search,
             web::fetch_page,
             intelligence::ask_claude,

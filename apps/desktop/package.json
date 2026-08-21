@@ -7,7 +7,8 @@
     "dev": "tauri dev",
     "bundle": "tauri build",
     "icons": "node scripts/generate-icons.mjs",
-    "voices": "node scripts/fetch-voices.mjs",
+    "speech": "node scripts/fetch-speech.mjs",
+    "voices": "node scripts/fetch-speech.mjs",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {

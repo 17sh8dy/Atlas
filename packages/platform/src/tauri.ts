@@ -17,6 +17,7 @@ import type {
   ProcessEntry,
   SystemSnapshot,
   SpeechVoice,
+  Transcript,
   WebPage,
   PathInfo,
   WebSearchResult,
@@ -115,6 +116,17 @@ export function createTauriPlatform(): Platform {
       });
       return toArrayBuffer(audio);
     },
+
+    // The WAV goes over as the request *body* rather than as an argument: a
+    // few seconds of audio is ~100 KB, and JSON would turn that into an array
+    // of a hundred thousand numbers to cross one process boundary. The
+    // vocabulary hint rides in a header because the body is already spoken
+    // for, percent-encoded because header values are bytes and app names are
+    // not necessarily ASCII.
+    transcribeSpeech: (audio, hints) =>
+      invoke<Transcript>('transcribe_speech', new Uint8Array(audio), {
+        headers: hints ? { 'Atlas-Hints': encodeURIComponent(hints) } : {},
+      }),
   };
 }
 

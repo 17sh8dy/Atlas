@@ -12,21 +12,24 @@
  * be worse than a moment's wait.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CapabilityName,
+  ListeningPreferences,
   Platform,
   SpeechPreferences,
   SpeechVoice,
   Storage,
   VoiceProfile,
 } from '@atlas/core';
-import { DEFAULT_SPEECH } from '@atlas/core';
+import { DEFAULT_LISTENING, DEFAULT_SPEECH } from '@atlas/core';
 import {
   readActiveProvider,
+  readListeningPreferences,
   readProviderKeys,
   readSpeechPreferences,
   readVoiceProfile,
+  writeListeningPreferences,
   writeSpeechPreferences,
 } from '@atlas/data';
 import type { ProviderKeyId } from '@atlas/data';
@@ -34,11 +37,13 @@ import { Icons, Spinner, cn } from '@atlas/ui';
 import { TitleBar } from '../components/TitleBar';
 import { Conversation } from '../pages/Conversation';
 import { Settings } from '../pages/Settings';
+import { VoiceScreen, type VoicePhase } from '../pages/VoiceScreen';
 import { useAtlas } from '../atlas/useAtlas';
 import { useSpeech } from '../speech/useSpeech';
+import { useListening } from '../speech/useListening';
 import { ThemeToggle } from '../components/ThemeToggle';
 
-type Screen = 'conversation' | 'settings';
+type Screen = 'conversation' | 'settings' | 'voice';
 
 interface Loaded {
   capabilities: CapabilityName[];
@@ -47,6 +52,7 @@ interface Loaded {
   activeProviderId: string | null;
   speech: SpeechPreferences;
   speechVoices: SpeechVoice[];
+  listening: ListeningPreferences;
 }
 
 export function AtlasApp({ platform, storage }: { platform: Platform; storage: Storage }) {
@@ -65,17 +71,29 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       // An empty list is the honest answer for a build without the engine;
       // the Voice tab renders that case rather than pretending otherwise.
       platform.speechVoices?.().catch(() => [] as SpeechVoice[]) ?? Promise.resolve([]),
-    ]).then(([capabilities, voiceProfile, providerKeys, activeProviderId, speech, speechVoices]) => {
-      if (alive)
-        setLoaded({
-          capabilities,
-          voiceProfile,
-          providerKeys,
-          activeProviderId: activeProviderId ?? null,
-          speech,
-          speechVoices,
-        });
-    });
+      readListeningPreferences(storage).catch(() => DEFAULT_LISTENING),
+    ]).then(
+      ([
+        capabilities,
+        voiceProfile,
+        providerKeys,
+        activeProviderId,
+        speech,
+        speechVoices,
+        listening,
+      ]) => {
+        if (alive)
+          setLoaded({
+            capabilities,
+            voiceProfile,
+            providerKeys,
+            activeProviderId: activeProviderId ?? null,
+            speech,
+            speechVoices,
+            listening,
+          });
+      },
+    );
     return () => {
       alive = false;
     };
@@ -101,9 +119,10 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       activeProviderId={loaded.activeProviderId}
       speech={loaded.speech}
       speechVoices={loaded.speechVoices}
+      listening={loaded.listening}
       onVoiceProfileChange={reload}
       onProviderChange={reload}
-      onSpeechSaved={reload}
+      onPreferencesSaved={reload}
     />
   );
 }
@@ -117,9 +136,10 @@ function Ready({
   activeProviderId,
   speech,
   speechVoices,
+  listening: listeningPrefs,
   onVoiceProfileChange,
   onProviderChange,
-  onSpeechSaved,
+  onPreferencesSaved,
 }: {
   platform: Platform;
   storage: Storage;
@@ -129,15 +149,34 @@ function Ready({
   activeProviderId: string | null;
   speech: SpeechPreferences;
   speechVoices: SpeechVoice[];
+  listening: ListeningPreferences;
   onVoiceProfileChange: () => void;
   onProviderChange: () => void;
-  onSpeechSaved: () => void;
+  onPreferencesSaved: () => void;
 }) {
   // One player for the whole app: Settings previews through it, replies speak
   // through it, and the voice screen's visualiser reads its analyser.
   const voice = useSpeech(platform);
   const [screen, setScreen] = useState<Screen>('conversation');
   const [homeFading, setHomeFading] = useState(false);
+  const [heard, setHeard] = useState<string | null>(null);
+  const [dictated, setDictated] = useState<{ text: string; at: number } | null>(null);
+
+  const inVoiceScreen = screen === 'voice';
+
+  /**
+   * Inside the voice screen Atlas always speaks, whatever the preference says.
+   *
+   * The preference means "read your answers aloud while I am reading them",
+   * and it is off by default because unasked-for talking is startling. Neither
+   * of those applies on a screen whose entire purpose is a spoken exchange —
+   * a silent reply there is just a broken one.
+   */
+  const speechForScreen = useMemo(
+    () => (inVoiceScreen ? { ...speech, enabled: true } : speech),
+    [inVoiceScreen, speech],
+  );
+
   const atlas = useAtlas(
     platform,
     capabilities,
@@ -145,9 +184,147 @@ function Ready({
     voiceProfile,
     providerKeys,
     activeProviderId,
-    speech,
+    speechForScreen,
     voice.speak,
   );
+
+  /**
+   * Extra vocabulary for the transcriber: the names of apps you actually have.
+   *
+   * Fetched the first time the microphone is wanted rather than at startup —
+   * enumerating installed applications is not free, and an app that never
+   * listens should never pay for it. Bounded because whisper's initial prompt
+   * shares the model's context window with the audio; a hundred app names
+   * would crowd out the sentence they were meant to help.
+   */
+  const [appHints, setAppHints] = useState('');
+  const hintsRequested = useRef(false);
+  const wantHints = useCallback(() => {
+    if (hintsRequested.current || !platform.listApps) return;
+    hintsRequested.current = true;
+    void platform
+      .listApps()
+      .then((apps) => {
+        let hint = '';
+        for (const app of apps) {
+          const next = hint ? `${hint}, ${app.name}` : app.name;
+          if (next.length > 380) break;
+          hint = next;
+        }
+        setAppHints(hint);
+      })
+      .catch(() => {
+        // A missing app list costs accuracy on app names, nothing else.
+      });
+  }, [platform]);
+
+  // Refs, because the recorder's callbacks outlive the render that created
+  // them and must never act on a stale idea of what Atlas is doing.
+  const speakingRef = useRef(false);
+  speakingRef.current = voice.state === 'speaking' || voice.state === 'loading';
+  const prefsRef = useRef(listeningPrefs);
+  prefsRef.current = listeningPrefs;
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+
+  const listening = useListening(platform, {
+    silenceMs: listeningPrefs.silenceMs,
+    hints: appHints,
+    /**
+     * Barge-in. This fires on the first loud frame, not on a finished
+     * sentence, because the whole point is not waiting: an answer you have
+     * already decided against should stop when you start talking over it, not
+     * a second and a half later when the transcriber catches up.
+     */
+    onSpeechStart: () => {
+      if (speakingRef.current && prefsRef.current.bargeIn) voice.stop();
+    },
+    onTranscript: (text) => {
+      // Heard while Atlas was talking, with interruption switched off: that is
+      // his own voice leaking past the echo canceller, or the room. Either
+      // way it is not a question.
+      if (speakingRef.current && !prefsRef.current.bargeIn) return;
+
+      if (screenRef.current === 'voice') {
+        setHeard(text);
+        atlas.ask(text);
+        // One turn at a time when hands-free is off: the microphone closes and
+        // waits to be asked again.
+        if (!prefsRef.current.handsFree) listening.stop();
+        return;
+      }
+
+      // Dictation from the composer: the words land in the box for you to look
+      // at before they are sent. A transcriber that acts on what it *thinks*
+      // it heard is a transcriber that eventually deletes something.
+      setDictated({ text, at: Date.now() });
+      listening.stop();
+    },
+  });
+
+  // While Atlas talks the speech gate is raised rather than the microphone
+  // closed, so barge-in can still hear you over him.
+  useEffect(() => {
+    listening.setDucked(voice.state === 'speaking');
+  }, [voice.state, listening]);
+
+  /** The one status the voice screen shows, derived rather than tracked. */
+  const phase: VoicePhase = listening.transcribing
+    ? 'transcribing'
+    : voice.state === 'speaking' || voice.state === 'loading'
+      ? 'speaking'
+      : atlas.busy
+        ? 'thinking'
+        : listening.state === 'hearing'
+          ? 'hearing'
+          : listening.state === 'waiting'
+            ? 'listening'
+            : 'off';
+
+  /**
+   * The amplitude the visualiser draws, from whichever side is making sound.
+   *
+   * One function rather than two, because the screen shows one circle: whose
+   * voice it is belongs to the label, not to the geometry.
+   */
+  const voiceLevel = useCallback(
+    () => (speakingRef.current ? voice.level() : listening.level()),
+    [voice, listening],
+  );
+
+  /** The last thing Atlas actually said, for the screen to show in text. */
+  const lastReply = useMemo(() => {
+    for (let i = atlas.entries.length - 1; i >= 0; i--) {
+      const entry = atlas.entries[i];
+      if (entry?.kind === 'atlas' && entry.text) return entry.text;
+    }
+    return null;
+  }, [atlas.entries]);
+
+  const onListeningChange = useCallback(
+    (next: Partial<ListeningPreferences>) => {
+      void writeListeningPreferences(storage, next).then(onPreferencesSaved);
+    },
+    [storage, onPreferencesSaved],
+  );
+
+  const toggleMic = useCallback(() => {
+    wantHints();
+    if (listening.state === 'idle') void listening.start();
+    else listening.stop();
+  }, [listening, wantHints]);
+
+  /**
+   * Leaving the voice screen closes the microphone.
+   *
+   * Not politeness — it is the promise the screen makes. Listening is confined
+   * to this screen, so the device has to close when the screen does, including
+   * when it closes because the logo was clicked or the window was summoned
+   * back to the conversation.
+   */
+  useEffect(() => {
+    if (screen !== 'voice' && listening.state !== 'idle') listening.stop();
+  }, [screen, listening]);
 
   /**
    * A settings change is written and then reloaded rather than mirrored in
@@ -158,9 +335,9 @@ function Ready({
    */
   const onSpeechChange = useCallback(
     (next: Partial<SpeechPreferences>) => {
-      void writeSpeechPreferences(storage, next).then(onSpeechSaved);
+      void writeSpeechPreferences(storage, next).then(onPreferencesSaved);
     },
-    [storage, onSpeechSaved],
+    [storage, onPreferencesSaved],
   );
 
   /**
@@ -223,6 +400,21 @@ function Ready({
                 <Icons.Trash2 className="h-3.5 w-3.5" />
               </ChromeButton>
             )}
+            {/* Listening is a place, so it gets a door in the chrome next to
+                Settings rather than a control in the composer. The button is
+                absent — not disabled — in a build that cannot listen or with
+                the microphone switched off in Settings: an affordance that
+                explains why it does nothing is still an affordance that does
+                nothing. */}
+            {listening.supported && listeningPrefs.enabled && (
+              <ChromeButton
+                label={screen === 'voice' ? 'Back to Atlas' : 'Talk to Atlas'}
+                active={screen === 'voice'}
+                onClick={() => setScreen(screen === 'voice' ? 'conversation' : 'voice')}
+              >
+                <Icons.AudioLines className="h-3.5 w-3.5" />
+              </ChromeButton>
+            )}
             <ChromeButton
               label={screen === 'settings' ? 'Back to Atlas' : 'Settings'}
               active={screen === 'settings'}
@@ -241,7 +433,18 @@ function Ready({
           homeFading && 'opacity-0',
         )}
       >
-        {screen === 'conversation' ? (
+        {screen === 'voice' ? (
+          <VoiceScreen
+            phase={phase}
+            level={voiceLevel}
+            heard={heard}
+            reply={lastReply}
+            handsFree={listeningPrefs.handsFree}
+            error={listening.error}
+            onToggle={toggleMic}
+            onClose={() => setScreen('conversation')}
+          />
+        ) : screen === 'conversation' ? (
           <Conversation
             entries={atlas.entries}
             busy={atlas.busy}
@@ -252,7 +455,17 @@ function Ready({
             onAsk={atlas.ask}
             onRunAction={atlas.runAction}
             onAnswerConfirm={atlas.answerConfirm}
-          onCopy={atlas.copy}
+            onCopy={atlas.copy}
+            dictation={
+              listening.supported && listeningPrefs.enabled
+                ? {
+                    active: listening.state !== 'idle',
+                    transcribing: listening.transcribing,
+                    onToggle: toggleMic,
+                  }
+                : undefined
+            }
+            dictated={dictated}
           />
         ) : (
           <Settings
@@ -271,6 +484,9 @@ function Ready({
             onSpeechPreview={onSpeechPreview}
             onSpeechStop={onSpeechStop}
             speechError={voice.lastError}
+            listening={listeningPrefs}
+            listeningSupported={listening.supported}
+            onListeningChange={onListeningChange}
           />
         )}
       </div>

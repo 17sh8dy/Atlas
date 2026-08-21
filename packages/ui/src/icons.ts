@@ -47,6 +47,9 @@ export {
   MonitorSmartphone,
   CircleDot,
   Circle,
+  // listening
+  MicOff,
+  AudioLines,
   // settings sections
   SlidersHorizontal,
   Palette,

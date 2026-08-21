@@ -10,6 +10,7 @@
 import { Icons, Tabs, TabsContent, TabsList, TabsTrigger } from '@atlas/ui';
 import type {
   CapabilityName,
+  ListeningPreferences,
   Platform,
   SpeechPreferences,
   SpeechVoice,
@@ -45,6 +46,10 @@ interface Props {
   onSpeechPreview(voiceId: string): void;
   onSpeechStop(): void;
   speechError: string | null;
+  listening: ListeningPreferences;
+  /** False in a build without the transcription engine. */
+  listeningSupported: boolean;
+  onListeningChange(next: Partial<ListeningPreferences>): void;
 }
 
 const SECTIONS = [
@@ -76,6 +81,9 @@ export function Settings({
   onSpeechPreview,
   onSpeechStop,
   speechError,
+  listening,
+  listeningSupported,
+  onListeningChange,
 }: Props) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -110,6 +118,9 @@ export function Settings({
                 onPreview={onSpeechPreview}
                 onStop={onSpeechStop}
                 error={speechError}
+                listening={listening}
+                listeningSupported={listeningSupported}
+                onListeningChange={onListeningChange}
               />
             </TabsContent>
             <TabsContent value="personalization">

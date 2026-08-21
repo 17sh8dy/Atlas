@@ -19,6 +19,12 @@ export type { PreferenceSubject } from './preferences';
 export { MemoryStore } from './memory-store';
 export { readSpeechPreferences, writeSpeechPreferences } from './speech-preferences';
 export {
+  readListeningPreferences,
+  writeListeningPreferences,
+  readVoicePreferences,
+  writeVoicePreferences,
+} from './listening-preferences';
+export {
   readProviderKey,
   writeProviderKey,
   readProviderKeys,

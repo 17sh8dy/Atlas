@@ -78,12 +78,13 @@ export function useSpeech(platform: Platform): Speech {
   const stop = useCallback(() => player.stop(), [player]);
   const level = useCallback(() => player.level(), [player]);
 
-  return {
-    speak,
-    stop,
-    state,
-    supported: Boolean(platform.synthesizeSpeech),
-    level,
-    lastError,
-  };
+  const supported = Boolean(platform.synthesizeSpeech);
+
+  // Memoised for the same reason as `useListening`'s: the voice screen reads
+  // `level` from an animation frame, and a new object on every render would
+  // restart that loop continuously.
+  return useMemo(
+    () => ({ speak, stop, state, supported, level, lastError }),
+    [speak, stop, state, supported, level, lastError],
+  );
 }

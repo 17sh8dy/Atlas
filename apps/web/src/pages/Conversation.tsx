@@ -30,6 +30,9 @@ interface Props {
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onAnswerConfirm(approved: boolean): void;
   onCopy(text: string): Promise<boolean>;
+  /** Passed through to the composer; absent when this build cannot listen. */
+  dictation?: { active: boolean; transcribing: boolean; onToggle(): void };
+  dictated?: { text: string; at: number } | null;
 }
 
 export function Conversation({
@@ -43,6 +46,8 @@ export function Conversation({
   onRunAction,
   onAnswerConfirm,
   onCopy,
+  dictation,
+  dictated,
 }: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -66,7 +71,7 @@ export function Conversation({
         )}
       </div>
 
-      <Composer onSubmit={onAsk} busy={busy} />
+      <Composer onSubmit={onAsk} busy={busy} dictation={dictation} dictated={dictated} />
     </div>
   );
 }
