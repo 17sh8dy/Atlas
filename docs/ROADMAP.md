@@ -286,6 +286,57 @@ Design notes worth keeping:
   or `Thinking…` would be announced *after* the clear and stranded on screen
   forever, on precisely the fast path where it should never appear.
 
+**Both providers now stream (2026-08-20).** `intelligence.rs` was
+one-request/one-answer, so `onDelta` never fired and `EngineIO.stream` was dead
+code. Both commands now request SSE (`"stream": true`) and read the body
+incrementally.
+
+The shape of the solution is the part to remember: **a Tauri command resolves
+exactly once, so it cannot itself be a stream.** One answer is therefore split
+across two channels —
+
+- incremental text → Tauri events on `atlas://intelligence/{stream_id}`
+- the finished text → still the command's return value
+- any failure → still the command's `Err`
+
+which leaves `ProviderStreamHandlers` untouched: `onDone`/`onError` come from
+the promise, and `onDelta` is the only new path. **The promise stays the source
+of truth** — if the event subscription fails or arrives late, the full answer
+still lands, so streaming degrades to the old behaviour rather than to a
+truncated reply.
+
+Design notes worth keeping:
+
+- **A channel per call.** One shared event name would drop a second answer's
+  tokens into the first answer's bubble.
+- **Status is checked before the body.** HTTP status arrives with the headers,
+  so a rejected key or a rate limit is still caught up front and the friendly
+  error messages are unchanged.
+- **The timeout had to change.** The old 60s ceiling covered "produce the whole
+  answer" — the very thing streaming exists to stop waiting for. Now a 15s
+  connect timeout plus a 300s overall ceiling.
+- ⚠️ **SSE events split across network chunks**, constantly and mid-JSON, so
+  the reader buffers until a blank-line boundary. `find_event_boundary` checks
+  `\r\n\r\n` **before** `\n\n`: searching for the bare LF pair also matches the
+  second half of a CRLF pair and leaves a stray `\r` that corrupts the next
+  event's `data:` prefix.
+- ⚠️ **Claude's `thinking_delta` is deliberately ignored** — only `text_delta`
+  is the answer. **OpenAI reports mid-stream errors as an `error` key rather
+  than a distinct event type**, so that is checked before the chunk shape;
+  parsed as a chunk it yields empty `choices` and swallows the error silently.
+- An unparseable payload is skipped, not fatal: these APIs grow event types,
+  and losing one chunk beats losing the answer.
+
+`useAtlas` implements `io.stream()` (a transcript entry that fills in, with a
+`streaming` flag driving a cursor and deferring the copy button), and the
+transcript's autoscroll tracks the growing entry's length — `entries.length`
+alone pins the view at the first token.
+
+⚠️ **`CLAUDE_MODEL` is still `claude-3-5-sonnet-20241022`**, a dated 2026-era-old
+snapshot, and `OPENAI_MODEL` is still `gpt-4o-mini`. Neither was changed as part
+of the streaming work. If Claude calls start failing with a 404, that constant
+is the first place to look.
+
 ## Phase 5 — Routines
 
 - "Save that as my morning routine", then "run my morning routine".

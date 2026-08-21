@@ -36,9 +36,16 @@ export function Transcript({
 }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
+  // A streaming answer grows without changing `entries.length`, so the length
+  // alone would pin the view at the first token and let the rest scroll off
+  // the bottom. Tracking the last entry's size keeps the tail visible as it
+  // fills in.
+  const lastEntry = entries[entries.length - 1];
+  const growing = lastEntry?.streaming ? (lastEntry.text?.length ?? 0) : 0;
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [entries.length, busy, status?.label]);
+  }, [entries.length, busy, status?.label, growing]);
 
   return (
     <div className="flex flex-col gap-3 px-6 py-5">
@@ -200,8 +207,19 @@ function EntryView({
       <div className="group max-w-[85%]">
         <div className="text-foreground whitespace-pre-wrap text-sm leading-relaxed">
           {entry.text}
+          {/* A cursor while tokens are still arriving. Without it a pause
+              mid-answer is indistinguishable from a finished short reply —
+              which is the confusion streaming otherwise introduces. */}
+          {entry.streaming && (
+            <span
+              aria-hidden="true"
+              className="bg-primary/70 ml-0.5 inline-block h-[1em] w-[2px] animate-pulse align-text-bottom"
+            />
+          )}
         </div>
-        <MessageActions text={entry.text ?? ''} onCopy={onCopy} />
+        {/* The copy rail waits until the answer is complete: copying half an
+            answer is never what someone meant to do. */}
+        {!entry.streaming && <MessageActions text={entry.text ?? ''} onCopy={onCopy} />}
       </div>
     );
   }

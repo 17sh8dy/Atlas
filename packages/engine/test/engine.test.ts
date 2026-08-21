@@ -2516,3 +2516,107 @@ test('status: planning through a provider announces and then clears', async () =
     'an unparseable plan must still clear the status line',
   );
 });
+
+// ---- streaming ----------------------------------------------------------------
+//
+// The engine always supported a streaming provider; nothing did until
+// `intelligence.rs` learned to. These pin the contract from the engine's side,
+// so the Rust and TS halves cannot drift apart silently.
+
+/** An io that records streamed chunks as well as finished messages. */
+function streamingIo(h: Harness) {
+  const chunks: string[] = [];
+  const finished: string[] = [];
+  let opened = 0;
+
+  const base = io(h);
+  return {
+    chunks,
+    finished,
+    opened: () => opened,
+    io: {
+      ...base,
+      stream: () => {
+        opened += 1;
+        return {
+          append: (chunk: string) => chunks.push(chunk),
+          finish: (full: string) => finished.push(full),
+        };
+      },
+    },
+  };
+}
+
+/** A provider that emits deltas before finishing, the way a real one does. */
+function makeStreamingProvider(parts: string[]): IntelligenceProvider {
+  return {
+    id: 'streamer',
+    label: 'Streamer',
+    isConfigured: () => true,
+    isLocal: () => false,
+    ask(_prompt, handlers) {
+      setTimeout(() => {
+        for (const part of parts) handlers.onDelta(part);
+        handlers.onDone(parts.join(''));
+      }, 1);
+    },
+  };
+}
+
+test('streaming: deltas arrive as chunks and the reply finishes whole', async () => {
+  const h = harness(undefined, { provider: makeStreamingProvider(['The ', 'sky ', 'is blue.']) });
+  const s = streamingIo(h);
+
+  await h.engine.ask('why is the sky blue?', s.io);
+
+  assert.deepEqual(s.chunks, ['The ', 'sky ', 'is blue.']);
+  assert.deepEqual(s.finished, ['The sky is blue.']);
+  assert.equal(s.opened(), 1, 'exactly one reply bubble should be opened');
+});
+
+test('streaming: nothing is said twice — say is not used when a stream is open', async () => {
+  const h = harness(undefined, { provider: makeStreamingProvider(['a', 'b']) });
+  const s = streamingIo(h);
+
+  await h.engine.ask('why is the sky blue?', s.io);
+
+  assert.equal(
+    h.said.join(''),
+    '',
+    'a streamed answer must not also be pushed through say(), or it appears twice',
+  );
+});
+
+test('streaming: the status line clears as soon as the first token lands', async () => {
+  // The whole point of the handover: "Thinking…" must give way to text, not
+  // sit above it while the answer is already arriving.
+  const h = harness(undefined, { provider: makeStreamingProvider(['x', 'y']) });
+  const s = streamingIo(h);
+
+  await h.engine.ask('why is the sky blue?', s.io);
+
+  assert.equal(stageNames(h)[stageNames(h).length - 1], 'cleared');
+  assert.ok(stageNames(h).includes('switching'));
+});
+
+test('streaming: a provider that never streams still answers in one piece', async () => {
+  // The degradation path. A non-streaming provider must never open a bubble
+  // it then leaves empty.
+  const h = harness(undefined, { provider: makeProvider({ reply: 'all at once' }) });
+  const s = streamingIo(h);
+
+  await h.engine.ask('why is the sky blue?', s.io);
+
+  assert.equal(s.opened(), 0, 'no stream should be opened without a delta');
+  assert.deepEqual(s.chunks, []);
+  assert.ok(h.said.join(' ').includes('all at once'));
+});
+
+test('streaming: a surface without stream support still receives the full answer', async () => {
+  // `io.stream` is optional. Dropping the deltas must cost nothing.
+  const h = harness(undefined, { provider: makeStreamingProvider(['half ', 'and half']) });
+
+  await h.engine.ask('why is the sky blue?', io(h));
+
+  assert.ok(h.said.join(' ').includes('half and half'));
+});

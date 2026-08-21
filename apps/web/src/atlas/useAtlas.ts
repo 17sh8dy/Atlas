@@ -59,6 +59,12 @@ export interface Entry {
   question?: string;
   detail?: string;
   answered?: 'yes' | 'no';
+  /**
+   * True while an answer is still arriving token by token. Lets the transcript
+   * show a cursor, and distinguishes "there is more coming" from "this reply
+   * really is that short".
+   */
+  streaming?: boolean;
 }
 
 let nextId = 1;
@@ -249,6 +255,36 @@ export function useAtlas(
       },
       status: (update) => showStatus(update),
 
+      /**
+       * Open a reply that fills in as it arrives.
+       *
+       * The engine calls this on the FIRST delta, not before, so a provider
+       * that never streams simply never opens one and the answer still lands
+       * whole through `say`. That is why this can exist without a flag: the
+       * two paths are chosen by the provider's own behaviour.
+       *
+       * Speaking happens once, in `finish` — reading each fragment aloud as it
+       * arrived would produce a stutter of half-words.
+       */
+      stream: () => {
+        const id = nextId++;
+        setEntries((prev) => [...prev, { id, kind: 'atlas', text: '', streaming: true }]);
+
+        const update = (change: (entry: Entry) => Entry) =>
+          setEntries((prev) => prev.map((entry) => (entry.id === id ? change(entry) : entry)));
+
+        return {
+          append: (chunk: string) =>
+            update((entry) => ({ ...entry, text: (entry.text ?? '') + chunk })),
+          finish: (full: string) => {
+            // Replaces rather than appends: `full` is the whole answer, and
+            // for a web-search reply it also carries the sources footer that
+            // was never streamed.
+            update((entry) => ({ ...entry, text: full, streaming: false }));
+            speakIfEnabled(full);
+          },
+        };
+      },
     }),
     [push, speakIfEnabled, showStatus],
   );

@@ -34,7 +34,11 @@ trash = "3"
 # Network calls happen here, in Rust, never as a webview `fetch()` — so
 # they're outside the CSP entirely and go through the same narrow-validated
 # -command shape as everything else in this file.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json"] }
+# "stream" is what makes `bytes_stream()` exist — without it a response body
+# can only be read whole, which is exactly the behaviour streaming replaces.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "stream"] }
+# StreamExt, for pulling chunks off the body as they arrive.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 scraper = "0.20"
 percent-encoding = "2"
 # Native OS controls (os.rs): lock, power, media/volume keys, the recycle
