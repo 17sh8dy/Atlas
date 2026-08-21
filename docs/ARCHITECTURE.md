@@ -161,6 +161,19 @@ reveal a path, launch a *registered* app, and read metadata. Once a general
 "run this string" capability exists, no other guarantee on the interface means
 anything.
 
+**Reaffirmed 2026-08-21, under exactly the pressure that usually breaks this
+rule.** The ask was for Atlas to do "almost everything PowerShell can do,"
+which reads at first like a request for a shell. It was settled the other way:
+the goal is to *perform the things people use PowerShell for*, as narrow
+validated skills — not to run PowerShell. See Phase 11 in `ROADMAP.md`.
+
+The rule does not forbid running a program: `speech.rs` runs piper,
+`open_system_tool` runs `taskmgr.exe`. What it forbids is a **variable command
+string**. A skill may invoke a fixed executable with a fixed argument shape
+whose only variable parts are validated against a closed set. The test is
+whether a reader can enumerate everything the program will ever execute — with
+`exec` they cannot, and that is the whole difference.
+
 ### 6.2 The skill registry (`engine/skills/registry.ts`)
 
 The only door to action. `invoke()` validates arguments against the declared

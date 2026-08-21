@@ -11,8 +11,13 @@ and an unnumbered interlude that took the catalog to **100 actions** and rebuilt
 the window chrome and app resolution. Phase 4 is **half-built**: Claude and
 ChatGPT are real, local models are not.
 
-**Next:** Phase 3 — persistence. Conversation history still dies with the
-process, and `files.find` still walks the disk on every query.
+**Next:** **Phase 11 — the desktop assistant** (Brandon, 2026-08-21): cover
+what people use PowerShell for, as ~40–60 narrow validated skills, with AI
+demoted to the fallback tier. ⚠️ `exec(command)` stays refused — see that
+phase for why the distinction is the whole point.
+
+**Also outstanding:** Phase 3 — persistence. Conversation history still dies
+with the process, and `files.find` still walks the disk on every query.
 
 **Version:** **`0.5.0`**, taken on 2026-08-21 when Phase 8 completed — the
 trigger the [Versioning](#versioning) section names.
@@ -459,6 +464,118 @@ than a flag, so a call site shows which one it is without following anything.
 - Autostart (Settings → Startup already has its disabled placeholder from
   Phase 1), updater, code signing.
 - First-run experience: the app should teach `Ctrl+Space` without a tour.
+
+---
+
+## Phase 11 — The desktop assistant
+
+**Decision (Brandon, 2026-08-21). Binding, and the reasoning matters more than
+the list.**
+
+The goal is *not* "Atlas can run PowerShell." It is:
+
+> Atlas can perform the useful things a person would normally use PowerShell
+> for.
+
+Those are different architectures, and only one of them survives contact with
+this project's first never-undo rule. **`exec(command)` is still refused.** No
+arbitrary command string ever reaches Windows. Every operation keeps the shape
+everything else already has:
+
+```
+request → planner → SkillRegistry → validated skill → platform implementation
+```
+
+The distinction is what makes the ambition affordable. "Run PowerShell" is one
+capability that can do anything, including everything nobody sanctioned; "do
+the things people use PowerShell for" is sixty capabilities that each do one
+reviewable thing. The second is more work and less power, and the trade is the
+entire security story of the product.
+
+### 1. Expand the narrow skill layer (~40–60 skills)
+
+Grouped roughly as:
+
+| Group | What it covers | Mostly |
+| --- | --- | --- |
+| 🖥️ System | processes, services, uptime, system info | read + start/stop |
+| 💾 Storage | disks, folders, cleanup, free space | read + destructive |
+| 🌐 Network | Wi-Fi, adapters, IP/DNS, connectivity | read |
+| 🔊 Audio | volume, output/input device selection | read + set |
+| 🖼️ Display | resolution, monitor info, brightness where supported | read + set |
+| 📅 Tasks | scheduled tasks | read + destructive |
+| 👤 Users | account info, basic management | read + destructive |
+| 🔥 Firewall | inspect and manage rules | read + destructive |
+| ⚙️ Environment | environment variables | read + set |
+| 🪟 Windows | settings, installed apps, startup items | read + set |
+
+Already built and not to be rebuilt: `system.info`, `system.processes`,
+`system.battery`, `system.disk`, `system.uptime`, `system.openTool`,
+`system.lock`, `system.power`, `system.volume`, `system.mute`,
+`system.displayOff`, `system.emptyRecycleBin`.
+
+⚠️ **Implementation note that decides how much of this is even possible.**
+Several of these have no ergonomic Win32 API and are genuinely shaped like
+"run a command" — enumerating Wi-Fi profiles, listing scheduled tasks,
+reading firewall rules. The answer is *not* to relax the exec rule for them.
+It is that a skill may invoke a **fixed executable with a fixed argument
+shape** whose only variable parts are validated against a closed set — the
+same pattern `open_system_tool` already uses, and the same one `speech.rs`
+uses to run piper. `netsh wlan show profiles` is a constant. `netsh wlan show
+profile name="<validated-ssid>"` is a constant plus one checked parameter.
+Neither is a command runner, and the difference is that a reader can
+enumerate everything the program can ever execute.
+
+### 2. Risk stays keyed to consequence, not to input method
+
+The existing `SkillRisk` model already carries this, with the tightening from
+2026-08-21: the test is whether an action changes something closing a window
+will not undo.
+
+- **Read** → runs. Listing services, adapters, tasks, rules, variables.
+- **Reversible change** → runs. Volume, a display setting, an env var for the
+  session.
+- **System-changing or destructive** → confirms. Stopping a service, deleting
+  a scheduled task, changing a firewall rule, removing an account.
+- **Beyond that** → refused outright, not confirmed. There is no confirmation
+  card that makes disabling the firewall wholesale a good idea.
+
+⚠️ **Voice does not get its own security model,** and this is settled: the app
+reaches the engine through exactly two screened seams, `engine.ask` and
+`engine.run`, and voice arrives through `ask` like a keystroke does. A
+capability that is dangerous when spoken is dangerous when typed.
+
+### 3. AI becomes the fallback, not the hands
+
+```
+request
+  ↓
+can a local skill do it?  ── yes ──▶ run it
+  ↓ no
+AI works out what to do
+```
+
+**AI is not Atlas's hands. It is the reasoning layer for the cases Atlas has
+no capability for yet.** That inverts the usual assistant design, where a
+model is the executor and tools are its appendages, and it is the reason this
+one works with nothing connected: the hands are always present, and only the
+reasoning is optional.
+
+The tiering already exists in `Engine.ask`; what was missing was saying so out
+loud, which is the `feat/model-escalation-status` branch (`8f5b753`,
+`d1be8ea`). **Merging that is part of this phase**, because "commands first,
+AI for the rest" is exactly what it makes visible.
+
+⚠️ Ordinary conversation is a separate question and waits for a *local* model
+— see Phase 4. The fallback tier being real does not mean "hello" should
+travel to a datacentre.
+
+### 4. What "done" looks like
+
+Not a skill count. The phase is done when a person who reaches for PowerShell
+out of habit can ask for the same thing in words and get it — and when the
+list of executables Atlas can ever run is still short enough to read in one
+sitting.
 
 ---
 
