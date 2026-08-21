@@ -128,6 +128,16 @@ export function createTauriPlatform(): Platform {
         headers: hints ? { 'Atlas-Hints': encodeURIComponent(hints) } : {},
       }),
 
+    // The one voice path that reaches the network. Kept adjacent to the local
+    // pair so a reader sees both and can tell them apart, not in a file where
+    // it could be mistaken for one of them.
+    synthesizeSpeechOnline: async (apiKey, text, pace) =>
+      toArrayBuffer(await invoke<unknown>('synthesize_speech_online', { apiKey, text, pace })),
+    transcribeSpeechOnline: (apiKey, audio) =>
+      invoke<Transcript>('transcribe_speech_online', new Uint8Array(audio), {
+        headers: { 'Atlas-Api-Key': apiKey },
+      }),
+
     logDiagnostic: (scope, message) => invoke<void>('log_diagnostic', { scope, message }),
   };
 }

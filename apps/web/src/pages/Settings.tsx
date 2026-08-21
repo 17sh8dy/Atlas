@@ -15,6 +15,7 @@ import type {
   SpeechPreferences,
   SpeechVoice,
   Storage,
+  VoicePreferences,
   VoiceProfile,
 } from '@atlas/core';
 import type { ProviderKeyId } from '@atlas/data';
@@ -50,6 +51,10 @@ interface Props {
   /** False in a build without the transcription engine. */
   listeningSupported: boolean;
   onListeningChange(next: Partial<ListeningPreferences>): void;
+  voiceService: VoicePreferences;
+  /** Whether a key exists for the online path at all. */
+  hasVoiceKey: boolean;
+  onVoiceServiceChange(next: Partial<VoicePreferences>): void;
 }
 
 const SECTIONS = [
@@ -84,6 +89,9 @@ export function Settings({
   listening,
   listeningSupported,
   onListeningChange,
+  voiceService,
+  hasVoiceKey,
+  onVoiceServiceChange,
 }: Props) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -121,6 +129,9 @@ export function Settings({
                 listening={listening}
                 listeningSupported={listeningSupported}
                 onListeningChange={onListeningChange}
+                voiceService={voiceService}
+                hasVoiceKey={hasVoiceKey}
+                onVoiceServiceChange={onVoiceServiceChange}
               />
             </TabsContent>
             <TabsContent value="personalization">

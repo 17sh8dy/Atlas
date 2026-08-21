@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Platform } from '@atlas/core';
 import { Recorder, type ListeningState } from './recorder';
+import type { VoiceRoute } from './useSpeech';
 
 export interface Listening {
   /**
@@ -57,6 +58,8 @@ interface Options {
    * gets a chance.
    */
   hints?: string;
+  /** Where transcription happens. Local unless both the switch and a key say otherwise. */
+  route?: VoiceRoute;
 }
 
 export function useListening(platform: Platform, options: Options): Listening {
@@ -104,15 +107,16 @@ export function useListening(platform: Platform, options: Options): Listening {
         onSpeechStart: () => latest.current.onSpeechStart?.(),
         onError: fail,
         onUtterance: async ({ audio }) => {
-          const transcribe = platformRef.current.transcribeSpeech;
-          if (!transcribe) return;
+          const target = platformRef.current;
+          const via = latest.current.route;
+          const cloud =
+            via?.online && via.apiKey ? target.transcribeSpeechOnline : undefined;
+          if (!cloud && !target.transcribeSpeech) return;
           setTranscribing(true);
           try {
-            const heard = await transcribe.call(
-              platformRef.current,
-              audio,
-              latest.current.hints,
-            );
+            const heard = cloud
+              ? await cloud.call(target, via!.apiKey as string, audio)
+              : await target.transcribeSpeech!.call(target, audio, latest.current.hints);
             // Silence is a normal outcome, not a failure: a door closing
             // crosses the gate and transcribes to nothing. Reporting it would
             // fill the screen with apologies for noises.

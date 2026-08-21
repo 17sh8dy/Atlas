@@ -37,7 +37,21 @@ export interface Speech {
   lastError: string | null;
 }
 
-export function useSpeech(platform: Platform): Speech {
+/**
+ * Where voice work happens.
+ *
+ * Both must be true for anything to leave the machine: the preference on, and
+ * a key present. Absent either, the local engine runs — the setting can turn
+ * the network path on, never turn Atlas off.
+ */
+export interface VoiceRoute {
+  online: boolean;
+  apiKey: string | null;
+}
+
+const LOCAL: VoiceRoute = { online: false, apiKey: null };
+
+export function useSpeech(platform: Platform, route: VoiceRoute = LOCAL): Speech {
   const player = useMemo(() => new SpeechPlayer(), []);
   const [state, setState] = useState<SpeechState>('idle');
   const [lastError, setError] = useState<string | null>(null);
@@ -52,16 +66,23 @@ export function useSpeech(platform: Platform): Speech {
 
   const platformRef = useRef(platform);
   platformRef.current = platform;
+  const routeRef = useRef(route);
+  routeRef.current = route;
 
   const speak = useCallback(
     async (text: string, options?: SpeechOptions) => {
-      const synth = platformRef.current.synthesizeSpeech;
+      const target = platformRef.current;
+      const via = routeRef.current;
+      const cloud = via.online && via.apiKey ? target.synthesizeSpeechOnline : undefined;
+      const synth = cloud ?? target.synthesizeSpeech;
       if (!synth) {
         setError('This build has no speech engine.');
         return;
       }
       try {
-        const audio = await synth.call(platformRef.current, text, options);
+        const audio = cloud
+          ? await cloud.call(target, via.apiKey as string, text, options?.pace)
+          : await target.synthesizeSpeech!.call(target, text, options);
         if (!audio || audio.byteLength === 0) {
           setError('The speech engine returned no audio.');
           return;

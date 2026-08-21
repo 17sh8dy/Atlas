@@ -20,17 +20,20 @@ import type {
   SpeechPreferences,
   SpeechVoice,
   Storage,
+  VoicePreferences,
   VoiceProfile,
 } from '@atlas/core';
-import { DEFAULT_LISTENING, DEFAULT_SPEECH } from '@atlas/core';
+import { DEFAULT_LISTENING, DEFAULT_SPEECH, DEFAULT_VOICE_SERVICE } from '@atlas/core';
 import {
   readActiveProvider,
   readListeningPreferences,
   readProviderKeys,
   readSpeechPreferences,
+  readVoicePreferences,
   readVoiceProfile,
   writeListeningPreferences,
   writeSpeechPreferences,
+  writeVoicePreferences,
 } from '@atlas/data';
 import type { ProviderKeyId } from '@atlas/data';
 import { Icons, Spinner, cn } from '@atlas/ui';
@@ -53,6 +56,7 @@ interface Loaded {
   speech: SpeechPreferences;
   speechVoices: SpeechVoice[];
   listening: ListeningPreferences;
+  voiceService: VoicePreferences;
 }
 
 export function AtlasApp({ platform, storage }: { platform: Platform; storage: Storage }) {
@@ -72,6 +76,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       // the Voice tab renders that case rather than pretending otherwise.
       platform.speechVoices?.().catch(() => [] as SpeechVoice[]) ?? Promise.resolve([]),
       readListeningPreferences(storage).catch(() => DEFAULT_LISTENING),
+      readVoicePreferences(storage).catch(() => DEFAULT_VOICE_SERVICE),
     ]).then(
       ([
         capabilities,
@@ -81,6 +86,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
         speech,
         speechVoices,
         listening,
+        voiceService,
       ]) => {
         if (alive)
           setLoaded({
@@ -91,6 +97,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
             speech,
             speechVoices,
             listening,
+            voiceService,
           });
       },
     );
@@ -120,6 +127,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       speech={loaded.speech}
       speechVoices={loaded.speechVoices}
       listening={loaded.listening}
+      voiceService={loaded.voiceService}
       onVoiceProfileChange={reload}
       onProviderChange={reload}
       onPreferencesSaved={reload}
@@ -137,6 +145,7 @@ function Ready({
   speech,
   speechVoices,
   listening: listeningPrefs,
+  voiceService,
   onVoiceProfileChange,
   onProviderChange,
   onPreferencesSaved,
@@ -150,13 +159,23 @@ function Ready({
   speech: SpeechPreferences;
   speechVoices: SpeechVoice[];
   listening: ListeningPreferences;
+  voiceService: VoicePreferences;
   onVoiceProfileChange: () => void;
   onProviderChange: () => void;
   onPreferencesSaved: () => void;
 }) {
   // One player for the whole app: Settings previews through it, replies speak
   // through it, and the voice screen's visualiser reads its analyser.
-  const voice = useSpeech(platform);
+  /**
+   * Where voice work happens. Two independent conditions, both required, so
+   * neither a switch left on nor a key left saved can send audio on its own.
+   */
+  const route = useMemo(
+    () => ({ online: voiceService.online, apiKey: providerKeys.openai ?? null }),
+    [voiceService.online, providerKeys.openai],
+  );
+
+  const voice = useSpeech(platform, route);
   const [screen, setScreen] = useState<Screen>('conversation');
   const [homeFading, setHomeFading] = useState(false);
   const [heard, setHeard] = useState<string | null>(null);
@@ -230,6 +249,7 @@ function Ready({
   const listening = useListening(platform, {
     silenceMs: listeningPrefs.silenceMs,
     hints: appHints,
+    route,
     /**
      * Barge-in. This fires on the first loud frame, not on a finished
      * sentence, because the whole point is not waiting: an answer you have
@@ -300,6 +320,13 @@ function Ready({
     }
     return null;
   }, [atlas.entries]);
+
+  const onVoiceServiceChange = useCallback(
+    (next: Partial<VoicePreferences>) => {
+      void writeVoicePreferences(storage, next).then(onPreferencesSaved);
+    },
+    [storage, onPreferencesSaved],
+  );
 
   const onListeningChange = useCallback(
     (next: Partial<ListeningPreferences>) => {
@@ -487,6 +514,9 @@ function Ready({
             listening={listeningPrefs}
             listeningSupported={listening.supported}
             onListeningChange={onListeningChange}
+            voiceService={voiceService}
+            hasVoiceKey={Boolean(providerKeys.openai)}
+            onVoiceServiceChange={onVoiceServiceChange}
           />
         )}
       </div>

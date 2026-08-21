@@ -190,6 +190,22 @@ export interface Platform {
   transcribeSpeech?(audio: ArrayBuffer, hints?: string): Promise<Transcript>;
 
   /**
+   * Speaking and listening through a connected service, gated by `network`.
+   *
+   * Deliberately separate methods rather than a flag on the two above. These
+   * are the only paths in the whole voice system where a recording or a
+   * sentence leaves the machine, and that difference is worth being visible
+   * in the type rather than buried in an options object — a reader of a call
+   * site should be able to see which one it is without following anything.
+   *
+   * The key is passed in rather than read here, because this port has no
+   * access to storage and should not gain any: an implementation that could
+   * fetch its own credentials is one that could use them unasked.
+   */
+  synthesizeSpeechOnline?(apiKey: string, text: string, pace?: number): Promise<ArrayBuffer>;
+  transcribeSpeechOnline?(apiKey: string, audio: ArrayBuffer): Promise<Transcript>;
+
+  /**
    * Write a line to the app's diagnostics file.
    *
    * A second channel out of the webview, for failures the UI cannot be

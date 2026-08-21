@@ -20,6 +20,8 @@ mod platform;
 #[cfg(windows)]
 mod speech;
 mod storage;
+#[cfg(windows)]
+mod voice_cloud;
 mod web;
 
 use tauri::{
@@ -162,6 +164,8 @@ pub fn run() {
             speech::speech_voices,
             speech::synthesize_speech,
             listen::transcribe_speech,
+            voice_cloud::synthesize_speech_online,
+            voice_cloud::transcribe_speech_online,
             diagnostics::log_diagnostic,
             diagnostics::read_diagnostics,
             web::web_search,
