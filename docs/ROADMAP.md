@@ -14,9 +14,8 @@ ChatGPT are real, local models are not.
 **Next:** Phase 3 — persistence. Conversation history still dies with the
 process, and `files.find` still walks the disk on every query.
 
-**Version:** still `0.1.0`. Phase 8 is now complete, which is the trigger the
-Versioning section names for **0.5.0** — the bump is owed and has not been
-taken. Three files move together; see [Versioning](#versioning).
+**Version:** **`0.5.0`**, taken on 2026-08-21 when Phase 8 completed — the
+trigger the [Versioning](#versioning) section names.
 
 **Open question blocking nothing yet, but real:** every file command is limited
 to `%USERPROFILE%` (`is_permitted` in `platform.rs`), and the index only covers
@@ -451,7 +450,9 @@ than a flag, so a call site shows which one it is without following anything.
 ## Versioning
 
 **Decision (2026-08-19): when Phase 8 — Voice ships, the version goes to
-0.5.0, at minimum.**
+0.5.0, at minimum. ✅ Taken on 2026-08-21**, once both halves of Voice were
+built — Atlas speaks and listens, which is the "something a user can feel"
+the decision was waiting for.
 
 `0.1.0` is the number the project was created with and it has not moved since,
 which now badly understates the build: Phases 0, 1 and 2 are complete, 6 and 7
@@ -467,7 +468,7 @@ about what they are:
 
 | File | Why it matters |
 | --- | --- |
-| `apps/desktop/src-tauri/tauri.conf.json` | Authoritative. Feeds `getVersion()`, which is what Settings → About actually displays, and names the installer (`Atlas_0.1.0_x64-setup.exe`). |
+| `apps/desktop/src-tauri/tauri.conf.json` | Authoritative. Feeds `getVersion()`, which is what Settings → About actually displays, and names the installer (now `Atlas_0.5.0_x64-setup.exe`). |
 | `apps/desktop/src-tauri/Cargo.toml` | The crate version. |
 | `apps/desktop/package.json` | Keeps the workspace honest. |
 
@@ -477,6 +478,9 @@ is not a shipped artifact.
 Nothing reads the version at runtime beyond the About screen, so this is a
 rename, not a migration. Do it as its own commit, so `git log` has one place
 that says when and why the number changed.
+
+`Cargo.lock` moves too — it records the crate's own version, so it is part of
+the same commit rather than a stray diff in the next one.
 
 ---
 
