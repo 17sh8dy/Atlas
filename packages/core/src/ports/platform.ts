@@ -24,6 +24,7 @@
 
 import type { SpeechOptions, SpeechVoice } from '../models/speech';
 import type { Transcript } from '../models/listening';
+import type { NetworkAdapter, WifiStatus } from '../models/network';
 
 /** Names the engine checks before offering a skill. */
 export type CapabilityName =
@@ -204,6 +205,28 @@ export interface Platform {
    */
   synthesizeSpeechOnline?(apiKey: string, text: string, pace?: number): Promise<ArrayBuffer>;
   transcribeSpeechOnline?(apiKey: string, audio: ArrayBuffer): Promise<Transcript>;
+
+  /**
+   * The machine's networking, gated by `network`.
+   *
+   * Read-only by construction: there is no method here that changes an
+   * adapter, joins a network or forgets a profile. That is not an oversight —
+   * Phase 11 puts reads and system-changing operations in different risk
+   * tiers, and keeping them in different methods means a caller cannot reach
+   * for the wrong one by mistake.
+   */
+  networkAdapters?(): Promise<NetworkAdapter[]>;
+  wifiStatus?(): Promise<WifiStatus>;
+  /** Saved Wi-Fi profiles. Empty on a machine with no wireless. */
+  wifiNetworks?(): Promise<string[]>;
+  /**
+   * Is there actually a working connection?
+   *
+   * A real request rather than a ping: what people mean by "am I online" is
+   * whether things work, and a machine answers ICMP perfectly well while DNS
+   * is broken or a captive portal is intercepting everything.
+   */
+  networkReachable?(): Promise<boolean>;
 
   /**
    * Write a line to the app's diagnostics file.

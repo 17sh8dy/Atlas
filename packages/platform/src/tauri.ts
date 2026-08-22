@@ -16,9 +16,11 @@ import type {
   Platform,
   ProcessEntry,
   SystemSnapshot,
+  NetworkAdapter,
   SpeechVoice,
   Transcript,
   WebPage,
+  WifiStatus,
   PathInfo,
   WebSearchResult,
 } from '@atlas/core';
@@ -137,6 +139,11 @@ export function createTauriPlatform(): Platform {
       invoke<Transcript>('transcribe_speech_online', new Uint8Array(audio), {
         headers: { 'Atlas-Api-Key': apiKey },
       }),
+
+    networkAdapters: () => invoke<NetworkAdapter[]>('network_adapters'),
+    wifiStatus: () => invoke<WifiStatus>('wifi_status'),
+    wifiNetworks: () => invoke<string[]>('wifi_networks'),
+    networkReachable: () => invoke<boolean>('network_reachable'),
 
     logDiagnostic: (scope, message) => invoke<void>('log_diagnostic', { scope, message }),
   };

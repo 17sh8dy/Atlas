@@ -28,6 +28,7 @@ import { createTextSkills } from '../src/skills/text-skills';
 import { createCalcSkills } from '../src/skills/calc-skills';
 import { createNotesSkills } from '../src/skills/notes-skills';
 import { createOsSkills } from '../src/skills/os-skills';
+import { createNetworkSkills } from '../src/skills/network-skills';
 import { createCoreGrammar } from '../src/planner/core-grammar';
 import { createExtraGrammar } from '../src/planner/extra-grammar';
 import { createPhrasing } from '../src/phrasing';
@@ -187,6 +188,23 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       journal.systemTools.push(id);
       return true;
     },
+
+    // A wired desktop with no wireless hardware — the machine this was built
+    // on, and the shape most likely to be got wrong.
+    networkAdapters: async () => [
+      {
+        name: 'Ethernet',
+        kind: 'Ethernet',
+        connected: true,
+        ipv4: '192.168.77.101',
+        gateway: '192.168.77.1',
+        mac: 'F0-2F-74-F4-DE-8A',
+      },
+      { name: 'Loopback', kind: 'Adapter', connected: true, ipv4: '127.0.0.1' },
+    ],
+    wifiStatus: async () => ({ available: false, connected: false }),
+    wifiNetworks: async () => [],
+    networkReachable: async () => true,
 
     pathInfo: async (path) => ({
       path,
@@ -371,6 +389,7 @@ function harness(
   skills.registerMany(createCalcSkills());
   skills.registerMany(createNotesSkills(memory));
   skills.registerMany(createOsSkills(platform));
+  skills.registerMany(createNetworkSkills(platform));
 
   const grammar = new Grammar();
   grammar.addMany(createCoreGrammar(working));
@@ -2553,4 +2572,65 @@ test('policy: a spoken request is screened exactly like a typed one', async () =
   const spoken = await h.engine.ask('Search the web for porn.', io(h));
   assert.equal(typed.error, 'refused:explicit');
   assert.equal(spoken.error, 'refused:explicit');
+});
+
+// ---- the network (Phase 11's first pack) ---------------------------------------
+//
+// All reads, so all `safe` — none of these should produce a confirmation card.
+// The fixture is a wired desktop with no wireless, because that is the machine
+// this was written on and it is the case an implementation is most likely to
+// answer wrongly.
+
+test('network: the IP answer picks the adapter carrying traffic', async () => {
+  const h = harness();
+  await h.engine.ask('what is my ip address', io(h));
+  // Loopback also has an address; the one with a gateway is the answer.
+  assert.match(h.said.join(' '), /192\.168\.77\.101/);
+  assert.notMatch(h.said.join(' '), /127\.0\.0\.1/);
+  assert.deepEqual(h.confirmsAsked, []);
+});
+
+test('network: no wireless hardware is said plainly, not reported as disconnected', async () => {
+  const h = harness();
+  await h.engine.ask('what wifi am I on', io(h));
+  // "Wi-Fi is off" would be untrue on a machine that has none.
+  assert.match(h.said.join(' '), /doesn.t have Wi-Fi/i);
+});
+
+test('network: no saved networks is an answer, not a failure', async () => {
+  const h = harness();
+  assert.equal(
+    h.engine.grammar.parse('what wifi networks do I have saved')?.steps[0]?.skill,
+    'net.savedNetworks',
+  );
+  const outcome = await h.engine.ask('what wifi networks do I have saved', io(h));
+  assert.isTrue(outcome.ok);
+  assert.match(h.said.join(' '), /No saved Wi-Fi networks/i);
+});
+
+test('network: being online is reported', async () => {
+  const h = harness();
+  await h.engine.ask('am I online', io(h));
+  assert.match(h.said.join(' '), /connection is working/i);
+});
+
+test('network: adapters come back as rows', async () => {
+  const h = harness();
+  await h.engine.ask('show my network adapters', io(h));
+  assert.isNotEmpty(h.rows);
+});
+
+test('network: "ip" never matches inside another word', () => {
+  const h = harness();
+  // The reason those \b boundaries are in the rule. Without them this rule
+  // claims anything containing "zip", "clip" or "recipe".
+  const parsed = h.engine.grammar.parse('unzip my downloads');
+  assert.notEqual(parsed?.steps[0].skill, 'net.ip');
+});
+
+test('network: reading the network never asks permission', async () => {
+  const h = harness();
+  for (const skill of ['net.adapters', 'net.ip', 'net.wifi', 'net.savedNetworks', 'net.online']) {
+    assert.equal(h.engine.skills.get(skill)?.risk, 'safe', skill);
+  }
 });

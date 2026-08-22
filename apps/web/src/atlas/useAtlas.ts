@@ -38,6 +38,7 @@ import {
   createCalcSkills,
   createNotesSkills,
   createOsSkills,
+  createNetworkSkills,
   createTextSkills,
   createUtilitySkills,
   createWebSearchSkills,
@@ -104,6 +105,7 @@ export function useAtlas(
     skills.registerMany(createCalcSkills());
     skills.registerMany(createNotesSkills(memory));
     skills.registerMany(createOsSkills(platform));
+    skills.registerMany(createNetworkSkills(platform));
 
     const grammar = new Grammar();
     grammar.addMany(createCoreGrammar(working));

@@ -780,5 +780,52 @@ export function createExtraGrammar(): GrammarRule[] {
         return null;
       },
     },
+
+    // ---- the network, reported ------------------------------------------------
+    //
+    // All questions, all read-only. `questionSafe` matters here more than
+    // anywhere else in this file: "what is my ip" is unambiguously a question,
+    // and triage would otherwise route it to conversation and answer it with a
+    // sentence about not knowing rather than with the address.
+
+    {
+      name: 'networkReadouts',
+      order: -6.9,
+      // ⚠️ These are the *intents* this rule returns, not keywords in the
+      // text — naming anything else silently declines every question-shaped
+      // phrasing, which is most of them: "what is my ip" is a question.
+      questionSafe: ['ip', 'wifi', 'wifi-saved', 'online', 'adapters'],
+      test(lower) {
+        // Saved networks first: "my saved wifi" is about the list, not about
+        // the connection, and the more specific reading is the one meant.
+        if (
+          /\bsaved\s+(?:wi-?fi|wireless)\b|\b(?:wi-?fi|wireless)\s+(?:networks|profiles)\b/.test(
+            lower,
+          )
+        ) {
+          return plan(step('net.savedNetworks', {}), 'wifi-saved');
+        }
+        if (
+          /\b(?:am i online|are we online|is the internet (?:working|up|down)|do i have internet|is my internet (?:working|up|down))\b/.test(
+            lower,
+          )
+        ) {
+          return plan(step('net.online', {}), 'online');
+        }
+        if (/\b(?:wi-?fi|wireless)\b/.test(lower)) {
+          return plan(step('net.wifi', {}), 'wifi');
+        }
+        // The word boundaries are load-bearing. "ip" is two letters and sits
+        // inside "zip", "clip" and "recipe"; without \b this rule would claim
+        // "unzip my downloads".
+        if (/\b(?:my|the)\s+ip(?:\s+address)?\b|\bip address\b/.test(lower)) {
+          return plan(step('net.ip', {}), 'ip');
+        }
+        if (/\bnetwork\s+adapters?\b|\badapters?\b.*\bnetwork\b/.test(lower)) {
+          return plan(step('net.adapters', {}), 'adapters');
+        }
+        return null;
+      },
+    },
   ];
 }

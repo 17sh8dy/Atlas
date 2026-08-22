@@ -13,6 +13,8 @@
 mod diagnostics;
 mod intelligence;
 #[cfg(windows)]
+mod net;
+#[cfg(windows)]
 mod listen;
 #[cfg(windows)]
 mod os;
@@ -164,6 +166,10 @@ pub fn run() {
             speech::speech_voices,
             speech::synthesize_speech,
             listen::transcribe_speech,
+            net::network_adapters,
+            net::wifi_status,
+            net::wifi_networks,
+            net::network_reachable,
             voice_cloud::synthesize_speech_online,
             voice_cloud::transcribe_speech_online,
             diagnostics::log_diagnostic,
