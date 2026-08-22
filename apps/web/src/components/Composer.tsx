@@ -13,6 +13,17 @@ import { Icons, cn } from '@atlas/ui';
 interface Props {
   onSubmit(text: string): void;
   busy: boolean;
+  /**
+   * A confirmation card is open and waiting for an answer.
+   *
+   * ⚠️ Separate from `busy`, and the whole reason this prop exists: while a
+   * card is up the executor is parked on it, so `busy` is true — and gating
+   * input on `busy` alone silently swallowed the answer. Typing "yes" put the
+   * word in the box and did nothing; only the button worked, and only voice
+   * reached the path built for exactly this. `useAtlas.ask` has always
+   * handled a typed answer correctly; nothing could get one to it.
+   */
+  awaitingAnswer?: boolean;
   placeholder?: string;
   /**
    * Dictation, when this build can listen and the microphone is switched on.
@@ -41,6 +52,7 @@ const MAX_HEIGHT = 160;
 export function Composer({
   onSubmit,
   busy,
+  awaitingAnswer = false,
   placeholder = 'Ask Atlas anything…',
   dictation,
   dictated,
@@ -64,13 +76,17 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
   }, [value]);
 
+  // Focus follows the same rule as sending: an open card means the caret
+  // belongs in the box, since answering by typing is the point.
+  const blocked = busy && !awaitingAnswer;
+
   useEffect(() => {
-    if (!busy) ref.current?.focus();
-  }, [busy]);
+    if (!blocked) ref.current?.focus();
+  }, [blocked]);
 
   const send = () => {
     const text = value.trim();
-    if (!text || busy) return;
+    if (!text || blocked) return;
     setValue('');
     onSubmit(text);
   };
@@ -170,7 +186,7 @@ export function Composer({
           <button
             type="button"
             onClick={send}
-            disabled={!value.trim() || busy}
+            disabled={!value.trim() || blocked}
             aria-label="Send"
             className={cn(
               'mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',

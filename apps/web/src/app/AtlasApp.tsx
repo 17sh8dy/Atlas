@@ -535,6 +535,7 @@ function Ready({
           <Conversation
             entries={atlas.entries}
             busy={atlas.busy}
+            awaitingAnswer={atlas.awaitingAnswer}
             skills={atlas.skills}
             greeting={atlas.greeting}
             personalized={atlas.personalized}

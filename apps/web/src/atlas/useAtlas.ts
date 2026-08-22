@@ -208,7 +208,15 @@ export function useAtlas(
   }, []);
 
   const ask = useCallback(
-    async (text: string) => {
+    /**
+     * `echo` is how a replayed instruction avoids appearing twice.
+     *
+     * Saying something that is neither yes nor no over a confirmation both
+     * declines the card *and* is the next instruction, so the words are shown
+     * where they were said and the replay below stays silent. Without it the
+     * transcript claims you typed the same sentence twice.
+     */
+    async (text: string, options: { echo?: boolean } = {}) => {
       const trimmed = text.trim();
       if (!trimmed) return;
 
@@ -232,7 +240,7 @@ export function useAtlas(
       }
 
       if (busy) return;
-      push({ kind: 'you', text: trimmed });
+      if (options.echo !== false) push({ kind: 'you', text: trimmed });
       setBusy(true);
       try {
         await engine.ask(trimmed, io);
@@ -256,7 +264,8 @@ export function useAtlas(
     if (busy || !queued.current) return;
     const next = queued.current;
     queued.current = null;
-    void askRef.current(next);
+    // Already shown, at the point where it declined the card.
+    void askRef.current(next, { echo: false });
   }, [busy]);
 
   /** Run a row's action — the same executor path a typed command takes. */
@@ -311,6 +320,19 @@ export function useAtlas(
   return {
     entries,
     busy,
+    /**
+     * Is a confirmation waiting on the user right now?
+     *
+     * Exported because `busy` is true throughout — the executor is parked on
+     * the card — and every surface that gates input on `busy` would otherwise
+     * refuse the very answer the engine is waiting for. `ask` already handles
+     * a typed answer correctly; this is what lets one reach it.
+     *
+     * Derived from the transcript rather than from `pendingConfirm`, because
+     * that is a ref: changing it would not re-render anything, and a gate that
+     * only lifts on the next unrelated render is not a gate.
+     */
+    awaitingAnswer: entries.some((e) => e.kind === 'confirm' && !e.answered),
     ask,
     runAction,
     answerConfirm,

@@ -22,6 +22,8 @@ import type { Entry } from '../atlas/useAtlas';
 interface Props {
   entries: Entry[];
   busy: boolean;
+  /** A confirmation is open, so the composer must stay usable. */
+  awaitingAnswer: boolean;
   skills: SkillRegistry;
   greeting: string;
   personalized: boolean;
@@ -40,6 +42,7 @@ interface Props {
 export function Conversation({
   entries,
   busy,
+  awaitingAnswer,
   skills,
   greeting,
   personalized,
@@ -75,7 +78,13 @@ export function Conversation({
         )}
       </div>
 
-      <Composer onSubmit={onAsk} busy={busy} dictation={dictation} dictated={dictated} />
+      <Composer
+        onSubmit={onAsk}
+        busy={busy}
+        awaitingAnswer={awaitingAnswer}
+        dictation={dictation}
+        dictated={dictated}
+      />
     </div>
   );
 }
