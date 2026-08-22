@@ -31,7 +31,7 @@
 import type { AppEntry, KnownFolder, Memory, Platform, ResultRow, Skill } from '@atlas/core';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { rankMatches, nearMatches, RANK } from '../text/fuzzy';
-import { resolveSite } from '../text/sites';
+import { resolveSite, exactSiteName } from '../text/sites';
 import { evaluateExpression } from './math';
 import { convertUnit } from './units';
 import type { SkillRegistry } from './registry';
@@ -824,6 +824,20 @@ export function createCoreSkills(
         // A confident match launches. A typo-tolerant one is a guess, so when
         // there is more than one of those, the user picks rather than Atlas.
         const ambiguous = best.rank >= 4 && matches.length > 1;
+
+        // One exception to "installed applications win", and it is narrow.
+        // "open google" found Google Docs — a different product whose name
+        // merely begins with the word — while the thing actually called
+        // Google is a website. A partial match against a longer application
+        // name is a weaker claim than a site named precisely what was said.
+        // An *exact* application match still wins, so "open steam" is
+        // untouched.
+        const site = best.rank > RANK.exact ? exactSiteName(wanted) : null;
+        if (site && platform.openUrl) {
+          const ok = await platform.openUrl(site.url);
+          if (ok) return { ok: true, message: phrasing.opening(site.name) };
+        }
+
         if (!ambiguous) {
           const ok = await platform.launchApp!(best.app.id);
           return ok

@@ -21,6 +21,7 @@
 
 import { Icons, cn } from '@atlas/ui';
 import { VoiceOrb } from '../components/VoiceOrb';
+import { AmbientField } from '../components/AmbientField';
 
 export type VoicePhase =
   /** Microphone closed. Nothing is being captured. */
@@ -77,8 +78,11 @@ export function VoiceScreen({
   const live = phase !== 'off';
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-8 py-10">
-      <div className="flex flex-col items-center gap-6">
+    <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-8 py-10">
+      {/* Behind everything, and behind it on purpose — see AmbientField. */}
+      <AmbientField level={level} active={live} />
+
+      <div className="relative flex flex-col items-center gap-6">
         <button
           type="button"
           onClick={onToggle}
@@ -116,7 +120,7 @@ export function VoiceScreen({
 
       {/* The last exchange, in text. A voice interface with no transcript is a
           black box the moment it mishears you — and it will mishear you. */}
-      <div className="flex w-full max-w-md flex-col gap-3">
+      <div className="relative flex w-full max-w-md flex-col gap-3">
         {error && (
           <div className="border-warning/40 bg-warning/5 rounded-lg border px-4 py-3">
             <p className="text-foreground-subtle break-words text-xs leading-relaxed">{error}</p>
@@ -143,7 +147,7 @@ export function VoiceScreen({
       <button
         type="button"
         onClick={onClose}
-        className="text-foreground-subtle hover:text-foreground duration-fast text-xs transition"
+        className="text-foreground-subtle hover:text-foreground duration-fast relative text-xs transition"
       >
         Back to the conversation
       </button>

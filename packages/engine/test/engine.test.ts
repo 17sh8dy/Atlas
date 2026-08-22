@@ -19,6 +19,7 @@ import type {
 } from '@atlas/core';
 import { Engine } from '../src/engine';
 import { readAffirmation } from '../src/text/affirmation';
+import { exactSiteName } from '../src/text/sites';
 import { Grammar } from '../src/planner/grammar';
 import { SkillRegistry } from '../src/skills/registry';
 import { createCoreSkills } from '../src/skills/core-skills';
@@ -128,6 +129,9 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       // one" resolves to.
       { id: 'opencut', name: 'Open Cut', target: 'OpenCut.exe' },
       { id: 'obs', name: 'OBS Studio', target: 'obs64.exe' },
+      // The exact shape of Brandon's bug: a PWA shortcut whose name begins
+      // with the word someone means as a website.
+      { id: 'gdocs', name: 'Google Docs', target: 'chrome_proxy.exe' },
       // A conjunction inside a real program's name — the case that makes
       // splitting on "and" before matching the whole string unsafe.
       { id: 'candc', name: 'Command and Conquer', target: 'cnc.exe' },
@@ -2725,4 +2729,54 @@ test('aloud: a refusal is always spoken, whatever the skill declared', async () 
   // Refusals come from the engine, not from a skill, so nothing can mute
   // them — which is deliberate: a silent refusal reads as a failure.
   assert.match(h.spokenAloud.join(' '), /don't search for, open, or play pornography/);
+});
+
+// ---- a site named exactly what you said ----------------------------------------
+
+test('"open google" opens Google, not Google Docs', async () => {
+  const h = harness();
+  await h.engine.ask('open google', io(h));
+  // The installed match was only a prefix of a longer, different product.
+  assert.deepEqual(h.journal.launched, []);
+  assert.deepEqual(h.journal.urls, ['https://www.google.com']);
+});
+
+test('an exactly-named installed app still beats the site', async () => {
+  const h = harness();
+  await h.engine.ask('open steam', io(h));
+  // "installed apps win" is still the rule; this is one narrow exception to it.
+  assert.deepEqual(h.journal.launched, ['steam']);
+  assert.deepEqual(h.journal.urls, []);
+});
+
+test('naming the longer product still opens the longer product', async () => {
+  const h = harness();
+  await h.engine.ask('open google docs', io(h));
+  assert.deepEqual(h.journal.launched, ['gdocs']);
+});
+
+test('an alias never outranks an installed application', () => {
+  // "drive" is an alias for Google Drive, but someone with Drive installed who
+  // says "open drive" wants the program — so only a site's own name counts.
+  assert.isNull(exactSiteName('drive'));
+  assert.isNotNull(exactSiteName('google'));
+  assert.isNotNull(exactSiteName('GOOGLE'));
+});
+
+test('"find pdf files" searches for PDFs, not for the word "files"', () => {
+  const h = harness();
+  const parsed = h.engine.grammar.parse('find pdf files');
+  assert.equal(parsed?.steps[0]?.skill, 'files.find');
+  // Stripping only the first type word left "files" as the search term, which
+  // found nothing and said so with complete confidence.
+  assert.equal(parsed?.steps[0]?.args.query, '');
+  // `detectKind` buckets pdf under the broader 'document' kind.
+  assert.equal(parsed?.steps[0]?.args.kind, 'document');
+});
+
+test('a named file search keeps the name', () => {
+  const h = harness();
+  const parsed = h.engine.grammar.parse('find my tax pdf');
+  assert.equal(parsed?.steps[0]?.args.query, 'tax');
+  assert.equal(parsed?.steps[0]?.args.kind, 'document');
 });

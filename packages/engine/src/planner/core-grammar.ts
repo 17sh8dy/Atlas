@@ -73,9 +73,16 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         if (!FILE_NOUN.test(target)) return null;
 
         const kind = detectKind(target);
-        // Drop the type word from the query — searching for the literal string
-        // "pdf" inside file *names* finds far less than searching "tax" does.
-        const query = target.replace(FILE_NOUN, '').replace(/\s+/g, ' ').trim() || target;
+        // Drop the type words from the query — searching for the literal
+        // string "pdf" inside file *names* finds far less than searching
+        // "tax" does.
+        //
+        // ⚠️ Every one of them, not just the first. "find pdf files" removed
+        // "pdf" and then searched for the word "files", which found nothing
+        // and reported it confidently. Once nothing is left the phrase was
+        // *only* a type, and the kind carries the whole request.
+        const query = target.replace(FILE_NOUNS_GLOBAL, '').replace(/\s+/g, ' ').trim();
+        if (!query && !kind) return null;
         return plan(step('files.find', kind ? { query, kind } : { query }), 'find-files');
       },
     },

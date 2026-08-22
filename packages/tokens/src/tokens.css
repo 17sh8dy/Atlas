@@ -92,3 +92,28 @@
     --duration-slow: 0ms;
   }
 }
+
+/* ── Motion ────────────────────────────────────────────────────────────────
+   One keyframe, used by the composer's working ring. It rotates an element
+   carrying a conic gradient rather than animating the gradient's angle,
+   because animating a gradient stop needs `@property` support and rotating a
+   box does not — and this has to be right in a WebView, not only in a browser
+   with the newest CSS engine.
+
+   Guarded by prefers-reduced-motion: the ring's job is to say "working", and
+   a static ring still says it. */
+@keyframes atlas-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atlas-orbit {
+    animation: none !important;
+  }
+}
+
+.atlas-orbit {
+  animation: atlas-orbit 2.4s linear infinite;
+}

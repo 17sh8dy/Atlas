@@ -44,7 +44,7 @@ export {
 export type { Match, MatchOptions } from './text/fuzzy';
 export { readAffirmation, type Affirmation } from './text/affirmation';
 export { stripFiller, splitBrowserHint, normalizeRequest } from './text/normalize';
-export { KNOWN_SITES, resolveSite, isKnownSiteName } from './text/sites';
+export { KNOWN_SITES, resolveSite, isKnownSiteName, exactSiteName } from './text/sites';
 export type { KnownSite } from './text/sites';
 
 export {

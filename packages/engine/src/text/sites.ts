@@ -97,3 +97,28 @@ export function isKnownSiteName(wanted: string): boolean {
   const matches = rankMatches(KNOWN_SITES, wanted, namesOf, { exactOnly: true });
   return matches.length > 0 && matches[0]!.rank < RANK.contains;
 }
+
+/**
+ * The site whose *own name* is exactly this word, if there is one.
+ *
+ * Deliberately stricter than `resolveSite`: no aliases, no prefixes, no typo
+ * tolerance. It answers one narrow question — "is this word simply the name of
+ * a website?" — which is what decides a genuinely ambiguous case:
+ *
+ *   "open google" with Google Docs installed.
+ *
+ * Installed applications normally win over sites, and should: "open discord"
+ * means the program when you have it. But Google Docs is not what anyone means
+ * by "Google"; it is a different product whose name happens to begin with it.
+ * A partial match against a longer application name is a weaker claim than a
+ * site that is called precisely the thing you said.
+ *
+ * The alias exclusion is the other half. "drive" is an alias for Google Drive,
+ * but someone with the Drive application installed who says "open drive" wants
+ * the application — so an alias must never outrank an installed program.
+ */
+export function exactSiteName(wanted: string): KnownSite | null {
+  const needle = wanted.trim().toLowerCase();
+  if (!needle) return null;
+  return KNOWN_SITES.find((site) => site.name.toLowerCase() === needle) ?? null;
+}
