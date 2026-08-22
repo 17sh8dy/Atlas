@@ -226,8 +226,14 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       return true;
     },
 
-    // A wired desktop with no wireless hardware — the machine this was built
-    // on, and the shape most likely to be got wrong.
+    // A wired desktop with no wireless hardware — the shape of the machine
+    // this was built on, and the one most likely to be got wrong.
+    //
+    // ⚠️ The address is invented, and has to stay that way. `net.rs` says it
+    // of its own fixtures — "committing someone's actual hardware address to a
+    // repository is not worth a fixture" — and this file quietly did the
+    // opposite: it carried the real Ethernet MAC of the machine it was written
+    // on. Nothing here needs a true one; the parsing is what is under test.
     networkAdapters: async () => [
       {
         name: 'Ethernet',
@@ -235,7 +241,7 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
         connected: true,
         ipv4: '192.168.77.101',
         gateway: '192.168.77.1',
-        mac: 'F0-2F-74-F4-DE-8A',
+        mac: 'AA-BB-CC-DD-EE-FF',
       },
       { name: 'Loopback', kind: 'Adapter', connected: true, ipv4: '127.0.0.1' },
     ],
