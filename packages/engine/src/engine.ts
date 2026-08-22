@@ -43,7 +43,11 @@ import { normalizeRequest } from './text/normalize';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
-  say(text: string): void;
+  /**
+   * `aloud: false` means show it but do not read it out — see
+   * `SkillResult.aloud`. Surfaces that cannot speak may ignore it entirely.
+   */
+  say(text: string, options?: { aloud?: boolean }): void;
   confirm(question: string, detail?: string): Promise<boolean>;
   showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string }): void;
   /** Streaming conversation, when the surface supports it. */
@@ -193,7 +197,7 @@ export class Engine {
 
   private context(io: EngineIO): SkillContext {
     return {
-      say: (t: string) => io.say(t),
+      say: (t: string, options?: { aloud?: boolean }) => io.say(t, options),
       confirm: (q: string, d?: string) => io.confirm(q, d),
       showResults: (items, meta) => {
         this.working.setResults(items);

@@ -161,9 +161,12 @@ export function useAtlas(
 
   const io = useMemo<EngineIO>(
     () => ({
-      say: (text) => {
+      say: (text, options) => {
         push({ kind: 'atlas', text });
-        speakIfEnabled(text);
+        // `aloud: false` is a skill saying its answer is for the eyes — a
+        // password, a hash, a page of statistics. Still shown, still
+        // copyable, just not read out.
+        if (options?.aloud !== false) speakIfEnabled(text);
       },
       showResults: (rows, meta) => push({ kind: 'results', rows, meta }),
       confirm: (question, detail) =>

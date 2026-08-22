@@ -114,7 +114,13 @@ export class Executor {
       if (result.ok) {
         // Quiet when the skill rendered its own output, so the transcript
         // never says the same thing twice.
-        if (result.message && !result.spoken) ctx.say(result.message);
+        if (result.message && !result.spoken) {
+          // `aloud` rides through to the surface, which is the only layer that
+          // can actually keep quiet about it.
+          // The skill's declaration is the default; a single result may
+          // override it.
+          ctx.say(result.message, { aloud: result.aloud ?? skill.aloud });
+        }
       } else {
         ctx.say(this.phrasing.failed(result.error ?? "That didn't work."));
         if (stopOnError) aborted = true;

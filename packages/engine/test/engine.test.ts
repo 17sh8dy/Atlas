@@ -339,6 +339,7 @@ function makeIntelligence(provider: IntelligenceProvider | null): IntelligenceRe
 interface Harness {
   engine: Engine;
   said: string[];
+  spokenAloud: string[];
   rows: ResultRow[];
   journal: Journal;
   memory: Memory;
@@ -408,6 +409,7 @@ function harness(
     engine,
     web,
     said: [],
+    spokenAloud: [],
     rows: [],
     journal,
     memory,
@@ -419,7 +421,12 @@ function harness(
 
 function io(h: Harness) {
   return {
-    say: (t: string) => h.said.push(t),
+    say: (t: string, options?: { aloud?: boolean }) => {
+      h.said.push(t);
+      // Recorded separately so tests can assert what a *voice* would have
+      // read, which is not the same as what appeared on screen.
+      if (options?.aloud !== false) h.spokenAloud.push(t);
+    },
     confirm: async (q: string) => {
       h.confirmsAsked.push(q);
       return h.confirmAnswer;
@@ -2679,4 +2686,43 @@ test('opening several: the same app named twice opens once', async () => {
   const h = harness();
   await h.engine.ask('open steam and steam', io(h));
   assert.deepEqual(h.journal.launched, ['steam']);
+});
+
+// ---- what is worth reading aloud -----------------------------------------------
+//
+// Speaking every reply is fine right up until the reply is a password. These
+// assert on `spokenAloud` rather than `said`: the message is still shown in
+// every case, and the only question is whether a voice would read it.
+
+test('aloud: a generated password is shown but never spoken', async () => {
+  const h = harness();
+  await h.engine.ask('generate a password', io(h));
+  // It is on screen…
+  assert.isNotEmpty(h.said);
+  // …and it is the one kind of output that must not leave the screen.
+  assert.deepEqual(h.spokenAloud, []);
+});
+
+test('aloud: walls of data are shown but not read', async () => {
+  for (const request of ['system status', 'what apps do I have installed', "what's running"]) {
+    const h = harness();
+    await h.engine.ask(request, io(h));
+    assert.deepEqual(h.spokenAloud, [], `"${request}" would have been read aloud`);
+  }
+});
+
+test('aloud: an ordinary answer is still spoken', async () => {
+  const h = harness();
+  await h.engine.ask('open steam', io(h));
+  // The whole feature would be pointless if it silenced everything.
+  assert.isNotEmpty(h.spokenAloud);
+  assert.match(h.spokenAloud.join(' '), /Steam/);
+});
+
+test('aloud: a refusal is always spoken, whatever the skill declared', async () => {
+  const h = harness();
+  await h.engine.ask('search the web for porn', io(h));
+  // Refusals come from the engine, not from a skill, so nothing can mute
+  // them — which is deliberate: a silent refusal reads as a failure.
+  assert.match(h.spokenAloud.join(' '), /don't search for, open, or play pornography/);
 });

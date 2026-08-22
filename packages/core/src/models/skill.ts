@@ -61,6 +61,20 @@ export interface SkillResult<T = unknown> {
    * executor must stay quiet rather than repeating itself.
    */
   spoken?: boolean;
+  /**
+   * May this message be read aloud? Default yes.
+   *
+   * Some answers are for the eyes and nothing else. A generated password read
+   * out loud is worse than useless — it is the one form of output that should
+   * never leave the screen — and a hash, a UUID or a page of disk statistics
+   * is simply not information an ear can hold. Marking those here rather than
+   * guessing at the surface keeps the decision with the skill that knows what
+   * kind of answer it produced.
+   *
+   * It only suppresses *speech*. The message is still shown, still copyable,
+   * still in the transcript.
+   */
+  aloud?: boolean;
   /** Structured payload for callers that want the data, not the sentence. */
   data?: T;
 }
@@ -72,7 +86,7 @@ export interface SkillResult<T = unknown> {
  */
 export interface SkillContext {
   /** Say something to the user. */
-  say(text: string): void;
+  say(text: string, options?: { aloud?: boolean }): void;
   /** Ask for approval. Resolves false if declined. */
   confirm(question: string, detail?: string): Promise<boolean>;
   /** Render rows the user can act on. */
@@ -114,6 +128,15 @@ export interface Skill<T = unknown> {
    */
   needs?: readonly string[];
   risk?: SkillRisk;
+  /**
+   * May this skill's message be read aloud? Default yes.
+   *
+   * Declared on the skill rather than per result, because it is a property of
+   * the *kind* of answer produced: `util.password` never has an output worth
+   * hearing, and `system.info` never has one an ear can hold. A single result
+   * can still override it.
+   */
+  aloud?: boolean;
   /** Phrasings a user might actually type. Shown as examples, and searchable. */
   examples?: readonly string[];
   params?: SkillParams;

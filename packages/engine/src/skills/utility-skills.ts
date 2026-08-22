@@ -224,6 +224,8 @@ export function createUtilitySkills(): Skill[] {
     domain: 'utility',
     description: 'Generate strong random passwords, with a length you choose.',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['generate a password', 'make me a 32 character password', 'generate 5 passwords'],
     params: {
       length: { type: 'number', default: 20, description: 'how many characters (8–128)' },
@@ -276,6 +278,8 @@ export function createUtilitySkills(): Skill[] {
     domain: 'utility',
     description: 'Generate a random UUID (version 4).',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['generate a uuid', 'new guid'],
     params: {},
     run() {
@@ -291,6 +295,8 @@ export function createUtilitySkills(): Skill[] {
     domain: 'utility',
     description: 'Pick a random whole number in a range.',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['random number between 1 and 100', 'pick a number from 1 to 6'],
     params: {
       min: { type: 'number', default: 1, description: 'lowest possible value' },
@@ -357,6 +363,8 @@ export function createUtilitySkills(): Skill[] {
     domain: 'utility',
     description: 'Encode text to Base64, or decode Base64 back to text.',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['encode hello world in base64', 'decode aGVsbG8= from base64'],
     params: {
       text: { type: 'string', required: true, description: 'the text to convert' },
@@ -386,6 +394,8 @@ export function createUtilitySkills(): Skill[] {
     domain: 'utility',
     description: 'Convert a colour between hex, RGB and HSL.',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['convert #7c5cff to rgb', 'what is rgb(124, 92, 255) in hex'],
     params: { color: { type: 'string', required: true, description: 'a hex or rgb() colour' } },
     run(args) {

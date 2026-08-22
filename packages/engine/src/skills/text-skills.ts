@@ -243,6 +243,8 @@ export function createTextSkills(): Skill[] {
     domain: 'text',
     description: 'Count which words appear most often in a piece of text.',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['most common words in this'],
     params: {
       text: { type: 'string', required: true, description: 'the text to analyse' },
@@ -330,6 +332,8 @@ export function createTextSkills(): Skill[] {
     domain: 'utility',
     description: 'Take the SHA-256 (or SHA-1/SHA-512) hash of some text.',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['sha256 of hello world'],
     params: {
       text: { type: 'string', required: true, description: 'the text to hash' },
@@ -446,6 +450,8 @@ export function createTextSkills(): Skill[] {
     domain: 'utility',
     description: 'Show what is inside a JSON web token, without verifying it.',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['decode this jwt'],
     params: { token: { type: 'string', required: true, description: 'the token' } },
     run(args) {

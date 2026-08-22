@@ -910,6 +910,8 @@ export function createCoreSkills(
     description: 'Show the applications installed on this machine.',
     needs: ['apps'],
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     params: { filter: { type: 'string', required: false, description: 'optional name filter' } },
     async run(args, ctx) {
       const filter = args.filter ? String(args.filter).toLowerCase() : '';
@@ -942,6 +944,8 @@ export function createCoreSkills(
     description: 'Report CPU, memory, disk and battery for this machine.',
     needs: ['system'],
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['system status', 'how much memory am I using'],
     params: {},
     async run() {
@@ -967,6 +971,8 @@ export function createCoreSkills(
     description: 'Show the processes running right now, heaviest first.',
     needs: ['processes'],
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ["what's running", 'show running processes'],
     params: { limit: { type: 'number', default: 12, description: 'how many to show' } },
     async run(args, ctx) {
@@ -1023,6 +1029,8 @@ export function createCoreSkills(
     description: 'How much free space each drive has left.',
     needs: ['system'],
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud.
+    aloud: false,
     examples: ['how much disk space do I have left'],
     params: {},
     async run() {

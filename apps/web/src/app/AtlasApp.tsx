@@ -403,15 +403,28 @@ function Ready({
   // packages/tokens) rather than a one-off value, and — since that token
   // collapses to 0ms under prefers-reduced-motion — the fade already
   // respects it for free.
+  /**
+   * Clearing the conversation stops Atlas talking about it.
+   *
+   * Wiping the transcript while the voice carries on reading a message that
+   * is no longer on screen is a small thing that makes the app feel like two
+   * programs sharing a window.
+   */
+  const clearConversation = useCallback(() => {
+    voice.stop();
+    atlas.clear();
+  }, [voice, atlas]);
+
   const goHome = useCallback(() => {
     if (screen === 'conversation' && atlas.entries.length === 0) return; // already home
+    voice.stop();
     setHomeFading(true);
     window.setTimeout(() => {
       setScreen('conversation');
       atlas.clear();
       setHomeFading(false);
     }, 200);
-  }, [screen, atlas]);
+  }, [screen, atlas, voice]);
 
   // The desktop shell emits this when the global shortcut summons the window.
   // Returning to the conversation is almost always what someone who just hit
@@ -434,8 +447,43 @@ function Ready({
           <>
             <ThemeToggle />
             {atlas.entries.length > 0 && screen === 'conversation' && (
-              <ChromeButton label="Clear conversation" onClick={atlas.clear}>
+              <ChromeButton label="Clear conversation" onClick={clearConversation}>
                 <Icons.Trash2 className="h-3.5 w-3.5" />
+              </ChromeButton>
+            )}
+            {/*
+              Speech has a switch where it can be reached, not only three
+              screens deep in Settings. Two jobs in one control on purpose:
+              while Atlas is talking it stops him mid-sentence, and otherwise
+              it turns speaking off altogether. Wanting one almost always
+              means wanting the other, and a separate "stop" button that only
+              appears while a voice is playing is a target that moves.
+            */}
+            {speechVoices.length > 0 && (
+              <ChromeButton
+                label={
+                  voice.state === 'speaking'
+                    ? 'Stop talking'
+                    : speech.enabled
+                      ? 'Turn off speaking'
+                      : 'Read replies aloud'
+                }
+                active={speech.enabled}
+                onClick={() => {
+                  if (voice.state === 'speaking' || voice.state === 'loading') {
+                    voice.stop();
+                    // Pressing it mid-sentence means "be quiet now", not
+                    // "never speak again" — the preference is left alone.
+                    return;
+                  }
+                  onSpeechChange({ enabled: !speech.enabled });
+                }}
+              >
+                {speech.enabled ? (
+                  <Icons.Volume2 className="h-3.5 w-3.5" />
+                ) : (
+                  <Icons.VolumeX className="h-3.5 w-3.5" />
+                )}
               </ChromeButton>
             )}
             {/* Listening is a place, so it gets a door in the chrome next to
