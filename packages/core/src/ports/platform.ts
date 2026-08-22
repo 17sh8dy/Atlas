@@ -25,6 +25,7 @@
 import type { SpeechOptions, SpeechVoice } from '../models/speech';
 import type { Transcript } from '../models/listening';
 import type { NetworkAdapter, WifiStatus } from '../models/network';
+import type { ServiceAction, ServiceDetail, ServiceEntry, ServiceOutcome } from '../models/service';
 
 /** Names the engine checks before offering a skill. */
 export type CapabilityName =
@@ -38,6 +39,7 @@ export type CapabilityName =
   | 'os' // the machine itself: lock, power, volume, media keys
   | 'windows' // Atlas's own window: show, hide, position
   | 'network' // search the web, fetch a page
+  | 'services' // Windows services: list, inspect, start/stop
   | 'speech' // say things out loud, locally
   | 'listening' // transcribe what you say, locally
   | 'ai'; // an intelligence provider is connected
@@ -227,6 +229,24 @@ export interface Platform {
    * is broken or a captive portal is intercepting everything.
    */
   networkReachable?(): Promise<boolean>;
+
+  /**
+   * Windows services, gated by `services`.
+   *
+   * The first group in this port where reading and changing sit side by side,
+   * so the split is deliberate: `listServices` and `serviceDetail` observe and
+   * `serviceControl` acts, and there is no method that does both. A caller
+   * reaching for the wrong one is then a visible mistake rather than a
+   * surprise.
+   *
+   * The implementation is expected to refuse outright, not merely report a
+   * failure, when asked to stop a service the machine cannot survive losing —
+   * `ServiceEntry.protected` marks those, and the refusal belongs next to the
+   * process, not only in the UI drawing the card.
+   */
+  listServices?(): Promise<ServiceEntry[]>;
+  serviceDetail?(name: string): Promise<ServiceDetail>;
+  serviceControl?(name: string, action: ServiceAction): Promise<ServiceOutcome>;
 
   /**
    * Write a line to the app's diagnostics file.

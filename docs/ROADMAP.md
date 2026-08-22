@@ -14,7 +14,10 @@ ChatGPT are real, local models are not.
 **Next:** **Phase 11 — the desktop assistant** (Brandon, 2026-08-21): cover
 what people use PowerShell for, as ~40–60 narrow validated skills, with AI
 demoted to the fallback tier. ⚠️ `exec(command)` stays refused — see that
-phase for why the distinction is the whole point.
+phase for why the distinction is the whole point. **Two of ten groups are
+built** — network (2026-08-21) and services (2026-08-22); the services pack is
+the template for every group that can change something, and the one open
+question it raised is elevation.
 
 **Also outstanding:** Phase 3 — persistence. Conversation history still dies
 with the process, and `files.find` still walks the disk on every query.
@@ -30,8 +33,9 @@ designed, not a bug, so widening it is a decision to make deliberately (a
 user-managed allowed-folders list is the obvious shape) rather than a limit to
 quietly raise.
 
-**Baseline, verified 2026-08-21:** `pnpm typecheck` (7 packages), `pnpm lint`
-clean, **163 engine tests + 13 data tests**. ⚠️ There is no root `test` script;
+**Baseline, verified 2026-08-22:** `pnpm typecheck` (7 packages), `pnpm lint`
+clean, **219 engine tests + 13 data tests + 30 Rust tests** (plus 4 ignored
+ones that touch the real machine or network: `cargo test -- --ignored`). ⚠️ There is no root `test` script;
 run `pnpm --filter @atlas/engine test` and `pnpm --filter @atlas/data test`.
 
 **The window's middle caption button maximises** rather than filling the
@@ -576,6 +580,43 @@ Not a skill count. The phase is done when a person who reaches for PowerShell
 out of habit can ask for the same thing in words and get it — and when the
 list of executables Atlas can ever run is still short enough to read in one
 sitting.
+
+### 5. Built so far
+
+| Group | Skills | State |
+| --- | --- | --- |
+| 🌐 Network | `net.adapters`, `net.ip`, `net.wifi`, `net.savedNetworks`, `net.online` | ✅ 2026-08-21 (`0cb6f5a`) |
+| 🖥️ System — services | `service.list`, `service.status`, `service.start`, `service.stop`, `service.restart` | ✅ 2026-08-22 |
+| 💾 Storage · 🔊 Audio · 🖼️ Display · 📅 Tasks · 👤 Users · 🔥 Firewall · ⚙️ Environment · 🪟 Windows | — | not started |
+
+**The network pack is the template** for a read-only group: reads are `safe`,
+the answer is a sentence rather than a table dump, and absence is an answer.
+
+**The services pack is the template for a group that can act**, and it added
+the two properties the first one had no need of:
+
+- **The friendly name is resolved before anything is asked.** People say "the
+  print spooler", not "Spooler". Resolution runs against the live list, and an
+  ambiguous name produces the candidates rather than a guess — a resolver that
+  silently picks the first of six is indistinguishable from a correct one until
+  the day it stops the wrong service.
+- **Some calls are refused, not confirmed** — the tier this phase's risk model
+  named and the skill model had no way to express. `Skill.guard` is that tier
+  now; see §6.1 of `ARCHITECTURE.md`. `NEVER_STOP` in `services.rs` is the
+  list, and stopping RPC draws no card at all.
+
+⚠️ **Starting and stopping services needs administrator rights, and Atlas does
+not run elevated.** The reads all work; the three control skills will report
+that plainly on an ordinary launch rather than failing vaguely. Making Atlas
+able to elevate — one `ShellExecuteEx` with the `runas` verb, still a fixed
+executable with a validated name — is a real decision with its own security
+story, and is deliberately **not** taken as a side effect of adding a skill.
+It is the open question this group surfaced.
+
+⚠️ **Grammar ordering is load-bearing here.** `systemPower` claims
+`/restart.*windows/`, so "restart the Windows Update service" would reboot the
+machine at any order below it. The service rules sit at −6.92/−6.91, above it,
+and a test is named after the collision.
 
 ---
 

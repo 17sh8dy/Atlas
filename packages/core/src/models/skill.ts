@@ -140,5 +140,29 @@ export interface Skill<T = unknown> {
   /** Phrasings a user might actually type. Shown as examples, and searchable. */
   examples?: readonly string[];
   params?: SkillParams;
+  /**
+   * A reason this particular call must not happen at all.
+   *
+   * The tier above `confirm`. `risk` answers "should Atlas ask first?"; this
+   * answers "is there any version of this call that should go ahead?" — and
+   * some are not. Stopping the RPC service is not a decision to put behind a
+   * card, because a card that appears in front of it teaches people to click
+   * through cards.
+   *
+   * Return `null` to allow, or the sentence explaining the refusal. It runs
+   * before the confirmation is shown (so no card appears for something that
+   * would then be refused) *and* inside `SkillRegistry.invoke` (so a caller
+   * reaching past the executor is still covered) — the same layering the
+   * content policy uses, and for the same reason.
+   *
+   * It sees the arguments as given, which for a skill that resolves a
+   * friendly name into a real one means it is working with what the person
+   * typed rather than with what it turned out to mean. So a guard is a
+   * *pre-empt*, not the guarantee: it stops the obvious cases before a card is
+   * drawn, and the authoritative refusal lives next to the machine, against
+   * the resolved name. Synchronous and pure for that reason — a guard that
+   * went and asked the machine would be a second, invisible execution path.
+   */
+  guard?(args: SkillArgs): string | null;
   run(args: SkillArgs, ctx: SkillContext): SkillResult<T> | Promise<SkillResult<T>>;
 }

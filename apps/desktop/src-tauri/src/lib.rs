@@ -20,6 +20,8 @@ mod listen;
 mod os;
 mod platform;
 #[cfg(windows)]
+mod services;
+#[cfg(windows)]
 mod speech;
 mod storage;
 #[cfg(windows)]
@@ -96,6 +98,7 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
         "os",
         "windows",
         "network",
+        "services",
     ];
     if speech::available(&app) {
         names.push("speech");
@@ -170,6 +173,9 @@ pub fn run() {
             net::wifi_status,
             net::wifi_networks,
             net::network_reachable,
+            services::list_services,
+            services::service_detail,
+            services::service_control,
             voice_cloud::synthesize_speech_online,
             voice_cloud::transcribe_speech_online,
             diagnostics::log_diagnostic,

@@ -17,6 +17,9 @@ import type {
   ProcessEntry,
   SystemSnapshot,
   NetworkAdapter,
+  ServiceDetail,
+  ServiceEntry,
+  ServiceOutcome,
   SpeechVoice,
   Transcript,
   WebPage,
@@ -144,6 +147,10 @@ export function createTauriPlatform(): Platform {
     wifiStatus: () => invoke<WifiStatus>('wifi_status'),
     wifiNetworks: () => invoke<string[]>('wifi_networks'),
     networkReachable: () => invoke<boolean>('network_reachable'),
+
+    listServices: () => invoke<ServiceEntry[]>('list_services'),
+    serviceDetail: (name) => invoke<ServiceDetail>('service_detail', { name }),
+    serviceControl: (name, action) => invoke<ServiceOutcome>('service_control', { name, action }),
 
     logDiagnostic: (scope, message) => invoke<void>('log_diagnostic', { scope, message }),
   };

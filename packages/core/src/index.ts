@@ -20,6 +20,7 @@ export * from './models/voice';
 export * from './models/speech';
 export * from './models/listening';
 export * from './models/network';
+export * from './models/service';
 export * from './ports/platform';
 export * from './ports/intelligence';
 export * from './ports/storage';

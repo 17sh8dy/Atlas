@@ -88,6 +88,19 @@ export class Executor {
 
       if (step.say) ctx.say(step.say);
 
+      // Refused outright, before anything is drawn. The registry checks this
+      // too and that check is the guarantee; this one exists so that a card
+      // never appears in front of an action that would then be declined —
+      // which is how people are trained to click through the cards that
+      // matter.
+      const refusal = skill.guard?.(step.args) ?? null;
+      if (refusal) {
+        outcomes.push({ skill: step.skill, ok: false, error: refusal });
+        ctx.say(refusal);
+        aborted = true;
+        break;
+      }
+
       if (skill.risk === 'confirm') {
         const detail = Object.values(step.args)
           .filter((v) => v !== undefined && v !== null && v !== '')

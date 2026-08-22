@@ -30,6 +30,7 @@ import { createCalcSkills } from '../src/skills/calc-skills';
 import { createNotesSkills } from '../src/skills/notes-skills';
 import { createOsSkills } from '../src/skills/os-skills';
 import { createNetworkSkills } from '../src/skills/network-skills';
+import { createServiceSkills, resolveService } from '../src/skills/service-skills';
 import { createCoreGrammar } from '../src/planner/core-grammar';
 import { createExtraGrammar } from '../src/planner/extra-grammar';
 import { createPhrasing } from '../src/phrasing';
@@ -59,6 +60,7 @@ interface Journal {
   notifications: Array<{ title: string; body?: string }>;
   appended: Array<{ path: string; content: string }>;
   os: string[];
+  services: Array<{ name: string; action: string }>;
 }
 
 interface WebIndex {
@@ -80,6 +82,33 @@ function makeWebIndex(): WebIndex {
     fetchedUrls: [],
   };
 }
+
+/** The machine's services, as both the listing and the detail view see them. */
+const SERVICES = [
+  {
+    name: 'Appinfo',
+    display: 'Application Information',
+    state: 'RUNNING',
+    running: true,
+    protected: false,
+  },
+  { name: 'Spooler', display: 'Print Spooler', state: 'STOPPED', running: false, protected: false },
+  {
+    name: 'RpcSs',
+    display: 'Remote Procedure Call (RPC)',
+    state: 'RUNNING',
+    running: true,
+    protected: true,
+  },
+  { name: 'wuauserv', display: 'Windows Update', state: 'STOPPED', running: false, protected: false },
+  {
+    name: 'WaaSMedicSvc',
+    display: 'Windows Update Medic Service',
+    state: 'STOPPED',
+    running: false,
+    protected: false,
+  },
+];
 
 function makePlatform(capabilities: CapabilityName[], journal: Journal, web: WebIndex): Platform {
   return {
@@ -213,6 +242,30 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
     wifiStatus: async () => ({ available: false, connected: false }),
     wifiNetworks: async () => [],
     networkReachable: async () => true,
+
+    // A handful of real services, chosen for the cases resolution gets wrong:
+    // two that share a prefix ("Windows Update" / "Windows Update Medic"), one
+    // whose short name is nothing like its display name (Spooler), and one
+    // that must never be stopped (RpcSs).
+    listServices: async () => SERVICES.map((s) => ({ ...s })),
+    // Derived from the same list rather than written out again, so the detail
+    // view cannot drift into disagreeing with the listing about what is
+    // running — which is a bug a hand-written fixture hides rather than shows.
+    serviceDetail: async (name) => {
+      const found = SERVICES.find((s) => s.name === name);
+      if (!found) throw new Error(`no such service: ${name}`);
+      return { ...found, startType: 'automatic' };
+    },
+    serviceControl: async (name, action) => {
+      journal.services.push({ name, action });
+      const found = SERVICES.find((s) => s.name === name);
+      return {
+        name,
+        display: found?.display ?? name,
+        state: action === 'stop' ? 'STOPPED' : 'RUNNING',
+        running: action !== 'stop',
+      };
+    },
 
     pathInfo: async (path) => ({
       path,
@@ -364,6 +417,7 @@ function harness(
     'os',
     'windows',
     'network',
+    'services',
   ],
   options: { provider?: IntelligenceProvider | null } = {},
 ): Harness {
@@ -384,6 +438,7 @@ function harness(
     notifications: [],
     appended: [],
     os: [],
+    services: [],
   };
   const web = makeWebIndex();
   const platform = makePlatform(capabilities, journal, web);
@@ -399,6 +454,7 @@ function harness(
   skills.registerMany(createNotesSkills(memory));
   skills.registerMany(createOsSkills(platform));
   skills.registerMany(createNetworkSkills(platform));
+  skills.registerMany(createServiceSkills(platform));
 
   const grammar = new Grammar();
   grammar.addMany(createCoreGrammar(working));
@@ -2648,6 +2704,185 @@ test('network: reading the network never asks permission', async () => {
   for (const skill of ['net.adapters', 'net.ip', 'net.wifi', 'net.savedNetworks', 'net.online']) {
     assert.equal(h.engine.skills.get(skill)?.risk, 'safe', skill);
   }
+});
+
+// ---- services (Phase 11's second pack) -----------------------------------------
+//
+// The first group that can change the machine, so these cover three things the
+// network pack had no way to: that a friendly name resolves to the right
+// service, that an ambiguous one asks rather than guesses, and that the tier
+// above `confirm` — refused outright — actually holds.
+
+test('services: running ones are what "what services are running" means', async () => {
+  const h = harness();
+  await h.engine.ask('what services are running', io(h));
+  // Two of the five fixtures are running. Answering with all five would be
+  // answering a question nobody asked.
+  assert.equal(h.rows.length, 2);
+  assert.deepEqual(h.confirmsAsked, []);
+});
+
+test('services: "list all services" really does mean all of them', async () => {
+  const h = harness();
+  await h.engine.ask('list all services', io(h));
+  assert.equal(h.rows.length, 5);
+});
+
+test('services: a friendly name finds the service behind it', async () => {
+  const h = harness();
+  await h.engine.ask('is the print spooler service running', io(h));
+  // "Print Spooler" is the display name; "Spooler" is what Windows takes.
+  assert.match(h.said.join(' '), /Print Spooler is stopped/);
+});
+
+test('services: an ambiguous name offers the candidates instead of guessing', async () => {
+  const h = harness();
+  await h.engine.ask('is the update service running', io(h));
+  // "Windows Update" and "Windows Update Medic Service" both contain it, and
+  // neither is a better reading than the other. Picking one silently is how
+  // the wrong service gets stopped.
+  assert.equal(h.rows.length, 2);
+  assert.notMatch(h.said.join(' '), /is (running|stopped)/);
+});
+
+test('services: an exact display name beats the longer one it is a prefix of', async () => {
+  const h = harness();
+  // "Windows Update" is also the start of "Windows Update Medic Service", so
+  // a resolver that stopped at the prefix pass would call this ambiguous. An
+  // exact name is not ambiguous, whatever else it happens to prefix.
+  await h.engine.ask('is the windows update service running', io(h));
+  assert.deepEqual(h.rows, []);
+  assert.match(h.said.join(' '), /Windows Update is stopped/);
+});
+
+test('services: resolution prefers an exact short name over a partial display match', () => {
+  const services = [
+    {
+      name: 'Spooler',
+      display: 'Print Spooler',
+      state: 'STOPPED',
+      running: false,
+      protected: false,
+    },
+    {
+      name: 'PrintNotify',
+      display: 'Printer Extensions and Notifications',
+      state: 'RUNNING',
+      running: true,
+      protected: false,
+    },
+  ];
+  const match = resolveService(services, 'spooler');
+  assert.equal(match.kind, 'one');
+  assert.equal(match.kind === 'one' ? match.entry.name : '', 'Spooler');
+});
+
+test('services: "the X service" is stripped down to X before resolving', () => {
+  const services = [
+    {
+      name: 'Spooler',
+      display: 'Print Spooler',
+      state: 'STOPPED',
+      running: false,
+      protected: false,
+    },
+  ];
+  for (const phrasing of ['the print spooler service', 'Print Spooler', 'spooler', 'the spooler']) {
+    assert.equal(resolveService(services, phrasing).kind, 'one', phrasing);
+  }
+});
+
+test('services: starting one asks first, then does it', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('start the print spooler service', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.services, [{ name: 'Spooler', action: 'start' }]);
+  assert.match(h.said.join(' '), /Print Spooler is running now/);
+});
+
+test('services: declining the card leaves the machine alone', async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  await h.engine.ask('stop the print spooler service', io(h));
+  assert.deepEqual(h.journal.services, []);
+});
+
+/**
+ * The tier above `confirm`.
+ *
+ * The roadmap's risk model has three levels, not two: read, confirm, and
+ * refused outright. Until this pack the third had no way to be expressed —
+ * every dangerous action could only be put behind a card. A card in front of
+ * "stop RPC" is worse than useless: it is the specific mechanism by which
+ * people learn to click through the cards that matter.
+ */
+test('services: a service the machine cannot lose is refused, not confirmed', async () => {
+  const h = harness();
+  h.confirmAnswer = true; // Even with a willing user.
+  await h.engine.ask('stop the rpcss service', io(h));
+
+  assert.deepEqual(h.journal.services, [], 'it reached the machine anyway');
+  assert.deepEqual(h.confirmsAsked, [], 'a card was drawn in front of a refusal');
+  assert.match(h.said.join(' '), /won.t stop/i);
+});
+
+test('services: the refusal also holds for a name the guard cannot see', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  // "remote procedure call" is the display name, so the guard's list of short
+  // names does not match it — the check against the *resolved* service is what
+  // catches this one, which is why both exist.
+  const outcome = await h.engine.ask('stop the remote procedure call service', io(h));
+  assert.isFalse(outcome.ok);
+  assert.deepEqual(h.journal.services, []);
+});
+
+test('services: the guard holds even when a skill is invoked directly', async () => {
+  // The executor checks the guard so no card is drawn; the registry checks it
+  // so a caller that never went through the executor is still covered. This
+  // pins the second one, which is the guarantee.
+  const h = harness();
+  const result = await h.engine.skills.invoke('service.stop', { name: 'rpcss' }, io(h));
+  assert.isFalse(result.ok);
+  assert.deepEqual(h.journal.services, []);
+});
+
+/**
+ * ⚠️ The collision that decided the grammar's ordering.
+ *
+ * `systemPower` claims /restart.*windows/, and "restart the Windows Update
+ * service" contains both. At any order below it, asking to restart a service
+ * would have restarted the computer.
+ */
+test('services: "restart the windows update service" does not reboot the machine', async () => {
+  const h = harness();
+  const parsed = h.engine.grammar.parse('restart the windows update service');
+  assert.equal(parsed?.steps[0]?.skill, 'service.restart');
+});
+
+test('services: a process question is still a process question', () => {
+  const h = harness();
+  // The word "service" is what separates the two. Without it this is about
+  // what is running on the machine, which Atlas already answers.
+  assert.equal(h.engine.grammar.parse('what is running')?.steps[0]?.skill, 'system.processes');
+});
+
+test('services: reading them never asks permission, changing them always does', () => {
+  const h = harness();
+  assert.equal(h.engine.skills.get('service.list')?.risk, 'safe');
+  assert.equal(h.engine.skills.get('service.status')?.risk, 'safe');
+  for (const id of ['service.start', 'service.stop', 'service.restart']) {
+    assert.equal(h.engine.skills.get(id)?.risk, 'confirm', id);
+  }
+});
+
+test('services: with no services capability the skills are not merely disabled', () => {
+  // Hidden, not disabled — a planner that cannot see them cannot propose them.
+  const h = harness(['files', 'fs', 'apps', 'system', 'processes', 'os', 'windows', 'network']);
+  const ids = h.engine.skills.available().map((s) => s.id);
+  assert.notInclude(ids, 'service.list');
+  assert.notInclude(ids, 'service.stop');
 });
 
 // ---- opening more than one thing -----------------------------------------------

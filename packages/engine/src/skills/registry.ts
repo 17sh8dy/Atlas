@@ -154,6 +154,13 @@ export class SkillRegistry {
     const screened = screenSkillCall(skill, check.args);
     if (!screened.allowed) return { ok: false, error: refusalFor(screened.reason) };
 
+    // The skill's own veto, for calls that should not happen at any risk
+    // tier. Checked here as well as in the executor for the same reason the
+    // content policy is: this is the door every caller goes through, and the
+    // executor is not.
+    const refusal = skill.guard?.(check.args) ?? null;
+    if (refusal) return { ok: false, error: refusal };
+
     try {
       return await skill.run(check.args, ctx);
     } catch (err) {

@@ -827,5 +827,79 @@ export function createExtraGrammar(): GrammarRule[] {
         return null;
       },
     },
+
+    // ---- services -------------------------------------------------------------
+    //
+    // ⚠️ These sit above `systemPower` (-5.19) on purpose, and the reason is a
+    // real collision rather than a hypothetical one: that rule claims
+    // /restart.*windows/, so "restart the Windows Update service" would
+    // otherwise reboot the machine. Ordering is the fix, and the test named
+    // after it is why this comment is here.
+    //
+    // Every rule below requires the literal word "service". That is a
+    // deliberate limit rather than an oversight: "is Steam running" is a
+    // question about a process and Atlas already answers it, so the word is
+    // what tells the two apart without guessing.
+
+    {
+      name: 'serviceReadouts',
+      order: -6.92,
+      // ⚠️ The *intents* below, not keywords in the text — the trap the
+      // network pack hit. Every phrasing here is question-shaped, so a wrong
+      // list here declines all of them silently.
+      questionSafe: ['services', 'service-status'],
+      test(lower) {
+        // "list all services" means all of them; "what services are running"
+        // means the running ones, which is what people almost always want.
+        if (
+          /\b(?:list|show)\s+(?:me\s+)?all\s+(?:the\s+)?(?:windows\s+)?services\b/.test(lower)
+        ) {
+          return plan(step('service.list', { all: true }), 'services');
+        }
+        if (
+          /\b(?:what|which)\s+services\s+(?:are\s+)?(?:running|started|going|on)\b/.test(lower) ||
+          /\b(?:list|show)\s+(?:me\s+)?(?:the\s+)?(?:running\s+)?(?:windows\s+)?services\b/.test(
+            lower,
+          )
+        ) {
+          return plan(step('service.list', {}), 'services');
+        }
+
+        // "is the print spooler service running"
+        const asked = lower.match(
+          /^\s*(?:is|are)\s+(?:the\s+)?(.+?)\s+service\s+(?:running|started|up|on|stopped|down|off)\s*[?.!]*$/,
+        );
+        if (asked?.[1]) return plan(step('service.status', { name: asked[1] }), 'service-status');
+
+        // "what's the status of the windows update service"
+        const status = lower.match(
+          /^\s*(?:what(?:'s| is)\s+(?:the\s+)?)?status\s+of\s+(?:the\s+)?(.+?)\s+service\s*[?.!]*$/,
+        );
+        if (status?.[1]) return plan(step('service.status', { name: status[1] }), 'service-status');
+
+        // "check the spooler service"
+        const check = lower.match(/^\s*check\s+(?:on\s+)?(?:the\s+)?(.+?)\s+service\s*[?.!]*$/);
+        if (check?.[1]) return plan(step('service.status', { name: check[1] }), 'service-status');
+
+        return null;
+      },
+    },
+
+    {
+      name: 'serviceControl',
+      order: -6.91,
+      test(lower) {
+        const m =
+          lower.match(/^\s*(start|stop|restart)\s+(?:the\s+)?(.+?)\s+service\s*[?.!]*$/) ??
+          lower.match(/^\s*(start|stop|restart)\s+(?:the\s+)?service\s+(.+?)\s*[?.!]*$/);
+        if (!m?.[1] || !m[2]) return null;
+
+        const verb = m[1];
+        const name = m[2];
+        const id =
+          verb === 'start' ? 'service.start' : verb === 'stop' ? 'service.stop' : 'service.restart';
+        return plan(step(id, { name }), `service-${verb}`);
+      },
+    },
   ];
 }

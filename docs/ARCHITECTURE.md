@@ -174,6 +174,28 @@ whose only variable parts are validated against a closed set. The test is
 whether a reader can enumerate everything the program will ever execute — with
 `exec` they cannot, and that is the whole difference.
 
+**The tier above `confirm` (added 2026-08-22 with the services group).** The
+risk model had two levels and the roadmap's had three: read, confirm, and
+*refused outright*. Nothing expressed the third, so the only way to express
+"this must not happen" was a confirmation card — which is precisely the
+mechanism by which people learn to click through the cards that matter.
+
+`Skill.guard(args)` is that third tier: it returns either `null` or the
+sentence explaining why this particular call will not happen. The executor
+checks it **before drawing a card**, so no card appears in front of a refusal,
+and `SkillRegistry.invoke` checks it again — the same layering the content
+policy uses, and for the same reason: the executor is skippable, `invoke` is
+not.
+
+A guard is synchronous and sees only the arguments, which for a skill that
+resolves a friendly name into a real one means it is judging what the person
+typed rather than what it turned out to mean. So a guard is a *pre-empt*, and
+the authoritative refusal belongs next to the machine, against the resolved
+value — `services.rs` refuses the same set again, and it is the one that
+decides. Both exist because they catch different things: "stop rpcss" never
+reaches a card, and "stop the remote procedure call service" never reaches
+`sc`.
+
 ### 6.2 The skill registry (`engine/skills/registry.ts`)
 
 The only door to action. `invoke()` validates arguments against the declared

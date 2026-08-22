@@ -29,6 +29,7 @@ export { createCalcSkills } from './skills/calc-skills';
 export { createNotesSkills } from './skills/notes-skills';
 export { createOsSkills } from './skills/os-skills';
 export { createNetworkSkills } from './skills/network-skills';
+export { createServiceSkills } from './skills/service-skills';
 export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
 
