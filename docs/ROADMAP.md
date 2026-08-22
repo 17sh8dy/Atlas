@@ -605,13 +605,20 @@ the two properties the first one had no need of:
   now; see §6.1 of `ARCHITECTURE.md`. `NEVER_STOP` in `services.rs` is the
   list, and stopping RPC draws no card at all.
 
-⚠️ **Starting and stopping services needs administrator rights, and Atlas does
-not run elevated.** The reads all work; the three control skills will report
-that plainly on an ordinary launch rather than failing vaguely. Making Atlas
-able to elevate — one `ShellExecuteEx` with the `runas` verb, still a fixed
-executable with a validated name — is a real decision with its own security
-story, and is deliberately **not** taken as a side effect of adding a skill.
-It is the open question this group surfaced.
+**Elevation, decided by Brandon 2026-08-22.** Starting and stopping a service
+needs administrator rights, and Atlas deliberately does not run elevated —
+every capability it has, including future ones, would inherit those rights for
+the sake of two verbs. So elevation is **per action**: the ordinary call is
+tried first, and only once Windows has refused does the verb go back through
+`ShellExecuteEx` with the `runas` verb. Windows shows its own consent dialog,
+naming `sc.exe`; Atlas cannot draw it, suppress it or answer it, and the
+elevated process exits when the verb is done. The rule still holds — one
+constant file, two constant verbs, a validated name — what changes is the
+rights that short list runs with, and who grants them.
+
+The two alternatives were considered and declined: reporting the failure and
+doing nothing (leaves three skills decorative), and running the whole app
+elevated (buys convenience by giving every capability admin, forever).
 
 ⚠️ **Grammar ordering is load-bearing here.** `systemPower` claims
 `/restart.*windows/`, so "restart the Windows Update service" would reboot the

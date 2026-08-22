@@ -2732,7 +2732,10 @@ test('services: a friendly name finds the service behind it', async () => {
   const h = harness();
   await h.engine.ask('is the print spooler service running', io(h));
   // "Print Spooler" is the display name; "Spooler" is what Windows takes.
-  assert.match(h.said.join(' '), /Print Spooler is stopped/);
+  // ⚠️ The clause, not the bare setting: `sc` reports "automatic", and
+  // interpolating that straight in says "starts automatic". The real app said
+  // exactly that before this was fixed.
+  assert.match(h.said.join(' '), /Print Spooler is stopped, and starts automatically\./);
 });
 
 test('services: an ambiguous name offers the candidates instead of guessing', async () => {

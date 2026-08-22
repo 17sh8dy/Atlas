@@ -30,11 +30,19 @@
 //! ## Administrator rights
 //!
 //! Reading services needs nothing. Starting or stopping one needs
-//! administrator rights, and Atlas does not run elevated. That is not worked
-//! around here: `sc` returns access-denied, and the caller is told plainly
-//! that this needs an elevated Atlas rather than being shown a vague failure.
-//! Making Atlas able to elevate is a real decision with a real security story,
-//! and not one to take as a side effect of adding a skill.
+//! administrator rights, and **Atlas deliberately does not run elevated** —
+//! every capability it has, including the ones added after this comment, would
+//! inherit those rights for the sake of two verbs.
+//!
+//! So elevation is per action and belongs to the action (`send_elevated`):
+//! the ordinary call is tried first, and only once Windows has actually
+//! refused does the verb go back through `ShellExecuteEx` with the `runas`
+//! verb. Windows then shows its own consent dialog, naming `sc.exe`, and the
+//! elevated process exits when the verb is done. Atlas cannot draw that
+//! dialog, cannot suppress it, and cannot answer it.
+//!
+//! Decided by Brandon on 2026-08-22, over both alternatives: reporting the
+//! failure honestly and doing nothing, and running the whole app elevated.
 
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -54,7 +62,9 @@ use serde::Serialize;
 /// sc start <name>
 /// sc stop  <name>
 /// ```
-const SC: &str = "sc";
+const SC: &str = "sc.exe";
+/// The Windows verb that asks the user, not Atlas, for administrator rights.
+const RUNAS: &str = "runas";
 const QUERY_ALL: &[&str] = &["query", "state=", "all"];
 const VERB_QUERY: &str = "query";
 const VERB_CONFIG: &str = "qc";
@@ -96,7 +106,15 @@ pub struct ServiceEntry {
     pub protected: bool,
 }
 
+/// ⚠️ `camelCase` is not decoration. Every other struct crossing this seam has
+/// single-word fields, so nothing until now noticed that serde sends Rust's
+/// spelling by default: `start_type` arrived at a renderer reading
+/// `startType`, and "Print Spooler is running, and starts automatically"
+/// silently became "Print Spooler is running." Tests could not catch it —
+/// both sides were internally consistent — and driving the real app did, in
+/// the first sentence it produced.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceDetail {
     pub name: String,
     pub display: String,
@@ -433,16 +451,17 @@ fn send(verb: &str, entry: &ServiceEntry) -> Result<(), String> {
     }
     let text = ran.text.to_ascii_uppercase();
 
-    if text.contains("ACCESS IS DENIED") || text.contains("FAILED 5") {
-        return Err(format!(
-            "Windows won't let Atlas touch {} — starting and stopping services needs administrator rights, and Atlas isn't running as one.",
-            entry.display
-        ));
-    }
     // Already in the state that was asked for. Not a failure: the state check
     // that follows will report the truth either way.
     if text.contains("1056") || text.contains("1062") {
         return Ok(());
+    }
+    // Windows refused because Atlas is not elevated — so ask Windows to ask.
+    // Tried in this order rather than elevating up front so that no consent
+    // dialog appears when none is needed: an Atlas that is already elevated,
+    // or a service that did not need it, never reaches this line.
+    if text.contains("ACCESS IS DENIED") || text.contains("FAILED 5") {
+        return send_elevated(verb, &entry.name);
     }
     if text.contains("1051") {
         return Err(format!(
@@ -457,6 +476,97 @@ fn send(verb: &str, entry: &ServiceEntry) -> Result<(), String> {
         "Windows refused: {}",
         ran.text.trim().lines().next().unwrap_or("no reason given")
     ))
+}
+
+/// Run one `sc` verb with administrator rights, by asking Windows to ask.
+///
+/// ## Why this exists, and why it is not a loophole
+///
+/// Starting and stopping a service requires elevation. Atlas does not run
+/// elevated and should not: every capability it has — including the ones added
+/// after this comment — would inherit those rights, for the sake of two verbs.
+/// So the elevation is per action and belongs to the action: Windows shows its
+/// own consent dialog, naming `sc.exe`, and the elevated process exits the
+/// moment the verb is done.
+///
+/// The rule this project keeps is that a reader can enumerate everything the
+/// program will ever execute, and that still holds: the file is the constant
+/// `SC`, the verb is one of two constants, and the name is a service this
+/// machine reported having, checked by `resolve` before we get here. What
+/// changes is the rights the same short list runs with, and who grants them —
+/// which is the user, in a dialog Atlas cannot draw, suppress or answer.
+///
+/// ## The one real difference from `run`
+///
+/// `ShellExecuteEx` starts a *separate* process, so there is no stdout to read
+/// — the `[SC] FAILED 5` line that `send` translates never arrives here. That
+/// turns out to be an improvement rather than a loss: the caller checks the
+/// service's actual state afterwards, which is what it already does, and which
+/// is a better test than believing what the command said about itself.
+#[cfg(windows)]
+fn send_elevated(verb: &str, name: &str) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    fn wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    // Quoted so a service name with a space in it ("AMD Crash Defender
+    // Service" is one on a real machine) arrives as one argument. Safe to do
+    // by hand only because `is_valid_name` has already excluded every
+    // character that could end the quote.
+    let params = wide(&format!("{verb} \"{name}\""));
+    let file = wide(SC);
+    let action = wide(RUNAS);
+
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        lpVerb: PCWSTR(action.as_ptr()),
+        lpFile: PCWSTR(file.as_ptr()),
+        lpParameters: PCWSTR(params.as_ptr()),
+        nShow: SW_HIDE.0,
+        ..Default::default()
+    };
+
+    // The only failure worth naming: the person said no. Everything else is
+    // reported as itself.
+    unsafe { ShellExecuteExW(&mut info) }.map_err(|e| {
+        const CANCELLED: i32 = -2_147_023_673; // HRESULT for ERROR_CANCELLED.
+        if e.code().0 == CANCELLED {
+            "You dismissed the Windows prompt, so nothing changed.".to_string()
+        } else {
+            format!("Windows wouldn't run that with administrator rights: {e}")
+        }
+    })?;
+
+    // Wait for it, so the state check that follows is looking at the machine
+    // after the verb rather than during it.
+    #[allow(clippy::undocumented_unsafe_blocks)]
+    unsafe {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::WaitForSingleObject;
+
+        if !info.hProcess.is_invalid() {
+            // Bounded rather than INFINITE: a hung `sc` must not hang Atlas.
+            let _ = WaitForSingleObject(info.hProcess, 30_000);
+            let _ = CloseHandle(info.hProcess);
+        }
+    }
+    Ok(())
+}
+
+/// Elevation is a Windows idea; nothing else compiles this path.
+#[cfg(not(windows))]
+fn send_elevated(_verb: &str, _name: &str) -> Result<(), String> {
+    Err("Starting and stopping services needs administrator rights.".into())
 }
 
 fn settled(entry: &ServiceEntry, note: Option<&str>) -> ServiceOutcome {

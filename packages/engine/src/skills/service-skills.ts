@@ -19,13 +19,22 @@
  *    was typed; the real refusal is in `services.rs`, against the resolved
  *    name, next to the process that would do it.
  *
- * ⚠️ Starting and stopping services needs administrator rights and Atlas does
- * not run elevated, so on an ordinary launch these will report that plainly.
- * That is deliberate — see the module docs in `services.rs`. The reads work
- * regardless, and they are most of what people actually ask for.
+ * ⚠️ Starting and stopping services needs administrator rights, and Atlas
+ * deliberately does not run elevated. `services.rs` asks Windows to ask, per
+ * action: the ordinary call is tried first, and a refusal turns into the
+ * system's own consent dialog naming `sc.exe`. So one of these can pause on a
+ * prompt Atlas has no control over, and "you dismissed it" is a normal
+ * outcome rather than an error.
  */
 
-import type { Platform, ResultRow, ServiceEntry, Skill, SkillArgs } from '@atlas/core';
+import type {
+  Platform,
+  ResultRow,
+  ServiceDetail,
+  ServiceEntry,
+  Skill,
+  SkillArgs,
+} from '@atlas/core';
 
 /**
  * Services Atlas will not stop, matched against what the user typed.
@@ -116,6 +125,23 @@ function guardStopping(args: SkillArgs): string | null {
   if (!hit) return null;
   return `I won't stop that one — Windows doesn't survive losing it, and the way back is the power button.`;
 }
+
+/**
+ * How a start type reads in a sentence.
+ *
+ * `services.rs` reports the *setting* — "automatic", "manual", "disabled" —
+ * because that is what Windows configured, and adjectives are the honest shape
+ * for a setting. A sentence needs a clause, and interpolating the adjective
+ * straight in produces "Print Spooler is running, and starts automatic", which
+ * is what the app said the first time it was driven.
+ */
+const STARTS: Record<string, string> = {
+  automatic: 'and starts automatically',
+  'automatic (delayed)': 'and starts automatically, after a delay',
+  manual: 'and only starts when something asks for it',
+  disabled: 'and is disabled, so nothing can start it',
+  'at boot': 'and starts with Windows itself',
+};
 
 function stateWord(entry: { running: boolean; state: string }): string {
   if (entry.running) return 'running';
@@ -215,9 +241,15 @@ export function createServiceSkills(platform: Platform): Skill[] {
       }
       if (match.kind === 'many') return offerCandidates(match, query, ctx);
 
-      const detail = (await platform.serviceDetail?.(match.entry.name)) ?? match.entry;
-      const startType = 'startType' in detail ? detail.startType : undefined;
-      const how = startType ? `, and starts ${startType}` : '';
+      // The listing entry is a valid `ServiceDetail` — the extra fields are
+      // optional — so it stands in when the platform has no detail method.
+      const detail: ServiceDetail =
+        (await platform.serviceDetail?.(match.entry.name)) ?? match.entry;
+      const startType = detail.startType;
+      // An unknown start type is left out rather than guessed at: Windows has
+      // a couple of exotic ones, and a sentence about the state alone is still
+      // a true answer to the question.
+      const how = startType && STARTS[startType] ? `, ${STARTS[startType]}` : '';
       return {
         ok: true,
         message: `${detail.display} is ${stateWord(detail)}${how}.`,
