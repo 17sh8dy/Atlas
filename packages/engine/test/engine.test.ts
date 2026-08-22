@@ -127,6 +127,10 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       // Not last in this list on purpose — a test below asserts what "the last
       // one" resolves to.
       { id: 'opencut', name: 'Open Cut', target: 'OpenCut.exe' },
+      { id: 'obs', name: 'OBS Studio', target: 'obs64.exe' },
+      // A conjunction inside a real program's name — the case that makes
+      // splitting on "and" before matching the whole string unsafe.
+      { id: 'candc', name: 'Command and Conquer', target: 'cnc.exe' },
       { id: 'epic-games-launcher', name: 'Epic Games Launcher', target: 'EpicGamesLauncher.exe' },
     ],
     launchApp: async (id) => {
@@ -2633,4 +2637,46 @@ test('network: reading the network never asks permission', async () => {
   for (const skill of ['net.adapters', 'net.ip', 'net.wifi', 'net.savedNetworks', 'net.online']) {
     assert.equal(h.engine.skills.get(skill)?.risk, 'safe', skill);
   }
+});
+
+// ---- opening more than one thing -----------------------------------------------
+
+test('opening several: two apps named in one sentence both launch', async () => {
+  const h = harness();
+  await h.engine.ask('open obs and epic games', io(h));
+  assert.deepEqual(h.journal.launched, ['obs', 'epic-games-launcher']);
+});
+
+test('opening several: commas work too, and three is the ceiling', async () => {
+  const h = harness();
+  await h.engine.ask('open steam, discord and firefox', io(h));
+  assert.deepEqual(h.journal.launched, ['steam', 'discord', 'firefox']);
+
+  const g = harness();
+  await g.engine.ask('open steam, discord, firefox and obs', io(g));
+  // Four is past the cap, so none of it happens rather than an arbitrary
+  // three of it — a partial answer here is worse than none.
+  assert.deepEqual(g.journal.launched, []);
+});
+
+test('opening several: a real name containing "and" is never split', async () => {
+  const h = harness();
+  await h.engine.ask('open command and conquer', io(h));
+  // Splitting first would have launched nothing and offered "Comm" and
+  // "Conquer" as guesses. The whole string matches, so it never gets there.
+  assert.deepEqual(h.journal.launched, ['candc']);
+});
+
+test('opening several: all or nothing', async () => {
+  const h = harness();
+  await h.engine.ask('open steam and somethingthatisnotinstalled', io(h));
+  // Opening one of the two and saying so leaves someone working out which
+  // half happened, in front of a window they did not choose.
+  assert.deepEqual(h.journal.launched, []);
+});
+
+test('opening several: the same app named twice opens once', async () => {
+  const h = harness();
+  await h.engine.ask('open steam and steam', io(h));
+  assert.deepEqual(h.journal.launched, ['steam']);
 });

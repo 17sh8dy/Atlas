@@ -111,6 +111,75 @@ function resolveAppName(apps: AppEntry[], name: string) {
   return { wanted: name, matches };
 }
 
+/**
+ * The most things one sentence may open.
+ *
+ * A cap rather than a limit of the parser: "open everything" should not be a
+ * way to launch forty programs, and three is about as many as anyone means
+ * when they list things out loud.
+ */
+const MAX_TARGETS = 3;
+
+/** "OBS, Epic Games and Discord" — an Oxford-comma-free list a person would say. */
+function readableList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+
+/**
+ * "OBS and Epic Games" → ["OBS", "Epic Games"].
+ *
+ * ⚠️ Only ever called *after* the whole string has failed to match an
+ * installed application, and that ordering is the entire safety of it.
+ * "Command and Conquer" is a real program; so are "Brawl Stars and Friends"
+ * and anything else with a conjunction in its name. Splitting first would
+ * break every one of them. Splitting only once the whole name has been ruled
+ * out means a real application always wins over a guess about grammar —
+ * exactly how a stuttered verb and a site name are already handled.
+ */
+function splitTargets(name: string): string[] {
+  // The word boundaries are load-bearing: without them "and" matches inside
+  // "Command" and "Command Center" splits into "Comm" and "Center".
+  return name
+    .split(/\s*(?:,|&|\band\b|\bthen\b|\bplus\b)\s*/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Resolve several named applications, or decline entirely.
+ *
+ * All or nothing on purpose. Opening two of the three things someone asked
+ * for is worse than opening none: they have to work out which one is missing,
+ * and they are now looking at windows they did not get to choose. If any part
+ * is unrecognised the whole thing falls through to the ordinary "did you
+ * mean…" path for the original phrase.
+ *
+ * Resolution only — launching belongs to the skill, which is the thing that
+ * holds the platform and can report what happened.
+ */
+function resolveSeveral(apps: AppEntry[], name: string): AppEntry[] | null {
+  const parts = splitTargets(name);
+  if (parts.length < 2 || parts.length > MAX_TARGETS) return null;
+
+  const resolved: AppEntry[] = [];
+  for (const part of parts) {
+    const { matches } = resolveAppName(apps, part);
+    const best = matches[0];
+    // Each one has to be unambiguous. A typo-tolerant guess is fine when a
+    // person can see it and say no; three of them at once is not.
+    if (!best || (best.rank >= 4 && matches.length > 1)) return null;
+    // The same program named twice is one launch, not two.
+    if (!resolved.some((a) => a.id === best.app.id)) resolved.push(best.app);
+  }
+
+  // At least one *survivor*, not at least two: the "did you name several
+  // things" question was already answered by `parts.length` above, and
+  // "open steam and steam" should open Steam once rather than fail.
+  return resolved.length ? resolved : null;
+}
+
 export function createCoreSkills(
   platform: Platform,
   memory: Memory,
@@ -760,6 +829,29 @@ export function createCoreSkills(
           return ok
             ? { ok: true, message: phrasing.opening(best.app.name) }
             : { ok: false, error: `${best.app.name} wouldn't start.` };
+        }
+      }
+
+      // Still nothing. "open OBS and Epic Games" is one request naming two
+      // programs, and it arrives here as a single name because that is the
+      // only reading the grammar can safely take — see `splitTargets`.
+      if (!matches.length) {
+        const several = resolveSeveral(apps, wanted);
+        if (several) {
+          const launched: string[] = [];
+          const failed: string[] = [];
+          for (const app of several) {
+            const ok = await platform.launchApp!(app.id);
+            (ok ? launched : failed).push(app.name);
+          }
+          if (launched.length) {
+            return {
+              ok: failed.length === 0,
+              message: phrasing.opening(readableList(launched)),
+              error: failed.length ? `${readableList(failed)} wouldn't start.` : undefined,
+            };
+          }
+          return { ok: false, error: `${readableList(failed)} wouldn't start.` };
         }
       }
 

@@ -348,16 +348,21 @@ function Ready({
   }, [listening, wantHints]);
 
   /**
-   * Leaving the voice screen closes the microphone.
+   * Changing screens closes the microphone.
    *
-   * Not politeness — it is the promise the screen makes. Listening is confined
-   * to this screen, so the device has to close when the screen does, including
-   * when it closes because the logo was clicked or the window was summoned
-   * back to the conversation.
+   * Not politeness — it is the promise the voice screen makes. The device has
+   * to close when you leave, including when you leave because the logo was
+   * clicked or the window was summoned back to the conversation.
+   *
+   * ⚠️ Keyed on `screen` alone, and that is the entire fix for a bug worth
+   * remembering. This was written as "if the screen isn't `voice` and the mic
+   * is open, close it", which re-ran every time the listening state changed —
+   * so pressing the composer's dictation button opened the microphone, changed
+   * the state, re-ran this, and closed it again in the same breath. The button
+   * did nothing, visibly and repeatably, while every part of it worked.
    */
-  useEffect(() => {
-    if (screen !== 'voice' && listening.state !== 'idle') listening.stop();
-  }, [screen, listening]);
+  const stopListening = listening.stop;
+  useEffect(() => () => stopListening(), [screen, stopListening]);
 
   /**
    * A settings change is written and then reloaded rather than mirrored in
@@ -490,6 +495,7 @@ function Ready({
             onRunAction={atlas.runAction}
             onAnswerConfirm={atlas.answerConfirm}
             onCopy={atlas.copy}
+            onAskAgain={atlas.ask}
             dictation={
               listening.supported && listeningPrefs.enabled
                 ? {

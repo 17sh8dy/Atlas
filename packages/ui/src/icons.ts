@@ -47,6 +47,8 @@ export {
   MonitorSmartphone,
   CircleDot,
   Circle,
+  // conversation actions
+  RotateCcw,
   // listening
   MicOff,
   AudioLines,

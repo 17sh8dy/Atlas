@@ -86,7 +86,7 @@ export function Composer({
     <div className="border-border bg-background/80 border-t px-6 py-4 backdrop-blur">
       <div
         className={cn(
-          'border-border bg-surface relative flex items-end gap-2 rounded-xl border px-3 py-2',
+          'border-border bg-surface flex items-end gap-2 rounded-xl border px-3 py-2',
           'duration-fast focus-within:border-border-strong transition',
         )}
       >
@@ -96,7 +96,13 @@ export function Composer({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={placeholder}
+          placeholder={
+            dictation?.transcribing
+              ? 'Working out what you said…'
+              : dictation?.active
+                ? 'Listening — just talk, and it lands here.'
+                : placeholder
+          }
           className={cn(
             'text-foreground flex-1 resize-none bg-transparent py-1.5 text-sm',
             'placeholder:text-foreground-subtle focus:outline-none',
@@ -110,7 +116,7 @@ export function Composer({
             aria-pressed={dictation.active}
             title={dictation.active ? 'Stop dictating' : 'Dictate'}
             className={cn(
-              'mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
+              'relative mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
               'duration-fast transition',
               dictation.active
                 ? 'bg-primary/15 text-primary'
@@ -122,7 +128,7 @@ export function Composer({
                 that opened the microphone is the one place a person will look
                 to check whether it is still open. */}
             {dictation.active && (
-              <span className="bg-primary absolute h-1.5 w-1.5 translate-x-2.5 -translate-y-2.5 rounded-full motion-safe:animate-pulse" />
+              <span className="bg-primary absolute right-1 top-1 h-1.5 w-1.5 rounded-full motion-safe:animate-pulse" />
             )}
             <Icons.Mic className={cn('h-4 w-4', dictation.transcribing && 'opacity-40')} />
           </button>

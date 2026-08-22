@@ -30,6 +30,8 @@ interface Props {
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onAnswerConfirm(approved: boolean): void;
   onCopy(text: string): Promise<boolean>;
+  /** Re-ask one of your own messages. */
+  onAskAgain?(text: string): void;
   /** Passed through to the composer; absent when this build cannot listen. */
   dictation?: { active: boolean; transcribing: boolean; onToggle(): void };
   dictated?: { text: string; at: number } | null;
@@ -46,6 +48,7 @@ export function Conversation({
   onRunAction,
   onAnswerConfirm,
   onCopy,
+  onAskAgain,
   dictation,
   dictated,
 }: Props) {
@@ -67,6 +70,7 @@ export function Conversation({
             onAnswerConfirm={onAnswerConfirm}
             onRunAction={onRunAction}
             onCopy={onCopy}
+            onAskAgain={onAskAgain}
           />
         )}
       </div>

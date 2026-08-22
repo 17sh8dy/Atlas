@@ -21,9 +21,24 @@ interface Props {
   onAnswerConfirm(approved: boolean): void;
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onCopy(text: string): Promise<boolean>;
+  /**
+   * Ask one of your own messages again.
+   *
+   * Worth having because a lot of what Atlas answers is a *reading* rather
+   * than a fact — "what's running", disk space, the battery — and the honest
+   * way to refresh one is to ask again, not to invent a cache to invalidate.
+   */
+  onAskAgain?(text: string): void;
 }
 
-export function Transcript({ entries, busy, onAnswerConfirm, onRunAction, onCopy }: Props) {
+export function Transcript({
+  entries,
+  busy,
+  onAnswerConfirm,
+  onRunAction,
+  onCopy,
+  onAskAgain,
+}: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,7 +53,9 @@ export function Transcript({ entries, busy, onAnswerConfirm, onRunAction, onCopy
           entry={entry}
           onAnswerConfirm={onAnswerConfirm}
           onRunAction={onRunAction}
+          busy={busy}
           onCopy={onCopy}
+          onAskAgain={onAskAgain}
         />
       ))}
 
@@ -116,19 +133,46 @@ function MessageActions({
 
 function EntryView({
   entry,
+  busy,
   onAnswerConfirm,
   onRunAction,
   onCopy,
+  onAskAgain,
 }: {
   entry: Entry;
+  busy: boolean;
   onAnswerConfirm(approved: boolean): void;
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onCopy(text: string): Promise<boolean>;
+  onAskAgain?(text: string): void;
 }) {
   if (entry.kind === 'you') {
+    // The rail hangs under your own message, aligned right with it, and the
+    // wrapper is what `group-hover` keys on — the same pattern the assistant's
+    // copy button uses rather than a second one invented for this.
     return (
-      <div className="accent-surface text-primary-foreground max-w-[80%] self-end rounded-2xl rounded-br-md px-4 py-2.5 text-sm">
-        {entry.text}
+      <div className="group flex max-w-[80%] flex-col items-end self-end">
+        <div className="accent-surface text-primary-foreground rounded-2xl rounded-br-md px-4 py-2.5 text-sm">
+          {entry.text}
+        </div>
+        {entry.text?.trim() && onAskAgain && (
+          <button
+            type="button"
+            onClick={() => onAskAgain(entry.text ?? '')}
+            disabled={busy}
+            className={cn(
+              'text-foreground-subtle hover:text-foreground hover:bg-surface duration-fast',
+              'mt-1.5 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition',
+              'opacity-0 focus-visible:opacity-100 group-hover:opacity-100',
+              'disabled:pointer-events-none disabled:opacity-0',
+            )}
+            aria-label="Ask this again"
+            title="Ask this again"
+          >
+            <Icons.RotateCcw className="h-3.5 w-3.5" />
+            Again
+          </button>
+        )}
       </div>
     );
   }
