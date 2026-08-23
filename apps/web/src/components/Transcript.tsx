@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Icons, cn } from '@atlas/ui';
+import { AuroraBars, Button, Icons, cn } from '@atlas/ui';
 import type { Entry } from '../atlas/useAtlas';
 
 interface Props {
@@ -59,12 +59,11 @@ export function Transcript({
         />
       ))}
 
-      {busy && (
-        <div className="text-foreground-subtle flex items-center gap-2 text-sm">
-          <span className="bg-primary h-1.5 w-1.5 animate-pulse rounded-full" />
-          Working…
-        </div>
-      )}
+      {/* Sized and placed like an assistant message, because that is what is
+          about to replace it — the text lands where the bars were and nothing
+          below it moves. A centred spinner would have to be pushed out of the
+          way by the answer it was waiting for. */}
+      {busy && <AuroraBars className="max-w-[85%]" label="Atlas is thinking" />}
 
       <div ref={endRef} />
     </div>

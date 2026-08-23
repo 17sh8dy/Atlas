@@ -4,6 +4,8 @@ export type { ButtonProps, ButtonVariant, ButtonSize } from './components/Button
 export { Surface } from './components/Surface';
 export type { SurfaceProps } from './components/Surface';
 export { Skeleton } from './components/Skeleton';
+export { AuroraBars } from './components/AuroraBars';
+export type { AuroraBarsProps } from './components/AuroraBars';
 export { Spinner } from './components/Spinner';
 export { Input } from './components/Input';
 export type { InputProps } from './components/Input';

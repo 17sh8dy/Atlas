@@ -106,8 +106,13 @@ export function VoiceScreen({
           </span>
         </button>
 
-        <div className="flex flex-col items-center gap-1.5">
-          <p className="text-foreground text-sm font-medium">{LABEL[phase]}</p>
+        <div className="flex flex-col items-center gap-2.5">
+          {/* The status sits on glass rather than on the background, because
+              the background now moves. Text laid straight onto the aurora is
+              legible right up until a blob drifts under it. */}
+          <p className="atlas-glass text-foreground rounded-full px-4 py-1.5 text-sm font-medium">
+            {LABEL[phase]}
+          </p>
           <p className="text-foreground-subtle text-xs">
             {live
               ? handsFree
@@ -126,20 +131,28 @@ export function VoiceScreen({
             <p className="text-foreground-subtle break-words text-xs leading-relaxed">{error}</p>
           </div>
         )}
-        {heard && (
-          <div className="flex flex-col gap-1">
-            <span className="text-foreground-subtle text-[11px] font-medium uppercase tracking-wide">
-              You said
-            </span>
-            <p className="text-foreground text-sm leading-relaxed">{heard}</p>
-          </div>
-        )}
-        {reply && (
-          <div className="flex flex-col gap-1">
-            <span className="text-foreground-subtle text-[11px] font-medium uppercase tracking-wide">
-              Atlas
-            </span>
-            <p className="text-foreground-muted text-sm leading-relaxed">{reply}</p>
+        {/* One panel for the exchange rather than one per line: two floating
+            cards in front of a moving field is two things to read past, and
+            the pair belongs together anyway — it is a turn, not two events. */}
+        {(heard || reply) && (
+          <div className="atlas-glass flex flex-col gap-3 rounded-2xl px-5 py-4">
+            {heard && (
+              <div className="flex flex-col gap-1">
+                <span className="text-foreground-subtle text-[11px] font-medium uppercase tracking-wide">
+                  You said
+                </span>
+                <p className="text-foreground text-sm leading-relaxed">{heard}</p>
+              </div>
+            )}
+            {heard && reply && <div className="bg-border-strong/40 h-px w-full" />}
+            {reply && (
+              <div className="flex flex-col gap-1">
+                <span className="text-foreground-subtle text-[11px] font-medium uppercase tracking-wide">
+                  Atlas
+                </span>
+                <p className="text-foreground-muted text-sm leading-relaxed">{reply}</p>
+              </div>
+            )}
           </div>
         )}
       </div>

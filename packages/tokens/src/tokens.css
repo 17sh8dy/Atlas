@@ -25,6 +25,23 @@
   --color-success: 34 197 94;
   --color-warning: 234 179 8;
 
+  /* ---- Aurora ----
+     The multicolour ramp behind loading states and the voice screen.
+
+     Five hues rather than a spectrum: a true rainbow reads as a toy, and the
+     eye cannot tell twelve stops from five once they are moving. The ramp
+     starts and ends on the accent so it loops without a seam and so the app
+     still looks like one product — everything between is a detour, not a
+     different palette.
+
+     Raw channels, like every other colour here, so alpha can be applied at
+     the point of use. */
+  --aurora-1: 124 92 255; /* violet — the accent, and the seam */
+  --aurora-2: 88 133 255; /* indigo */
+  --aurora-3: 56 189 248; /* sky */
+  --aurora-4: 45 212 191; /* teal */
+  --aurora-5: 217 110 240; /* orchid */
+
   /* ---- Radius ---- */
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -65,6 +82,14 @@
   --color-primary-foreground: 255 255 255;
   --color-accent: 79 82 221;
   --color-ring: 109 74 255;
+
+  /* Deeper, because the same ramp that glows on near-black washes out to
+     pastel on near-white. Same five hues, taken down a step in lightness. */
+  --aurora-1: 109 74 255;
+  --aurora-2: 59 105 240;
+  --aurora-3: 14 165 233;
+  --aurora-4: 13 148 136;
+  --aurora-5: 168 62 200;
 
   --shadow-sm: 0 1px 2px 0 rgb(16 16 20 / 0.06);
   --shadow-md: 0 4px 16px -2px rgb(16 16 20 / 0.1);
@@ -116,4 +141,140 @@
 
 .atlas-orbit {
   animation: atlas-orbit 2.4s linear infinite;
+}
+
+/* ── Aurora ────────────────────────────────────────────────────────────────
+   The loading state, and the only place in the app where colour moves on its
+   own. Two animations, and both are deliberately the *cheap* kind.
+
+   Neither one animates a gradient. Interpolating colour stops needs
+   `@property` to register the custom properties as typed, repaints the
+   element on every frame, and runs on the main thread — which is exactly the
+   thread that has to stay free while Atlas is working, because "working" is
+   when this is on screen. Instead:
+
+     · the wave is a tiled gradient on an over-wide element, moved with
+       `translate3d`. The tile is exactly one bar wide, so translating by one
+       tile loops with no seam and no keyframe ever touches a colour.
+     · the edge is a conic gradient on a square that *rotates*. Same trick the
+       composer's working ring already uses (see `atlas-orbit` above), for the
+       same reason it was chosen there.
+
+   Both are transform-only, so they are composited on the GPU and the layout
+   and paint stages never run. That is what keeps this at 60fps while speech
+   is being synthesised on the same machine. */
+
+@keyframes atlas-aurora-wave {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    /* One tile. The element is 200% wide and the gradient tiles every 50% of
+       it, so this lands the pattern exactly where it started. */
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* The ramp, written once. Ends on the hue it starts with so the tile joins
+   itself invisibly — a ramp that ends on a different colour has a hard line
+   at every tile boundary, which is precisely what "shimmer" must not have. */
+.atlas-aurora-wave {
+  position: absolute;
+  inset: 0;
+  width: 200%;
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--aurora-1)) 0%,
+    rgb(var(--aurora-2)) 20%,
+    rgb(var(--aurora-3)) 40%,
+    rgb(var(--aurora-4)) 60%,
+    rgb(var(--aurora-5)) 80%,
+    rgb(var(--aurora-1)) 100%
+  );
+  background-size: 50% 100%;
+  background-repeat: repeat-x;
+  animation: atlas-aurora-wave var(--aurora-wave-duration, 2.6s) linear infinite;
+  will-change: transform;
+}
+
+/* The chase around the perimeter.
+
+   A square, not a rectangle, and oversized: rotating a square of the bar's
+   own width leaves the bar's corners outside the circle it sweeps, so they
+   sit un-lit at 45°. 140% covers them at every angle, and the overflow is
+   clipped by the bar anyway.
+
+   Percentage margins resolve against the containing block's *width* — both
+   axes — which is what lets a square defined only in percentages centre
+   itself without knowing a single pixel value. */
+.atlas-aurora-edge {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 140%;
+  margin-left: -70%;
+  margin-top: -70%;
+  aspect-ratio: 1 / 1;
+  background-image: conic-gradient(
+    from 0deg,
+    rgb(var(--aurora-1)),
+    rgb(var(--aurora-2)),
+    rgb(var(--aurora-3)),
+    rgb(var(--aurora-4)),
+    rgb(var(--aurora-5)),
+    rgb(var(--aurora-1))
+  );
+  animation: atlas-orbit var(--aurora-edge-duration, 3.4s) linear infinite;
+  will-change: transform;
+}
+
+/* Reduced motion keeps the colour and drops the movement. The bars still say
+   "not ready yet" by being bars; the shimmer was never the message. */
+@media (prefers-reduced-motion: reduce) {
+  .atlas-aurora-wave,
+  .atlas-aurora-edge {
+    animation: none !important;
+  }
+}
+
+/* ── Glass ─────────────────────────────────────────────────────────────────
+   The panels on the voice screen, and only there.
+
+   Glass is used sparingly on purpose: a `backdrop-filter` forces the
+   compositor to keep a copy of everything behind the element and re-filter it
+   whenever either layer changes, so it is not a free decoration — it is paid
+   for on every frame the aurora moves behind it. That cost is worth it for
+   two small panels in front of a moving field, which is exactly what the
+   voice screen is, and worth it nowhere else in the app.
+
+   The blur is deliberately small. Past about 12px the extra softness is not
+   visible over a background this diffuse, and the cost keeps climbing.
+
+   The hairline is a *lighter* inner edge, not a border: real glass catches
+   light on the face that meets you, and an evenly-coloured 1px box is the
+   thing that makes a panel look like a div with opacity on it. */
+.atlas-glass {
+  background-color: rgb(var(--color-surface) / 0.55);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid rgb(var(--color-border-strong) / 0.5);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+    var(--shadow-lg);
+}
+
+:root[data-theme='light'] .atlas-glass {
+  background-color: rgb(var(--color-surface) / 0.6);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.7),
+    var(--shadow-md);
+}
+
+/* Where a backdrop-filter is unsupported the panel would be a flat wash with
+   the aurora showing straight through the text. Falling back to a more opaque
+   surface keeps it readable, which is the only thing the glass must not cost. */
+@supports not (backdrop-filter: blur(1px)) {
+  .atlas-glass {
+    background-color: rgb(var(--color-surface) / 0.92);
+  }
 }
