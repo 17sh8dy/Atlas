@@ -1,18 +1,31 @@
 /**
- * The React binding for `SpeechPlayer`.
+ * The React binding for `SpeechPlayer`, and the pipeline that keeps it fed.
  *
  * One player for the whole app, held in a ref: synthesised audio, the analyser
  * the visualiser reads, and the state Settings and the voice screen both
  * display. Two players would mean two Atlases able to talk at once.
  *
- * `speak()` is what every caller uses — Settings previews with it, and the
- * conversation speaks replies with it. Synthesis failures are swallowed on
- * purpose: speech is an accompaniment to a reply that is already on screen, so
- * a missing voice should be silence, never an error bubble.
+ * ── `speak()` is a pipeline, not a call ─────────────────────────────────────
+ * A reply is cut into sentences, and each one is synthesised, handed to the
+ * player, and left to play while the next is being made. So the silence before
+ * Atlas starts talking is the time to synthesise *one sentence*, not the whole
+ * answer — and because synthesis runs comfortably faster than speech, the
+ * pieces after the first are always ready before the speaker reaches them.
+ *
+ * The player schedules the pieces on the audio clock so the joins cannot be
+ * heard; see the note at the top of `player.ts` for why that is not the same
+ * as chaining them on `onended`.
+ *
+ * ── Failure is handled differently for the first piece ──────────────────────
+ * If the first piece fails there is no speech at all, and that is worth
+ * reporting. If a later piece fails, Atlas is already talking, and the useful
+ * thing is to stop cleanly rather than to throw away an answer that is
+ * half-delivered. Both record the reason; only the first is a silent failure
+ * anyone could mistake for success.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Platform, SpeechOptions } from '@atlas/core';
+import { segmentForSpeech, type Platform, type SpeechOptions } from '@atlas/core';
 import { SpeechPlayer, type SpeechState } from './player';
 
 export interface Speech {
@@ -22,6 +35,14 @@ export interface Speech {
   state: SpeechState;
   /** True when this build can speak at all. */
   supported: boolean;
+  /**
+   * Open the audio device before it is needed.
+   *
+   * Must be called from a user gesture. Costs nothing if already open, and
+   * saves the device-open time from the first thing Atlas says — which is the
+   * utterance the whole feature gets judged on.
+   */
+  prime(): void;
   /** Read from an animation frame, never from render. 0 when silent. */
   level(): number;
   /** Per-band amplitude, filled into the caller's array. Zeroed when silent. */
@@ -76,29 +97,56 @@ export function useSpeech(platform: Platform, route: VoiceRoute = LOCAL): Speech
       const target = platformRef.current;
       const via = routeRef.current;
       const cloud = via.online && via.apiKey ? target.synthesizeSpeechOnline : undefined;
-      const synth = cloud ?? target.synthesizeSpeech;
-      if (!synth) {
+      if (!cloud && !target.synthesizeSpeech) {
         setError('This build has no speech engine.');
         return;
       }
-      try {
-        const audio = cloud
-          ? await cloud.call(target, via.apiKey as string, text, options?.pace)
-          : await target.synthesizeSpeech!.call(target, text, options);
-        if (!audio || audio.byteLength === 0) {
-          setError('The speech engine returned no audio.');
-          return;
+
+      const pieces = segmentForSpeech(text);
+      if (pieces.length === 0) return;
+
+      /** One piece, through whichever route this build is using. */
+      const synthesize = (piece: string): Promise<ArrayBuffer> =>
+        cloud
+          ? cloud.call(target, via.apiKey as string, piece, options?.pace)
+          : target.synthesizeSpeech!.call(target, piece, options);
+
+      const utterance = player.begin();
+
+      for (let i = 0; i < pieces.length; i++) {
+        // Something newer is being said, or everything was stopped. Abandoning
+        // here matters: without it a cancelled reply keeps synthesising every
+        // remaining sentence, competing for the CPU with the reply that
+        // replaced it.
+        if (utterance.cancelled) return;
+
+        try {
+          const audio = await synthesize(pieces[i]!);
+          if (utterance.cancelled) return;
+
+          if (!audio || audio.byteLength === 0) {
+            // An engine that returns nothing for one sentence will very likely
+            // return nothing for the next, so this ends the utterance rather
+            // than grinding through the rest in silence.
+            if (i === 0) setError('The speech engine returned no audio.');
+            break;
+          }
+
+          await utterance.push(audio);
+          if (i === 0) setError(null);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+          break;
         }
-        await player.play(audio);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
       }
+
+      utterance.close();
     },
     [player],
   );
 
   const stop = useCallback(() => player.stop(), [player]);
+  const prime = useCallback(() => player.prime(), [player]);
   const level = useCallback(() => player.level(), [player]);
   const bands = useCallback((out: Float32Array) => player.bands(out), [player]);
 
@@ -108,7 +156,7 @@ export function useSpeech(platform: Platform, route: VoiceRoute = LOCAL): Speech
   // `level` from an animation frame, and a new object on every render would
   // restart that loop continuously.
   return useMemo(
-    () => ({ speak, stop, state, supported, level, bands, lastError }),
-    [speak, stop, state, supported, level, bands, lastError],
+    () => ({ speak, stop, prime, state, supported, level, bands, lastError }),
+    [speak, stop, prime, state, supported, level, bands, lastError],
   );
 }

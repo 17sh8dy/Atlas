@@ -18,6 +18,7 @@ export * from './models/plan';
 export * from './models/memory';
 export * from './models/voice';
 export * from './models/speech';
+export * from './models/segment';
 export * from './models/listening';
 export * from './models/network';
 export * from './models/service';

@@ -11,9 +11,25 @@
  * event.
  *
  * ── One player, one voice ───────────────────────────────────────────────────
- * A single source node at a time. Starting a new utterance stops the previous
- * one rather than layering over it, because two Atlases talking at once is
- * never what anybody meant.
+ * A single utterance at a time. Starting a new one stops the previous rather
+ * than layering over it, because two Atlases talking at once is never what
+ * anybody meant.
+ *
+ * ── An utterance arrives in pieces, and they must not be audible ────────────
+ * A reply is synthesised a sentence at a time so the first one can start while
+ * the rest is still being made (see `segmentForSpeech`). That only works if
+ * the seams cannot be heard, and the obvious implementation — start the next
+ * buffer from the previous one's `onended` — cannot deliver that. `onended` is
+ * a main-thread event: it fires after the audio has already stopped, then
+ * waits for the event loop, then for whatever else is queued ahead of it. The
+ * gap is small, variable, and lands in the middle of a sentence, which is
+ * exactly where a listener hears it as a stutter.
+ *
+ * So pieces are *scheduled* instead. Each buffer is started at an explicit
+ * time on the `AudioContext` clock, computed by adding up the durations of the
+ * pieces before it. The audio thread honours those times to the sample, no
+ * main-thread work sits between one piece and the next, and a stalled frame
+ * cannot open a hole in the middle of a word.
  *
  * Framework-free on purpose: this is an audio engine, and keeping React out of
  * it means the visualiser can read `level()` from an animation frame without
@@ -26,11 +42,47 @@ export type SpeechState = 'idle' | 'loading' | 'speaking';
 
 type Listener = (state: SpeechState) => void;
 
+/**
+ * How far ahead of "now" the first piece of an utterance is scheduled.
+ *
+ * Scheduling at exactly `currentTime` is a race: by the time the audio thread
+ * reads the instruction that moment has passed, and a source told to start in
+ * the past starts immediately but *skipped into* — the first few milliseconds
+ * are lost, which on a word beginning with a plosive is audible as a clipped
+ * consonant. This is small enough not to read as delay and large enough to
+ * clear the render quantum comfortably.
+ */
+const LEAD_SECONDS = 0.04;
+
+/**
+ * A single spoken reply, delivered in pieces.
+ *
+ * Handed out by `SpeechPlayer.begin()`. The caller pushes audio as it is
+ * synthesised and calls `close()` when there is no more; the player works out
+ * when each piece plays and when the whole thing has finished.
+ */
+export interface Utterance {
+  /**
+   * Queue one piece of audio. Resolves once it is decoded and scheduled —
+   * which is *not* when it has been heard.
+   */
+  push(audio: ArrayBuffer): Promise<void>;
+  /** No more pieces are coming. */
+  close(): void;
+  /** True once something newer replaced this, or `stop()` was called. */
+  readonly cancelled: boolean;
+}
+
 export class SpeechPlayer {
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
-  private source: AudioBufferSourceNode | null = null;
+  /** Every source scheduled for the current utterance and not yet finished. */
+  private scheduled = new Set<AudioBufferSourceNode>();
+  /** When the next piece should start, on the context clock. */
+  private nextAt = 0;
+  /** Set by `close()`: no more pieces will be pushed for this utterance. */
+  private closed = true;
   // Typed against a real ArrayBuffer rather than ArrayBufferLike, which is
   // what `getByteFrequencyData` insists on under the current lib types.
   private frequencies: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(0));
@@ -66,6 +118,23 @@ export class SpeechPlayer {
       this.frequencies = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
     }
     return { ctx: this.ctx, gain: this.gain!, analyser: this.analyser! };
+  }
+
+  /**
+   * Build and resume the audio graph ahead of needing it.
+   *
+   * Creating an `AudioContext` and bringing it out of `suspended` takes real
+   * time — the device has to be opened — and doing it lazily puts that cost in
+   * front of the first thing Atlas ever says, which is the one utterance a
+   * person is judging the whole app by. Calling this from a gesture that
+   * *precedes* speech (opening the voice screen, sending a message) moves the
+   * cost somewhere nobody is waiting.
+   *
+   * Safe to call repeatedly; does nothing once the context is running.
+   */
+  prime(): void {
+    const { ctx } = this.ensure();
+    if (ctx.state === 'suspended') void ctx.resume();
   }
 
   onStateChange(listener: Listener): () => void {
@@ -123,70 +192,143 @@ export class SpeechPlayer {
     fillBands(this.frequencies, out);
   }
 
-  async play(audio: ArrayBuffer): Promise<void> {
+  /**
+   * Start a new utterance, cancelling anything currently being said.
+   *
+   * The handle is bound to a generation, so a piece that finishes decoding
+   * after the utterance was replaced is dropped instead of being spliced into
+   * whatever is playing now.
+   */
+  begin(): Utterance {
     const { ctx, gain } = this.ensure();
+    this.stopAll();
     const mine = ++this.generation;
 
-    this.stopSource();
+    this.closed = false;
+    this.nextAt = 0;
     this.setState('loading');
 
-    // Autoplay policy parks a fresh context in "suspended"; resuming inside
-    // the gesture that led here is what actually starts the clock.
-    if (ctx.state === 'suspended') await ctx.resume();
+    // Autoplay policy parks a fresh context in "suspended"; resuming here is
+    // what actually starts the clock, and it must happen before any time on
+    // that clock is used to schedule against.
+    if (ctx.state === 'suspended') void ctx.resume();
 
-    let buffer: AudioBuffer;
-    try {
-      // decodeAudioData detaches the buffer it is given, so a copy is passed —
-      // otherwise replaying the same reply a second time decodes empty.
-      buffer = await ctx.decodeAudioData(audio.slice(0));
-    } catch (err) {
-      // Rethrown rather than swallowed. A decode that fails is the one failure
-      // mode of this class that looks *exactly* like success from the outside:
-      // synthesis worked, playback was asked for, nothing came out. Reporting
-      // it is what turns a silent app into a fixable one.
-      if (mine === this.generation) this.setState('idle');
-      throw new Error(
-        `The audio couldn't be decoded (${audio.byteLength} bytes${
-          err instanceof Error && err.message ? `: ${err.message}` : ''
-        }).`,
-      );
-    }
+    // Arrow functions, so `this` is the player without aliasing it. The
+    // getter below closes over `isCancelled` rather than reading `this`,
+    // because inside an object literal's getter `this` is the literal.
+    const isCancelled = () => mine !== this.generation;
 
-    // Something newer started (or stopped everything) while we decoded.
-    if (mine !== this.generation) return;
+    const push = async (audio: ArrayBuffer): Promise<void> => {
+      if (isCancelled()) return;
 
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(gain);
-    source.onended = () => {
-      if (this.source === source) {
-        this.source = null;
-        this.setState('idle');
+      let buffer: AudioBuffer;
+      try {
+        // decodeAudioData detaches the buffer it is given, so a copy is
+        // passed — otherwise replaying the same reply a second time decodes
+        // empty.
+        buffer = await ctx.decodeAudioData(audio.slice(0));
+      } catch (err) {
+        // Rethrown rather than swallowed. A decode that fails is the one
+        // failure mode of this class that looks *exactly* like success from
+        // the outside: synthesis worked, playback was asked for, nothing came
+        // out. Reporting it is what turns a silent app into a fixable one.
+        if (!isCancelled()) this.finishIfDone();
+        throw new Error(
+          `The audio couldn't be decoded (${audio.byteLength} bytes${
+            err instanceof Error && err.message ? `: ${err.message}` : ''
+          }).`,
+        );
       }
+
+      // Something newer started (or stopped everything) while we decoded.
+      if (isCancelled()) return;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(gain);
+
+      // Where this piece goes on the clock. Two cases, and the second is the
+      // one that matters: if synthesis has fallen behind playback — a long
+      // sentence, a cold model, a busy machine — `nextAt` is already in the
+      // past, and scheduling there would drop the start of the piece. Better
+      // to take the small audible gap and play the words in full.
+      const now = ctx.currentTime;
+      const at = this.nextAt > now ? this.nextAt : now + LEAD_SECONDS;
+      this.nextAt = at + buffer.duration;
+
+      source.onended = () => {
+        this.scheduled.delete(source);
+        source.disconnect();
+        if (!isCancelled()) this.finishIfDone();
+      };
+
+      this.scheduled.add(source);
+      source.start(at);
+      this.setState('speaking');
     };
-    this.source = source;
-    this.setState('speaking');
-    source.start();
+
+    const close = (): void => {
+      if (isCancelled()) return;
+      this.closed = true;
+      this.finishIfDone();
+    };
+
+    return {
+      get cancelled() {
+        return isCancelled();
+      },
+      push,
+      close,
+    };
   }
 
-  private stopSource() {
-    const source = this.source;
-    if (!source) return;
-    this.source = null;
-    // Detach the handler first: stop() fires `onended`, which would otherwise
-    // report idle for an utterance that is being replaced, not finished.
-    source.onended = null;
+  /**
+   * Speak one complete buffer. The whole-utterance-at-once path, kept for
+   * Settings' preview button, where there is nothing to pipeline.
+   */
+  async play(audio: ArrayBuffer): Promise<void> {
+    const utterance = this.begin();
     try {
-      source.stop();
-    } catch {
-      // Already stopped. Nothing to do, and nothing worth saying.
+      await utterance.push(audio);
+    } finally {
+      utterance.close();
     }
-    source.disconnect();
+  }
+
+  /**
+   * Idle once the last piece has been heard and no more are coming.
+   *
+   * Both conditions are needed. An empty `scheduled` set on its own happens
+   * routinely mid-utterance, when synthesis has not yet handed over the next
+   * piece — reporting idle there would end the speaking state in the middle of
+   * a reply and stop the visualiser dead.
+   */
+  private finishIfDone(): void {
+    if (this.closed && this.scheduled.size === 0) this.setState('idle');
+  }
+
+  /** Cancel every scheduled source, played or not. */
+  private stopAll(): void {
+    for (const source of this.scheduled) {
+      // Detach the handler first: stop() fires `onended`, which would
+      // otherwise report on an utterance that is being replaced, not finished.
+      source.onended = null;
+      try {
+        source.stop();
+      } catch {
+        // Already stopped, or never started. Nothing to do, and nothing worth
+        // saying.
+      }
+      source.disconnect();
+    }
+    this.scheduled.clear();
+    this.nextAt = 0;
   }
 
   stop(): void {
     this.generation++;
-    this.stopSource();
+    this.closed = true;
+    this.stopAll();
     this.setState('idle');
   }
 
