@@ -22,6 +22,8 @@ mod platform;
 #[cfg(windows)]
 mod services;
 #[cfg(windows)]
+mod kokoro;
+#[cfg(windows)]
 mod speech;
 mod storage;
 #[cfg(windows)]
@@ -168,6 +170,10 @@ pub fn run() {
             os::empty_recycle_bin,
             speech::speech_voices,
             speech::synthesize_speech,
+            kokoro::kokoro_status,
+            kokoro::kokoro_voices,
+            kokoro::kokoro_warm,
+            kokoro::kokoro_unload,
             listen::transcribe_speech,
             net::network_adapters,
             net::wifi_status,

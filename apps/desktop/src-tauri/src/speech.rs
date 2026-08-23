@@ -235,9 +235,24 @@ pub fn synthesize(
 // picks a voice by id from a fixed table and supplies text. It cannot point
 // this at another executable, which is the same line `platform.rs` draws.
 
+/// Every voice this build can actually produce.
+///
+/// The refined ones are appended only when their model is installed, which
+/// keeps the picker honest: an option that cannot make a sound is worse than
+/// no option at all, because the person choosing it has no way to tell a
+/// missing model from a broken app.
+///
+/// They are listed first because when they are present they are the better
+/// answer, and a picker's order is a recommendation whether or not it is meant
+/// as one.
 #[tauri::command]
-pub fn speech_voices() -> Vec<SpeechVoice> {
-    voices()
+pub fn speech_voices(app: tauri::AppHandle) -> Vec<SpeechVoice> {
+    let mut all = Vec::new();
+    if crate::kokoro::available(&app) {
+        all.extend(crate::kokoro::voices());
+    }
+    all.extend(voices());
+    all
 }
 
 /// Synthesise, and hand back the audio itself.
@@ -246,6 +261,20 @@ pub fn speech_voices() -> Vec<SpeechVoice> {
 /// than as JSON. A WAV serialised the ordinary way would become an array of a
 /// hundred thousand numbers — megabytes of text to encode and parse for
 /// something that is already bytes.
+///
+/// ## The voice id chooses the engine
+///
+/// There is no engine setting, and deliberately so. Two engines exposed as a
+/// switch would mean a person has to understand what a "speech engine" is
+/// before they can pick a voice, and then keep a voice choice and an engine
+/// choice consistent by hand — with a broken pairing always reachable. A voice
+/// belongs to exactly one engine, so the voice is the whole decision and the
+/// wrong combination cannot be expressed.
+///
+/// A refined id with the model missing falls back to piper rather than
+/// failing. That case is real: the preference is saved, and the model is a
+/// separate download that can be absent on a fresh machine. Speaking in the
+/// wrong voice is a far better answer than not speaking.
 #[tauri::command]
 pub async fn synthesize_speech(
     app: tauri::AppHandle,
@@ -256,8 +285,26 @@ pub async fn synthesize_speech(
     // Synthesis is CPU work measured in tenths of a second. Off the async
     // runtime's thread regardless, so a long reply can never stall the
     // window's event loop.
-    let bytes = tauri::async_runtime::spawn_blocking(move || synthesize(&app, &text, voice_id, pace))
-        .await
-        .map_err(|e| format!("The speech task failed: {e}"))??;
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let refined = voice_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with(REFINED_PREFIX));
+
+        if refined && crate::kokoro::available(&app) {
+            crate::kokoro::synthesize(&app, &text, voice_id, pace)
+        } else {
+            // Piper has no idea what a refined id means, and would silently
+            // use its own default speaker for it. Clearing it says the same
+            // thing explicitly.
+            let fallback = if refined { None } else { voice_id };
+            synthesize(&app, &text, fallback, pace)
+        }
+    })
+    .await
+    .map_err(|e| format!("The speech task failed: {e}"))??;
     Ok(tauri::ipc::Response::new(bytes))
 }
+
+/// How a refined voice id is recognised. The one place the two engines' id
+/// spaces meet, and the reason they can never collide.
+pub const REFINED_PREFIX: &str = "kokoro-";

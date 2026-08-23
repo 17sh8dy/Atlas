@@ -318,6 +318,23 @@ function Ready({
     [voice, listening],
   );
 
+  /**
+   * Ask, having first opened the audio device.
+   *
+   * Sending a message is a gesture, and if replies are being read aloud it is
+   * the gesture immediately before speech. Priming here means the device-open
+   * cost is paid while the answer is still being worked out, instead of after
+   * it — where it would be pure added silence. Costs nothing when the device
+   * is already open, and nothing at all when Atlas is not going to speak.
+   */
+  const askAloud = useCallback(
+    (text: string) => {
+      if (speechForScreen.enabled) voice.prime();
+      atlas.ask(text);
+    },
+    [atlas, voice, speechForScreen.enabled],
+  );
+
   /** The last thing Atlas actually said, for the screen to show in text. */
   const lastReply = useMemo(() => {
     for (let i = atlas.entries.length - 1; i >= 0; i--) {
@@ -496,7 +513,20 @@ function Ready({
               <ChromeButton
                 label={screen === 'voice' ? 'Back to Atlas' : 'Talk to Atlas'}
                 active={screen === 'voice'}
-                onClick={() => setScreen(screen === 'voice' ? 'conversation' : 'voice')}
+                onClick={() => {
+                  // Opening the voice screen is a gesture, and it is followed
+                  // within seconds by speech. Both costs that would otherwise
+                  // land in front of the first sentence are paid here instead:
+                  // opening the audio device, and loading the voice model.
+                  voice.prime();
+                  // Deliberately not awaited and deliberately not surfaced. A
+                  // warm-up that fails costs a slower first sentence and
+                  // nothing else, and a screen that refused to open because a
+                  // model could not be preloaded would be far worse than one
+                  // that is briefly slow.
+                  void platform.warmSpeech?.().catch(() => {});
+                  setScreen(screen === 'voice' ? 'conversation' : 'voice');
+                }}
               >
                 <Icons.AudioLines className="h-3.5 w-3.5" />
               </ChromeButton>
@@ -540,11 +570,11 @@ function Ready({
             greeting={atlas.greeting}
             personalized={atlas.personalized}
             atlasName={atlas.atlasName}
-            onAsk={atlas.ask}
+            onAsk={askAloud}
             onRunAction={atlas.runAction}
             onAnswerConfirm={atlas.answerConfirm}
             onCopy={atlas.copy}
-            onAskAgain={atlas.ask}
+            onAskAgain={askAloud}
             dictation={
               listening.supported && listeningPrefs.enabled
                 ? {

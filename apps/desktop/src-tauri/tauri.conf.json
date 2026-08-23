@@ -52,7 +52,10 @@
       "vendor/whisper/whisper.dll": "vendor/whisper/whisper.dll",
       "vendor/whisper/ggml.dll": "vendor/whisper/ggml.dll",
       "vendor/whisper/ggml-base.dll": "vendor/whisper/ggml-base.dll",
-      "vendor/whisper/ggml-cpu-*.dll": "vendor/whisper/"
+      "vendor/whisper/ggml-cpu-*.dll": "vendor/whisper/",
+      "vendor/kokoro/kokoro.onnx": "vendor/kokoro/kokoro.onnx",
+      "vendor/kokoro/onnxruntime.dll": "vendor/kokoro/onnxruntime.dll",
+      "vendor/kokoro/voices/*.bin": "vendor/kokoro/voices/"
     }
   }
 }

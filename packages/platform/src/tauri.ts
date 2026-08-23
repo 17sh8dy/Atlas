@@ -122,6 +122,18 @@ export function createTauriPlatform(): Platform {
       return toArrayBuffer(audio);
     },
 
+    // Load the refined model without saying anything.
+    //
+    // Reading 163 MB of weights and building the graph takes a second or two,
+    // and it happens on the first sentence unless something asks for it
+    // sooner. That first sentence is the one a person judges the whole voice
+    // by, so this is called when the voice screen opens — the gesture that
+    // most reliably precedes speech by a few seconds.
+    //
+    // Resolves false, not an error, when the refined voice is not installed:
+    // "there was nothing to warm" is an ordinary outcome, not a failure.
+    warmSpeech: () => invoke<boolean>('kokoro_warm'),
+
     // The WAV goes over as the request *body* rather than as an argument: a
     // few seconds of audio is ~100 KB, and JSON would turn that into an array
     // of a hundred thousand numbers to cross one process boundary. The

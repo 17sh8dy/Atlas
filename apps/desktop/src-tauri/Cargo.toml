@@ -37,6 +37,29 @@ trash = "3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "multipart"] }
 scraper = "0.20"
 percent-encoding = "2"
+# Kokoro (kokoro.rs) — the refined voice, run in this process rather than
+# shelled out to.
+#
+# `load-dynamic` rather than the default linked build, for the same reason
+# whisper's DLLs are vendored rather than linked: the ONNX runtime ships as a
+# Tauri resource beside the model, and ort is pointed at it by absolute path at
+# startup. Linking it would put the runtime in the binary whether or not the
+# voice is installed, and this voice is optional by design.
+#
+# ⚠️ There is no stable ort release; rc.13 is the head of 2.0. Pinned exactly —
+# the release candidates have made breaking API changes between themselves, and
+# `inputs!` and `try_extract_array` are among the things that have moved.
+#
+# No `ndarray` feature, and no ndarray dependency: tensors are built from a
+# shape and a `Vec` instead. ort's ndarray conversions are implemented for the
+# exact ndarray version *it* depends on, so taking that path would pin this
+# crate to ort's transitive choice and break on the release candidate that
+# changes it. A shape and a Vec cannot go out of sync with anything.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["load-dynamic"] }
+# espeak-ng is loaded at runtime out of piper's vendor directory rather than
+# linked: the DLL is already shipped there, and building espeak from source
+# would add a C toolchain to what this project needs to compile.
+libloading = "0.8"
 # Native OS controls (os.rs): lock, power, media/volume keys, the recycle
 # bin. Direct Win32 calls rather than shelling out to powershell, which
 # would have handed the renderer a general-purpose command runner.

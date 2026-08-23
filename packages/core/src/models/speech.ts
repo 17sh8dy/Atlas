@@ -23,9 +23,24 @@ export interface SpeechVoice {
   id: string;
   /** What the picker shows: "British male — Surrey". */
   label: string;
-  /** Grouping in the picker. */
-  group: 'male' | 'female';
-  /** Where the speaker is from, as the corpus documents it. */
+  /**
+   * Grouping in the picker.
+   *
+   * `refined` is a different *engine*, not a different gender — the voices
+   * from the larger model, which carries intonation across a whole sentence
+   * rather than word by word. It is a group rather than a separate setting
+   * because a person choosing a voice is choosing how Atlas sounds, and which
+   * network produced it is not a question they should have to answer first.
+   */
+  group: 'refined' | 'male' | 'female';
+  /**
+   * What the row shows under the label.
+   *
+   * For the corpus voices this is where the speaker is from, as the corpus
+   * documents it. The refined voices are not drawn from a regional corpus, so
+   * theirs carries a note on character instead — a county name would be an
+   * invention.
+   */
   region: string;
 }
 

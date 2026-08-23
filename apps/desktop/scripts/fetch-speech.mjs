@@ -72,6 +72,17 @@ const here = dirname(fileURLToPath(import.meta.url));
 const vendorRoot = join(here, '..', 'src-tauri', 'vendor');
 const piperDir = join(vendorRoot, 'piper');
 const whisperDir = join(vendorRoot, 'whisper');
+const kokoroDir = join(vendorRoot, 'kokoro');
+
+/**
+ * The ONNX Runtime release Kokoro runs on.
+ *
+ * Any build from 1.17 up satisfies the API version this crate is compiled
+ * against — the C API is backward compatible, and `ort` is built here with no
+ * `api-*` features, which pins it to the floor. Pinned to one version anyway,
+ * because "whatever is newest" is not a reproducible dependency.
+ */
+const ORT_VERSION = '1.22.0';
 
 const DOWNLOADS = [
   {
@@ -108,6 +119,71 @@ const DOWNLOADS = [
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin',
     bytes: 147_964_211,
   },
+
+  // ── The refined voice ────────────────────────────────────────────────────
+  //
+  // Kokoro (hexgrad/Kokoro-82M, Apache 2.0) as exported to ONNX by
+  // onnx-community. A better licence than either piper position: Apache 2.0
+  // permits commercial use and redistribution outright, where piper is pinned
+  // to an archived MIT release precisely to avoid its GPL successor.
+  //
+  // Unlike piper this one is not spawned per utterance — it is loaded into
+  // this process once and kept. See the note at the top of `kokoro.rs` for why
+  // that is what makes sentence-at-a-time synthesis worth doing.
+  {
+    dir: kokoroDir,
+    name: 'onnxruntime.zip',
+    url: `https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip`,
+    bytes: 72_368_545,
+    // 72 MB of headers, import libraries and provider stubs, of which exactly
+    // one file is ever loaded. Pruned for the same reason whisper's archive is:
+    // shipping binaries the app never calls means shipping binaries nobody can
+    // account for.
+    unzip: {
+      marker: join(kokoroDir, 'onnxruntime.dll'),
+      flattenFrom: join(`onnxruntime-win-x64-${ORT_VERSION}`, 'lib'),
+      pruneFrom: `onnxruntime-win-x64-${ORT_VERSION}`,
+      keep: (name) => name === 'onnxruntime.dll',
+    },
+  },
+  {
+    dir: kokoroDir,
+    // Renamed on the way in, so the version and quantisation of the export are
+    // a fact about this script rather than a string `kokoro.rs` has to know.
+    name: 'kokoro.onnx',
+    url: 'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model_fp16.onnx',
+    bytes: 163_234_740,
+    // ⚠️ The fp16 export. The obvious choice was `model_quantized.onnx` — int8,
+    // 92 MB, and the one every guide reaches for. It was measured and rejected.
+    //
+    //   int8, 8 threads   RTF 0.68 – 0.99   (barely faster than speaking)
+    //   fp16, 8 threads   RTF 0.15 – 0.19   (5–6x faster than speaking)
+    //   fp32, 8 threads   RTF 0.15 – 0.18   (identical, at twice the size)
+    //
+    // int8 inference needs VNNI to be quick, and this is a Zen 3 machine —
+    // AMD added no AVX-512 there, so every int8 matmul runs through a
+    // quantise/dequantise path that costs more than the arithmetic it saves.
+    // The "small and fast" option was the slow one.
+    //
+    // fp16 matches fp32 exactly on speed because onnxruntime casts up to fp32
+    // to compute anyway; what fp16 buys is half the file and half the memory
+    // bandwidth, for no measured loss. Hence 163 MB rather than 326.
+    //
+    // ⚠️ If this is ever moved to a machine with VNNI (Intel from Ice Lake, AMD
+    // from Zen 5), re-measure before assuming these numbers still hold.
+  },
+
+  // One style table per voice: 510 rows of 256 floats, little-endian, no
+  // header. The row is chosen by phoneme count at synthesis time — see
+  // `kokoro.rs`. Four files rather than the 28 MB pack, because Atlas offers
+  // four British voices and downloading fifty-two unusable ones to reach them
+  // is not a saving.
+  ...['bm_george', 'bm_fable', 'bm_daniel', 'bm_lewis'].map((voice) => ({
+    dir: join(kokoroDir, 'voices'),
+    name: `${voice}.bin`,
+    url: `https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/${voice}.bin`,
+    bytes: 522_240,
+  })),
 ];
 
 /**
@@ -176,10 +252,17 @@ async function unpack(item, archive) {
 
   if (item.unzip.flattenFrom) {
     const nested = join(item.dir, item.unzip.flattenFrom);
+    const keep = item.unzip.keep ?? KEEP;
     for (const name of await readdir(nested)) {
-      if (KEEP(name)) await copyFile(join(nested, name), join(item.dir, name));
+      if (keep(name)) await copyFile(join(nested, name), join(item.dir, name));
     }
-    await rm(nested, { recursive: true, force: true });
+    // Some archives nest the wanted files a level or two down, so what gets
+    // deleted afterwards is the top of the extracted tree, not the directory
+    // the files were copied out of.
+    await rm(join(item.dir, item.unzip.pruneFrom ?? item.unzip.flattenFrom), {
+      recursive: true,
+      force: true,
+    });
   }
 
   console.log(' done');
@@ -189,6 +272,8 @@ async function main() {
   console.log('Fetching the speech engines and their models…');
   await mkdir(piperDir, { recursive: true });
   await mkdir(whisperDir, { recursive: true });
+  await mkdir(kokoroDir, { recursive: true });
+  await mkdir(join(kokoroDir, 'voices'), { recursive: true });
 
   for (const item of DOWNLOADS) {
     const path = await download(item);
@@ -208,7 +293,16 @@ async function main() {
     }
   }
 
-  console.log(`\nReady:\n  speaking  ${piperDir}\n  listening ${whisperDir}`);
+  const refined = await readdir(kokoroDir);
+  for (const required of ['kokoro.onnx', 'onnxruntime.dll']) {
+    if (!refined.includes(required)) {
+      throw new Error(`${required} is missing after unpacking — the archive layout changed.`);
+    }
+  }
+
+  console.log(
+    `\nReady:\n  speaking  ${piperDir}\n  refined   ${kokoroDir}\n  listening ${whisperDir}`,
+  );
 }
 
 main().catch((err) => {

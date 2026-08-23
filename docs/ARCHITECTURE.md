@@ -259,6 +259,49 @@ Atlas doesn't have a tool-calling-capable provider yet (§6.3, §8). That
 function is the one thing to replace once it does; nothing else in the
 search path depends on how the decision gets made.
 
+### 6.5 Speech — two engines, one seam (`speech.rs`, `kokoro.rs`)
+
+Atlas has two local voices, and the split is worth understanding because they
+are opposite architectures serving the same port method.
+
+**piper (`speech.rs`)** spawns `piper.exe` per utterance. Tiny, MIT, RTF
+~0.067, and it works the moment the app is installed. It is the default and
+the fallback.
+
+**Kokoro (`kokoro.rs`)** is an 82M-parameter model (Apache 2.0) run *in
+process* through ONNX Runtime, with espeak-ng for phonemisation — both loaded
+at runtime from vendored DLLs, neither linked. It sounds considerably better:
+it carries intonation across a whole sentence rather than word by word. It
+costs ~163 MB of weights and RTF ~0.15–0.23.
+
+Three decisions hold this together:
+
+1. **The voice id chooses the engine.** There is no engine setting. A voice
+   belongs to exactly one engine, so picking a voice is the whole decision and
+   a broken pairing cannot be expressed. Refined ids are prefixed `kokoro-`;
+   `speech_voices` omits them entirely when the model is not installed, and
+   `synthesize_speech` falls back to piper if one is somehow requested anyway.
+
+2. **Kokoro is resident, piper is not.** This follows from the pipeline below:
+   a reply is synthesised a sentence at a time, and a per-utterance process
+   launch would mean paying the model load four times for a four-sentence
+   answer. The session is built once and kept; `kokoro_warm` pays that cost
+   when the voice screen opens rather than in front of the first sentence.
+
+3. **A reply is cut into sentences and pipelined** (`core/models/segment.ts`,
+   `speech/player.ts`). The first sentence starts playing while the rest is
+   still being synthesised, so the wait is the length of one sentence rather
+   than of the whole answer. Pieces are *scheduled* on the `AudioContext`
+   clock, not chained on `onended` — a main-thread event cannot deliver a seam
+   you cannot hear. This is engine-agnostic and is the single largest thing
+   making the voice feel responsive; it matters more than which model runs.
+
+⚠️ Two traps are documented at length in `kokoro.rs` because both cost real
+debugging: the int8 build of the model is **five times slower** than fp16 on a
+CPU without VNNI (which includes every Zen 3 machine), and `resource_dir()`
+returns a `\\?\` verbatim path that espeak cannot use — it responded by
+calling `exit()` and taking the whole app down with it.
+
 ---
 
 ## 7. Safety

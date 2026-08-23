@@ -168,6 +168,19 @@ export interface Platform {
   synthesizeSpeech?(text: string, options?: SpeechOptions): Promise<ArrayBuffer>;
   /** The voices this machine can actually produce. */
   speechVoices?(): Promise<SpeechVoice[]>;
+  /**
+   * Get ready to speak, without speaking.
+   *
+   * Some engines are a process launch away from ready and some are a hundred
+   * megabytes of weights away. This lets a surface pay that cost at a moment
+   * of its choosing — one where nothing is waiting — instead of having it land
+   * in front of the first sentence.
+   *
+   * Optional in every sense: absent on platforms with nothing to warm, and
+   * resolving `false` on ones where the engine that would benefit is not
+   * installed. Nothing depends on it having been called.
+   */
+  warmSpeech?(): Promise<boolean>;
 
   /**
    * Listening, gated by the `listening` capability.

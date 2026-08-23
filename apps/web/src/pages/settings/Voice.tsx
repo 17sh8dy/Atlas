@@ -80,7 +80,19 @@ export function Voice({
     [onPreview],
   );
 
+  // Refined first, because it is the better answer when it is installed, and a
+  // list's order is a recommendation whether or not it is meant as one. The
+  // group renders nothing at all when the model is absent — `speech_voices`
+  // simply does not return them — so this is never a row of dead options.
   const groups = [
+    {
+      key: 'refined' as const,
+      title: 'Refined',
+      // Says what the difference is in terms of what you would *hear*. "A
+      // larger neural model" is true and useless; the reason to pick one of
+      // these is that it reads a sentence rather than a row of words.
+      note: 'A larger voice that carries a whole sentence, not just its words. A moment slower to start.',
+    },
     {
       key: 'male' as const,
       title: 'British male',
