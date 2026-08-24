@@ -286,14 +286,26 @@
 }
 
 /* ── Glass ─────────────────────────────────────────────────────────────────
-   The panels on the voice screen, and only there.
+   The panels on the voice screen, and the category panels on Home.
 
    Glass is used sparingly on purpose: a `backdrop-filter` forces the
    compositor to keep a copy of everything behind the element and re-filter it
    whenever either layer changes, so it is not a free decoration — it is paid
    for on every frame the aurora moves behind it. That cost is worth it for
    two small panels in front of a moving field, which is exactly what the
-   voice screen is, and worth it nowhere else in the app.
+   voice screen is.
+
+   ── Why Home is the second place, and cheap ──────────────────────────────
+   Home is static: a flat background, no animation, no scrolling. The
+   expensive part of a backdrop-filter is *re-filtering*, and nothing behind
+   these panels ever changes, so the compositor rasterises once and is done.
+   The blur has almost nothing to do over a flat colour either — what the
+   panels are actually taking from this rule is the translucent surface, the
+   lighter inner hairline and the shadow, which together are what reads as
+   "glass" rather than as a div with opacity on it.
+
+   That is the test for a third use: is the thing behind it still? If it
+   moves, this costs a frame every frame.
 
    The blur is deliberately small. Past about 12px the extra softness is not
    visible over a background this diffuse, and the cost keeps climbing.

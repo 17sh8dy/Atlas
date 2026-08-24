@@ -1030,7 +1030,7 @@ export function createCoreSkills(
     description: 'How much battery is left, and whether it is charging.',
     needs: ['system'],
     risk: 'safe',
-    examples: ['how much battery do I have'],
+    examples: ['how much battery', 'how much battery do I have'],
     params: {},
     async run() {
       const snapshot = await platform.systemInfo!();

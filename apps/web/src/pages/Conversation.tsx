@@ -99,10 +99,16 @@ export function Conversation({
  * screen to say very little. A first screen that large reads as a dashboard,
  * and Atlas is not a dashboard — it is a box you type into.
  *
- * So the tiles became rows. Eighteen suggestions now fit in less room than
- * six cards used to, grouped under the same six headings the capability
- * browser uses, so the two places that answer "what can this thing do?" agree
- * with each other.
+ * So the tiles became rows, gathered into one glass panel per category —
+ * the same six headings the capability browser uses, so the two places that
+ * answer "what can this thing do?" agree with each other. Nineteen
+ * suggestions still take less room than six cards did, because a row costs a
+ * line and a tile costs a block.
+ *
+ * The panels use `.atlas-glass`, which until now was the voice screen and
+ * nowhere else. Its doc comment explains why that was a rule and why Home is
+ * the exception: the expensive half of a backdrop-filter is re-filtering, and
+ * nothing behind these panels ever moves.
  *
  * ── The phrasings are the skills' own ───────────────────────────────────────
  * Every label here is `skill.examples[…]`, read from the registry at render.
@@ -178,22 +184,22 @@ function EmptyState({
       </p>
 
       {groups.length > 0 && (
-        <div className="mt-7 grid w-full max-w-3xl grid-cols-2 gap-x-8 gap-y-5 md:grid-cols-3">
+        <div className="mt-7 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {groups.map((group) => (
-            <div key={group.category} className="min-w-0">
-              <p className="text-foreground-subtle mb-1 px-2 text-[10px] font-medium uppercase tracking-wide">
+            <div key={group.category} className="atlas-glass min-w-0 rounded-xl p-3">
+              <p className="text-foreground-subtle mb-1.5 px-1.5 text-[10px] font-medium uppercase tracking-wide">
                 {group.category}
               </p>
-              <div className="flex flex-col">
+              <div className="flex flex-col gap-0.5">
                 {group.items.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => onAsk(item.text)}
                     title={item.text}
-                    className="text-foreground-muted hover:bg-surface hover:text-foreground duration-fast flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition"
+                    className="text-foreground-muted hover:bg-surface-raised hover:text-foreground duration-fast flex items-center gap-2.5 rounded-lg px-1.5 py-2 text-left text-[15px] transition"
                   >
-                    <span className="shrink-0 text-xs leading-none">{item.icon}</span>
+                    <span className="shrink-0 text-sm leading-none">{item.icon}</span>
                     <span className="min-w-0 truncate">{item.text}</span>
                   </button>
                 ))}
