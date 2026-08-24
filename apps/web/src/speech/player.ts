@@ -76,6 +76,12 @@ export interface Utterance {
 export class SpeechPlayer {
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
+  /**
+   * Held here as well as on the node, because the graph is built lazily: a
+   * volume set before anyone has spoken has no `GainNode` to land on yet, and
+   * would otherwise be silently lost the first time `ensure()` ran.
+   */
+  private volume = 1;
   private analyser: AnalyserNode | null = null;
   /** Every source scheduled for the current utterance and not yet finished. */
   private scheduled = new Set<AudioBufferSourceNode>();
@@ -110,6 +116,7 @@ export class SpeechPlayer {
       // Without smoothing the visualiser strobes on every consonant. This is
       // the difference between "alive" and "broken".
       analyser.smoothingTimeConstant = 0.8;
+      gain.gain.value = this.volume;
       gain.connect(analyser);
       analyser.connect(ctx.destination);
       this.ctx = ctx;
@@ -118,6 +125,26 @@ export class SpeechPlayer {
       this.frequencies = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
     }
     return { ctx: this.ctx, gain: this.gain!, analyser: this.analyser! };
+  }
+
+  /**
+   * Playback level, 0 (silent) to 1.
+   *
+   * Applied to the gain node the graph has always had, so it takes effect on
+   * a sentence already in the air rather than at the next one — which is what
+   * someone dragging a volume slider expects, and the reason this is not a
+   * synthesis parameter.
+   *
+   * `setTargetAtTime` rather than a bare assignment: stepping a gain value
+   * discontinuously puts a click in the output, and a volume control that
+   * clicks sounds broken.
+   */
+  setVolume(value: number): void {
+    const clamped = Math.min(Math.max(value, 0), 1);
+    this.volume = clamped;
+    if (this.gain && this.ctx) {
+      this.gain.gain.setTargetAtTime(clamped, this.ctx.currentTime, 0.015);
+    }
   }
 
   /**
@@ -330,10 +357,5 @@ export class SpeechPlayer {
     this.closed = true;
     this.stopAll();
     this.setState('idle');
-  }
-
-  setVolume(volume: number): void {
-    const { gain } = this.ensure();
-    gain.gain.value = Math.min(Math.max(volume, 0), 1);
   }
 }

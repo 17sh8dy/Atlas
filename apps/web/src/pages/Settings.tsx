@@ -64,7 +64,13 @@ interface Props {
  * exist — a tab whose content is missing renders an empty pane, which looks
  * exactly like a broken feature.
  */
-export const SECTIONS = [
+export interface SettingsSection {
+  id: string;
+  label: string;
+  icon: Icons.LucideIcon;
+}
+
+export const SECTIONS: readonly SettingsSection[] = [
   { id: 'general', label: 'General', icon: Icons.SlidersHorizontal },
   { id: 'appearance', label: 'Appearance', icon: Icons.Palette },
   { id: 'voice', label: 'Voice', icon: Icons.Mic },
@@ -72,7 +78,7 @@ export const SECTIONS = [
   { id: 'notifications', label: 'Notifications', icon: Icons.Bell },
   { id: 'intelligence', label: 'Intelligence', icon: Icons.Brain },
   { id: 'about', label: 'About', icon: Icons.Info },
-] as const;
+];
 
 export function Settings({
   platform,

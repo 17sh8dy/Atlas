@@ -68,12 +68,16 @@ export interface Speech {
  * key it needed. Nothing Atlas says leaves the machine, and that is now a
  * property of the code rather than of a switch someone has to leave alone.
  */
-export function useSpeech(platform: Platform): Speech {
+export function useSpeech(platform: Platform, volume = 1): Speech {
   const player = useMemo(() => new SpeechPlayer(), []);
   const [state, setState] = useState<SpeechState>('idle');
   const [lastError, setError] = useState<string | null>(null);
 
   useEffect(() => player.onStateChange(setState), [player]);
+
+  // Applied as it changes rather than passed with each utterance, which is
+  // what makes dragging the slider audible on the sentence already playing.
+  useEffect(() => player.setVolume(volume), [player, volume]);
 
   // Stop talking when the window goes away. Coming back to a machine that is
   // still mid-sentence from ten minutes ago is unnerving.

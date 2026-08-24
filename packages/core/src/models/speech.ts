@@ -61,10 +61,21 @@ export interface SpeechPreferences {
   enabled: boolean;
   voiceId: string;
   pace: number;
+  /**
+   * Playback level, 0 to 1.
+   *
+   * Deliberately not in `SpeechOptions`. Pace is a synthesis parameter — it
+   * changes the audio the engine produces — while volume is applied to the
+   * finished sound on its way out, so it belongs to the player and not to the
+   * request. Keeping them apart is what lets volume change mid-sentence and
+   * pace not.
+   */
+  volume: number;
 }
 
 export const DEFAULT_SPEECH: SpeechPreferences = {
   enabled: false,
   voiceId: 'male-surrey',
   pace: 1.06,
+  volume: 1,
 };

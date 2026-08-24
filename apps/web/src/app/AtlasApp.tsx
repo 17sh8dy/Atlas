@@ -148,7 +148,7 @@ function Ready({
 }) {
   // One player for the whole app: Settings previews through it, replies speak
   // through it, and the voice screen's visualiser reads its analyser.
-  const voice = useSpeech(platform);
+  const voice = useSpeech(platform, speech.volume);
   const [screen, setScreen] = useState<Screen>('conversation');
   const [homeFading, setHomeFading] = useState(false);
   const [heard, setHeard] = useState<string | null>(null);
