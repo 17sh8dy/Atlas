@@ -1169,6 +1169,7 @@ export function createCoreSkills(
     description: 'Search the web for something.',
     needs: ['fs'],
     risk: 'safe',
+    examples: ['search the web for tide times', 'google the weather'],
     params: { query: { type: 'string', required: true, description: 'what to search for' } },
     async run(args) {
       const query = String(args.query).trim();
@@ -1188,6 +1189,7 @@ export function createCoreSkills(
     description: 'Search YouTube for something.',
     needs: ['fs'],
     risk: 'safe',
+    examples: ['search youtube for lofi', 'youtube guitar lessons'],
     params: { query: { type: 'string', required: true, description: 'what to search for' } },
     async run(args) {
       const query = String(args.query).trim();

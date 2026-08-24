@@ -89,6 +89,51 @@ export function Conversation({
   );
 }
 
+/**
+ * The first screen, and the only teaching Atlas does.
+ *
+ * ── What was wrong with it ──────────────────────────────────────────────────
+ * Six cards, two columns, each a 90px-tall tile with an icon above a line of
+ * text. They filled the window on a laptop and still only showed six of a
+ * hundred and ten things, which is the worst of both: it takes the whole
+ * screen to say very little. A first screen that large reads as a dashboard,
+ * and Atlas is not a dashboard — it is a box you type into.
+ *
+ * So the tiles became rows. Eighteen suggestions now fit in less room than
+ * six cards used to, grouped under the same six headings the capability
+ * browser uses, so the two places that answer "what can this thing do?" agree
+ * with each other.
+ *
+ * ── The phrasings are the skills' own ───────────────────────────────────────
+ * Every label here is `skill.examples[…]`, read from the registry at render.
+ * Nothing on this screen is a sentence somebody wrote into the UI hoping the
+ * grammar would take it — which is exactly how a suggestion rots into a lie
+ * after a rule changes. The shortest example wins, because this is a grid of
+ * one-line chips and a suggestion that wraps is a suggestion that looks
+ * broken.
+ *
+ * A skill this build does not have is skipped, so the browser never suggests
+ * something only the desktop app can do.
+ *
+ * ── No "recent" row, deliberately ───────────────────────────────────────────
+ * It was considered and dropped. Episodic memory stores what *happened*
+ * ("Opening Steam.") rather than what was typed, so a recent row could be
+ * shown but not re-run — and a row of chips that does nothing when clicked is
+ * precisely the unfinished feeling the rest of this work is removing.
+ * Conversation history that could be replayed dies with the process today;
+ * when Phase 3 persists it, this is where it goes.
+ */
+
+/** Curated per category. Order is what a person reaches for, not the registry's. */
+export const SUGGESTED: ReadonlyArray<{ category: string; skills: readonly string[] }> = [
+  { category: 'Files', skills: ['files.find', 'files.openKnown', 'files.list'] },
+  { category: 'System', skills: ['system.info', 'system.processes', 'system.battery', 'net.ip'] },
+  { category: 'Web', skills: ['web.openBrowser', 'web.search', 'web.searchYoutube'] },
+  { category: 'Utilities', skills: ['math.calculate', 'time.now', 'util.password', 'util.uuid'] },
+  { category: 'Text', skills: ['text.case', 'clipboard.transform'] },
+  { category: 'Notes', skills: ['notes.list', 'todo.list', 'memory.list'] },
+];
+
 function EmptyState({
   skills,
   greeting,
@@ -102,57 +147,59 @@ function EmptyState({
   atlasName: string;
   onAsk(text: string): void;
 }) {
-  // Suggestions are pulled from what this build can really do. On the desktop
-  // that includes files and apps; in a browser those skills aren't registered
-  // at all, so they're never suggested and never disappoint.
-  const available = new Set(skills.available().map((s) => s.id));
-  // Each one is phrased the way it would be typed, and none of them assumes
-  // anything about this particular machine — a suggestion that only works if
-  // you happen to own the app it names is an advert, not a suggestion.
-  const suggestions = [
-    { when: 'web.openBrowser', text: 'open any browser', icon: Icons.Globe },
-    { when: 'system.info', text: 'system status', icon: Icons.Activity },
-    { when: 'app.list', text: 'what apps do I have installed?', icon: Icons.AppWindow },
-    { when: 'system.processes', text: "what's running", icon: Icons.Cpu },
-    { when: 'util.password', text: 'generate a password', icon: Icons.Lock },
-    { when: 'engine.help', text: 'what can you do?', icon: Icons.Sparkles },
-  ].filter((s) => available.has(s.when));
+  const available = new Map(skills.available().map((s) => [s.id, s]));
+
+  const groups = SUGGESTED.map(({ category, skills: ids }) => ({
+    category,
+    items: ids.flatMap((id) => {
+      const skill = available.get(id);
+      if (!skill?.examples?.length) return [];
+      // Shortest, because these are one-line chips and a wrapped suggestion
+      // looks like a mistake.
+      const text = [...skill.examples].sort((a, b) => a.length - b.length)[0]!;
+      return [{ id, text, icon: skill.icon ?? '•' }];
+    }),
+  })).filter((g) => g.items.length > 0);
 
   return (
-    <div className="my-auto flex w-full flex-col items-center px-8 py-10 text-center">
-      <div className="accent-surface text-primary-foreground shadow-glow mb-4 grid h-12 w-12 place-items-center rounded-2xl">
-        <Icons.Compass className="h-6 w-6" />
+    <div className="my-auto flex w-full flex-col items-center px-6 py-8">
+      <div className="accent-surface text-primary-foreground mb-3 grid h-10 w-10 place-items-center rounded-xl">
+        <Icons.Compass className="h-5 w-5" />
       </div>
 
-      <h1 className="text-foreground text-lg font-semibold tracking-tight">{atlasName}</h1>
+      <h1 className="text-foreground text-base font-semibold tracking-tight">{atlasName}</h1>
       {personalized && (
-        <p className="text-foreground mt-1.5 max-w-sm text-sm leading-relaxed">{greeting}</p>
+        <p className="text-foreground mt-1 max-w-md text-center text-sm leading-relaxed">
+          {greeting}
+        </p>
       )}
-      <p className="text-foreground-muted mt-1.5 max-w-sm text-sm leading-relaxed">
-        Ask plainly and it happens. {skills.available().length} actions are ready right now — no
-        account, no key, nothing sent anywhere.
+      <p className="text-foreground-subtle mt-1 max-w-md text-center text-xs leading-relaxed">
+        {skills.available().length} actions, all on this machine. No account, no key.
       </p>
 
-      {suggestions.length > 0 && (
-        <div className="mt-6 w-full max-w-sm">
-          <p className="text-foreground-subtle mb-2 text-left text-xs font-medium uppercase tracking-wide">
-            Popular
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {suggestions.map(({ text, icon: Icon }) => (
-              <button
-                key={text}
-                type="button"
-                onClick={() => onAsk(text)}
-                className="border-border bg-surface/50 text-foreground-muted duration-fast hover:border-border-strong hover:bg-surface hover:text-foreground flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center text-sm transition"
-              >
-                <span className="bg-primary/10 text-primary grid h-9 w-9 place-items-center rounded-lg">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span className="leading-snug">{text}</span>
-              </button>
-            ))}
-          </div>
+      {groups.length > 0 && (
+        <div className="mt-7 grid w-full max-w-3xl grid-cols-2 gap-x-8 gap-y-5 md:grid-cols-3">
+          {groups.map((group) => (
+            <div key={group.category} className="min-w-0">
+              <p className="text-foreground-subtle mb-1 px-2 text-[10px] font-medium uppercase tracking-wide">
+                {group.category}
+              </p>
+              <div className="flex flex-col">
+                {group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onAsk(item.text)}
+                    title={item.text}
+                    className="text-foreground-muted hover:bg-surface hover:text-foreground duration-fast flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition"
+                  >
+                    <span className="shrink-0 text-xs leading-none">{item.icon}</span>
+                    <span className="min-w-0 truncate">{item.text}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
