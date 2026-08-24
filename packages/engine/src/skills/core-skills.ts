@@ -722,7 +722,7 @@ export function createCoreSkills(
     description: 'List what is directly inside a folder.',
     needs: ['fs'],
     risk: 'safe',
-    examples: ['what is in D:\\Dev'],
+    examples: ['what is in C:\\Users\\me\\Downloads'],
     params: {
       path: { type: 'string', required: true, description: 'the folder' },
       limit: { type: 'number', default: 100, description: 'how many to show' },
@@ -759,7 +759,7 @@ export function createCoreSkills(
     description: 'Show the first few lines of a text file without opening it.',
     needs: ['fs'],
     risk: 'safe',
-    examples: ['peek at D:\\Dev\\notes.txt'],
+    examples: ['peek at C:\\Users\\me\\Documents\\notes.txt'],
     params: {
       path: { type: 'string', required: true, description: 'full path' },
       lines: { type: 'number', default: 15, description: 'how many lines' },

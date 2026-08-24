@@ -20,7 +20,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Grammar, WorkingMemory, createCoreGrammar, createExtraGrammar } from '@atlas/engine';
-import { SUGGESTED } from '../src/pages/Conversation';
+import { SUGGESTED, chipFor as pickChip } from '../src/pages/Conversation';
 import { MAPPED_DOMAINS } from '../src/components/CapabilityBrowser';
 
 /**
@@ -50,11 +50,16 @@ function declaredSkills(): Map<string, string[]> {
 
 const DECLARED = declaredSkills();
 
-/** What Home actually renders: the shortest example, the same rule the screen uses. */
+/**
+ * What Home actually renders.
+ *
+ * Imported from the screen rather than reimplemented: a copy of the rule here
+ * would drift, and then these tests would be checking a chip nobody sees.
+ */
 function chipFor(id: string): string | undefined {
   const examples = DECLARED.get(id);
   if (!examples?.length) return undefined;
-  return [...examples].sort((a, b) => a.length - b.length)[0];
+  return pickChip(examples);
 }
 
 const SUGGESTED_IDS = SUGGESTED.flatMap((g) => g.skills);
@@ -113,4 +118,35 @@ test('every chip on Home reaches the skill it advertises', () => {
     if (planned !== id) wrong.push(`"${chip}" -> ${planned ?? 'no match'} (advertised ${id})`);
   }
   assert.deepEqual(wrong, [], `Home suggestions that mislead:\n${wrong.join('\n')}`);
+});
+
+test('no suggestion carries a filesystem path', () => {
+  // The bug this exists for: `files.list`'s shortest example was a path on the
+  // D: drive, so the Files chip errored with "That path is outside the folders
+  // Atlas can touch." It routed to the right skill — the grammar test passed —
+  // and still could not work, because `is_permitted` (platform.rs) allows only
+  // what sits under the user's home folder.
+  //
+  // Routing to the right skill is not the same as working. A suggestion naming
+  // any absolute path is either refused or specific to one machine, and both
+  // are worse than not suggesting it.
+  const withPaths: string[] = [];
+  for (const id of SUGGESTED_IDS) {
+    const chip = chipFor(id);
+    if (!chip) continue;
+    // A drive letter, a UNC share, or a POSIX absolute path.
+    if (/[a-zA-Z]:[\\/]|\\\\\S|(^|\s)~?\/\S/.test(chip)) {
+      withPaths.push(`${id}: "${chip}"`);
+    }
+  }
+  assert.deepEqual(withPaths, [], `Home suggestions naming a path: ${withPaths.join(', ')}`);
+});
+
+test('the suggestions are things anyone could click', () => {
+  // Judgement, pinned as far as it can be: Home advertises general
+  // capabilities, so the personal-file domain has no business here even though
+  // every one of those skills still exists and still shows in the browser.
+  const categories = SUGGESTED.map((g) => g.category);
+  assert.notInclude(categories, 'Files');
+  assert.include(SUGGESTED_IDS, 'system.openTool', 'opening a system tool is the shape that works');
 });

@@ -130,15 +130,61 @@ export function Conversation({
  * when Phase 3 persists it, this is where it goes.
  */
 
-/** Curated per category. Order is what a person reaches for, not the registry's. */
+/**
+ * Curated per category. Order is what a person reaches for, not the registry's.
+ *
+ * ── The rule: a suggestion has to work on anyone's machine ──────────────────
+ * Home suggests what Atlas can do *in general*, never anything about this
+ * particular computer's files. The first version broke that and it showed
+ * immediately: `files.list`'s example was a path on the D: drive, which Atlas
+ * refuses — `is_permitted` allows only what sits under the user's home folder,
+ * so that suggestion was broken on every machine, including the one it was
+ * written on. Clicking it produced an error, which is worse than showing
+ * nothing at all.
+ *
+ * The file skills are all still registered and still in the capability
+ * browser; they are simply not something to *suggest* cold, because a useful
+ * file request names a file only the person asking knows about. "Open file
+ * explorer" is the shape that belongs here: something anyone can click and
+ * have work.
+ *
+ * "No path in a suggestion" is enforced by `home.test.ts`. The rest is
+ * judgement, and the judgement is: if a chip only makes sense to whoever
+ * wrote it, it does not belong on this screen.
+ */
 export const SUGGESTED: ReadonlyArray<{ category: string; skills: readonly string[] }> = [
-  { category: 'Files', skills: ['files.find', 'files.openKnown', 'files.list'] },
-  { category: 'System', skills: ['system.info', 'system.processes', 'system.battery', 'net.ip'] },
+  {
+    category: 'System',
+    skills: ['system.info', 'system.processes', 'system.openTool', 'system.battery', 'net.ip'],
+  },
   { category: 'Web', skills: ['web.openBrowser', 'web.search', 'web.searchYoutube'] },
   { category: 'Utilities', skills: ['math.calculate', 'time.now', 'util.password', 'util.uuid'] },
   { category: 'Text', skills: ['text.case', 'clipboard.transform'] },
   { category: 'Notes', skills: ['notes.list', 'todo.list', 'memory.list'] },
 ];
+
+/**
+ * Which of a skill's examples becomes the chip.
+ *
+ * The first one, because that is the phrasing the skill's author chose as
+ * canonical — unless it is too long for a panel, in which case the shortest
+ * wins so the row does not ellipsise.
+ *
+ * It used to be *always* the shortest, which was a layout rule pretending to
+ * be an editorial one. It picked "open task manager" over "open file
+ * explorer" purely on a one-character difference, and "new guid" over
+ * "generate a uuid", which is worse writing chosen by accident.
+ *
+ * `MAX` is set by what fits a panel at 15px, measured rather than guessed:
+ * `uppercase "hello world"` (23) sits comfortably and is the longest chip on
+ * the screen.
+ */
+export function chipFor(examples: readonly string[]): string {
+  const MAX = 24;
+  const first = examples[0]!;
+  if (first.length <= MAX) return first;
+  return [...examples].sort((a, b) => a.length - b.length)[0]!;
+}
 
 function EmptyState({
   skills,
@@ -160,10 +206,7 @@ function EmptyState({
     items: ids.flatMap((id) => {
       const skill = available.get(id);
       if (!skill?.examples?.length) return [];
-      // Shortest, because these are one-line chips and a wrapped suggestion
-      // looks like a mistake.
-      const text = [...skill.examples].sort((a, b) => a.length - b.length)[0]!;
-      return [{ id, text, icon: skill.icon ?? '•' }];
+      return [{ id, text: chipFor(skill.examples), icon: skill.icon ?? '•' }];
     }),
   })).filter((g) => g.items.length > 0);
 
