@@ -65,26 +65,3 @@ export const DEFAULT_LISTENING: ListeningPreferences = {
   bargeIn: true,
   silenceMs: 900,
 };
-
-/** What the app remembers about where voice work happens. */
-export interface VoicePreferences {
-  /**
-   * Use a connected service for speaking and listening when one is
-   * configured, instead of the engines bundled with the app.
-   *
-   * Off by default, and off is the honest default rather than the cautious
-   * one: with it off, Atlas speaks and listens entirely on this machine and
-   * nothing said to or by it touches a network. Turning it on trades that for
-   * speed — a cloud transcriber answers faster than a CPU running a neural
-   * model, and on a slow machine the difference is felt every turn.
-   *
-   * It is a preference, not a fallback. With it off there is no path to the
-   * network at all; with it on and nothing configured, the local engines are
-   * still what runs. The setting can never make Atlas *stop* working.
-   */
-  online: boolean;
-}
-
-export const DEFAULT_VOICE_SERVICE: VoicePreferences = {
-  online: false,
-};

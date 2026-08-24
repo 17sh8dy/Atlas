@@ -15,7 +15,7 @@
  * able to open a microphone or reach a network.
  */
 
-import type { Storage, ListeningPreferences, VoicePreferences } from '@atlas/core';
+import type { Storage, ListeningPreferences } from '@atlas/core';
 import { DEFAULT_LISTENING } from '@atlas/core';
 import { MemoryStore } from './memory-store';
 
@@ -23,7 +23,6 @@ const ENABLED = 'listening.enabled';
 const HANDS_FREE = 'listening.handsFree';
 const BARGE_IN = 'listening.bargeIn';
 const SILENCE = 'listening.silenceMs';
-const ONLINE = 'voice.online';
 
 /** Bounds on the silence gate, matching what the Voice tab's slider offers. */
 const MIN_SILENCE = 400;
@@ -70,23 +69,5 @@ export async function writeListeningPreferences(
   }
   if (next.silenceMs !== undefined) {
     await memory.remember('preference', SILENCE, String(next.silenceMs));
-  }
-}
-
-export async function readVoicePreferences(storage: Storage): Promise<VoicePreferences> {
-  const memory = new MemoryStore(storage);
-  const online = await memory.fact('preference', ONLINE);
-  // Opt-in on an exact match, like `listening.enabled` and for the same
-  // reason: a half-written file must not be able to reach the network.
-  return { online: online?.value === 'true' };
-}
-
-export async function writeVoicePreferences(
-  storage: Storage,
-  next: Partial<VoicePreferences>,
-): Promise<void> {
-  const memory = new MemoryStore(storage);
-  if (next.online !== undefined) {
-    await memory.remember('preference', ONLINE, String(next.online));
   }
 }

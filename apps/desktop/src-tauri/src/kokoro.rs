@@ -846,10 +846,10 @@ impl Engine {
     ) -> Result<Vec<u8>, String> {
         let file = voice_file(voice_id.unwrap_or(DEFAULT_VOICE)).to_string();
 
-        // ⚠️ Pace inverts here, exactly as it does in `voice_cloud.rs`. Atlas's
-        // `pace` is piper's length scale — higher is *slower*. Kokoro takes a
-        // speed multiplier, where higher is faster. Passing it through
-        // unchanged would make the "slower" setting speed the voice up.
+        // ⚠️ Pace inverts here. Atlas's `pace` is piper's length scale —
+        // higher is *slower*. Kokoro takes a speed multiplier, where higher
+        // is faster. Passing it through unchanged would make the "slower"
+        // setting speed the voice up.
         let scale = pace.unwrap_or(1.06).clamp(0.6, 2.0);
         let speed = (1.0 / scale).clamp(0.5, 2.0);
 
@@ -1170,7 +1170,7 @@ mod tests {
     /// ⚠️ Runs the real model. See above.
     ///
     /// The inversion this checks has been got wrong once already in this
-    /// codebase, in the other direction, for the online engine.
+    /// codebase, in the other direction.
     #[test]
     #[ignore = "loads the real model"]
     fn a_higher_pace_number_makes_a_longer_recording() {

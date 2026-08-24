@@ -61,20 +61,14 @@ export interface Speech {
 }
 
 /**
- * Where voice work happens.
+ * Speaking happens on this machine. There is no other route.
  *
- * Both must be true for anything to leave the machine: the preference on, and
- * a key present. Absent either, the local engine runs — the setting can turn
- * the network path on, never turn Atlas off.
+ * There used to be one — an `online` preference plus an OpenAI key, which
+ * sent the sentence to be synthesised elsewhere. It is gone, along with the
+ * key it needed. Nothing Atlas says leaves the machine, and that is now a
+ * property of the code rather than of a switch someone has to leave alone.
  */
-export interface VoiceRoute {
-  online: boolean;
-  apiKey: string | null;
-}
-
-const LOCAL: VoiceRoute = { online: false, apiKey: null };
-
-export function useSpeech(platform: Platform, route: VoiceRoute = LOCAL): Speech {
+export function useSpeech(platform: Platform): Speech {
   const player = useMemo(() => new SpeechPlayer(), []);
   const [state, setState] = useState<SpeechState>('idle');
   const [lastError, setError] = useState<string | null>(null);
@@ -89,15 +83,11 @@ export function useSpeech(platform: Platform, route: VoiceRoute = LOCAL): Speech
 
   const platformRef = useRef(platform);
   platformRef.current = platform;
-  const routeRef = useRef(route);
-  routeRef.current = route;
 
   const speak = useCallback(
     async (text: string, options?: SpeechOptions) => {
       const target = platformRef.current;
-      const via = routeRef.current;
-      const cloud = via.online && via.apiKey ? target.synthesizeSpeechOnline : undefined;
-      if (!cloud && !target.synthesizeSpeech) {
+      if (!target.synthesizeSpeech) {
         setError('This build has no speech engine.');
         return;
       }
@@ -105,11 +95,8 @@ export function useSpeech(platform: Platform, route: VoiceRoute = LOCAL): Speech
       const pieces = segmentForSpeech(text);
       if (pieces.length === 0) return;
 
-      /** One piece, through whichever route this build is using. */
       const synthesize = (piece: string): Promise<ArrayBuffer> =>
-        cloud
-          ? cloud.call(target, via.apiKey as string, piece, options?.pace)
-          : target.synthesizeSpeech!.call(target, piece, options);
+        target.synthesizeSpeech!.call(target, piece, options);
 
       const utterance = player.begin();
 

@@ -1155,37 +1155,40 @@ test('conversation: without the network capability, freshness questions skip sea
 
 test('SimpleIntelligenceRegistry: active() is null until a provider is both selected and configured', () => {
   const registry = new SimpleIntelligenceRegistry();
-  registry.register(makeProvider({ id: 'claude', configured: false }));
+  registry.register(makeProvider({ id: 'cortex', configured: false }));
 
   assert.isNull(registry.active()); // nothing selected yet
-  registry.setActive('claude');
+  registry.setActive('cortex');
   assert.isNull(registry.active()); // selected, but this scripted provider reports unconfigured
 });
 
 test('SimpleIntelligenceRegistry: a configured, selected provider becomes active', () => {
   const registry = new SimpleIntelligenceRegistry();
-  registry.register(makeProvider({ id: 'claude', configured: true }));
-  registry.setActive('claude');
-  assert.equal(registry.active()?.id, 'claude');
+  registry.register(makeProvider({ id: 'cortex', configured: true }));
+  registry.setActive('cortex');
+  assert.equal(registry.active()?.id, 'cortex');
 });
 
 test('SimpleIntelligenceRegistry: list() reflects every registered provider', () => {
   const registry = new SimpleIntelligenceRegistry();
-  registry.register(makeProvider({ id: 'claude' }));
-  registry.register(makeProvider({ id: 'openai' }));
+  // The registry itself stays generic — it is a map. What keeps Atlas to one
+  // provider is that exactly one is ever registered, which
+  // `no-other-cloud-ai.test.ts` checks by reading the wiring.
+  registry.register(makeProvider({ id: 'cortex' }));
+  registry.register(makeProvider({ id: 'second' }));
   assert.deepEqual(
     registry.list().map((p) => p.id),
-    ['claude', 'openai'],
+    ['cortex', 'second'],
   );
 });
 
 test('conversation: a real provider error (not the two known sentinels) reaches the user verbatim', async () => {
   const provider = makeProvider({
-    error: 'That Claude API key was rejected. Check it in Settings → Developer.',
+    error: 'Cortex is running but has no model loaded yet.',
   });
   const h = harness(undefined, { provider });
   await h.engine.ask('what is the capital of Peru?', io(h));
-  assert.match(h.said.join(' '), /API key was rejected/);
+  assert.match(h.said.join(' '), /no model loaded/);
 });
 
 test('conversation: the offline/not-configured sentinels still get their friendly messages', async () => {
@@ -3204,4 +3207,34 @@ test('help: it lists real skills, and small talk never intercepts it', async () 
   await h.engine.ask('what can you help me with?', io(h));
   assert.isAbove(h.rows.length, 0);
   assert.notMatch(h.said.join(' '), /what can i do for you/i);
+});
+
+test('escalation: Cortex is asked only for what the local tiers cannot do', async () => {
+  const provider = makeProvider({ reply: 'an answer from Cortex' });
+  const h = harness(undefined, { provider });
+
+  // Each of these is handled by a tier that sits above the provider.
+  await h.engine.ask('open steam', io(h)); // grammar
+  await h.engine.ask('hi', io(h)); // small talk
+  await h.engine.ask('what can you do?', io(h)); // grammar -> engine.help
+  await h.engine.ask('what is 12 * 7', io(h)); // grammar -> calculator
+  assert.deepEqual(provider.prompts, [], 'nothing above should have reached Cortex');
+
+  // This one genuinely needs a model.
+  await h.engine.ask('why is the sky blue?', io(h));
+  assert.lengthOf(provider.prompts, 1);
+  assert.match(h.said.join(' '), /an answer from Cortex/);
+});
+
+test('escalation: with Cortex off, everything local still works', async () => {
+  const h = harness(undefined, { provider: null });
+
+  await h.engine.ask('open steam', io(h));
+  assert.deepEqual(h.journal.launched, ['steam']);
+
+  await h.engine.ask('hello', io(h));
+  assert.match(h.said.join(' '), /what can i do for you|what do you need|what are we doing/i);
+
+  await h.engine.ask('what can you do?', io(h));
+  assert.isAbove(h.rows.length, 0);
 });

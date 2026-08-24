@@ -13,7 +13,19 @@
  * result the engine can proceed without.
  */
 
-export type ProviderId = 'claude' | 'local' | 'gemini' | (string & {});
+/**
+ * The providers Atlas knows about.
+ *
+ * One. This used to read `'claude' | 'local' | 'gemini'`, which described a
+ * marketplace rather than a product: three ways to send your questions
+ * somewhere else, and the local option the only one never built. Cortex is
+ * the whole list now, and it runs on this machine.
+ *
+ * The `(string & {})` tail is kept so the type still admits an id without
+ * widening to `string` in editors — it is a hook for a *local* provider that
+ * does not exist yet, not an invitation to add a second cloud one.
+ */
+export type ProviderId = 'cortex' | (string & {});
 
 export interface ProviderStreamHandlers {
   /** A chunk of the answer, as it arrives. */

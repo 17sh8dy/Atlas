@@ -15,10 +15,9 @@ import type {
   SpeechPreferences,
   SpeechVoice,
   Storage,
-  VoicePreferences,
   VoiceProfile,
 } from '@atlas/core';
-import type { ProviderKeyId } from '@atlas/data';
+import type { CortexSettings } from '@atlas/data';
 import type { SkillRegistry } from '@atlas/engine';
 import { General } from './settings/General';
 import { Appearance } from './settings/Appearance';
@@ -28,7 +27,7 @@ import { Startup } from './settings/Startup';
 import { Notifications } from './settings/Notifications';
 import { Privacy } from './settings/Privacy';
 import { DefaultApps } from './settings/DefaultApps';
-import { Developer } from './settings/Developer';
+import { Intelligence } from './settings/Intelligence';
 import { About } from './settings/About';
 
 interface Props {
@@ -38,7 +37,7 @@ interface Props {
   skills: SkillRegistry;
   voiceProfile: VoiceProfile;
   onVoiceProfileChange(): void;
-  providerKeys: Partial<Record<ProviderKeyId, string>>;
+  cortex: CortexSettings;
   activeProviderId: string | null;
   onProviderChange(): void;
   speechVoices: SpeechVoice[];
@@ -51,10 +50,6 @@ interface Props {
   /** False in a build without the transcription engine. */
   listeningSupported: boolean;
   onListeningChange(next: Partial<ListeningPreferences>): void;
-  voiceService: VoicePreferences;
-  /** Whether a key exists for the online path at all. */
-  hasVoiceKey: boolean;
-  onVoiceServiceChange(next: Partial<VoicePreferences>): void;
 }
 
 const SECTIONS = [
@@ -66,7 +61,7 @@ const SECTIONS = [
   { id: 'notifications', label: 'Notifications', icon: Icons.Bell },
   { id: 'privacy', label: 'Privacy', icon: Icons.Lock },
   { id: 'default-apps', label: 'Default apps', icon: Icons.AppWindow },
-  { id: 'developer', label: 'Developer', icon: Icons.Cpu },
+  { id: 'intelligence', label: 'Intelligence', icon: Icons.Brain },
   { id: 'about', label: 'About', icon: Icons.Info },
 ] as const;
 
@@ -77,7 +72,7 @@ export function Settings({
   skills,
   voiceProfile,
   onVoiceProfileChange,
-  providerKeys,
+  cortex,
   activeProviderId,
   onProviderChange,
   speechVoices,
@@ -89,9 +84,6 @@ export function Settings({
   listening,
   listeningSupported,
   onListeningChange,
-  voiceService,
-  hasVoiceKey,
-  onVoiceServiceChange,
 }: Props) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -129,9 +121,6 @@ export function Settings({
                 listening={listening}
                 listeningSupported={listeningSupported}
                 onListeningChange={onListeningChange}
-                voiceService={voiceService}
-                hasVoiceKey={hasVoiceKey}
-                onVoiceServiceChange={onVoiceServiceChange}
               />
             </TabsContent>
             <TabsContent value="personalization">
@@ -153,10 +142,10 @@ export function Settings({
             <TabsContent value="default-apps">
               <DefaultApps />
             </TabsContent>
-            <TabsContent value="developer">
-              <Developer
+            <TabsContent value="intelligence">
+              <Intelligence
                 storage={storage}
-                providerKeys={providerKeys}
+                cortex={cortex}
                 activeProviderId={activeProviderId}
                 onProviderChange={onProviderChange}
               />

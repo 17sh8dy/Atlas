@@ -27,7 +27,6 @@ mod kokoro;
 mod speech;
 mod storage;
 #[cfg(windows)]
-mod voice_cloud;
 mod web;
 
 use tauri::{
@@ -182,14 +181,12 @@ pub fn run() {
             services::list_services,
             services::service_detail,
             services::service_control,
-            voice_cloud::synthesize_speech_online,
-            voice_cloud::transcribe_speech_online,
             diagnostics::log_diagnostic,
             diagnostics::read_diagnostics,
             web::web_search,
             web::fetch_page,
-            intelligence::ask_claude,
-            intelligence::ask_openai,
+            intelligence::ask_cortex,
+            intelligence::cortex_reachable,
             storage::storage_get,
             storage::storage_set,
             storage::storage_remove,

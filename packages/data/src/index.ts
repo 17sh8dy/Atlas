@@ -18,20 +18,15 @@ export { writePreference, readVoiceProfile } from './preferences';
 export type { PreferenceSubject } from './preferences';
 export { MemoryStore } from './memory-store';
 export { readSpeechPreferences, writeSpeechPreferences } from './speech-preferences';
+export { readListeningPreferences, writeListeningPreferences } from './listening-preferences';
 export {
-  readListeningPreferences,
-  writeListeningPreferences,
-  readVoicePreferences,
-  writeVoicePreferences,
-} from './listening-preferences';
-export {
-  readProviderKey,
-  writeProviderKey,
-  readProviderKeys,
+  readCortexSettings,
+  writeCortexEnabled,
+  writeCortexBaseUrl,
   readActiveProvider,
   writeActiveProvider,
-} from './provider-keys';
-export type { ProviderKeyId } from './provider-keys';
+} from './cortex-settings';
+export type { CortexSettings } from './cortex-settings';
 
 /** The storage implementation for the given platform. */
 export function detectStorage(platformId: Platform['id']): Storage {

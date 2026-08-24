@@ -14,7 +14,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Platform } from '@atlas/core';
 import { Recorder, type ListeningState } from './recorder';
-import type { VoiceRoute } from './useSpeech';
 
 export interface Listening {
   /**
@@ -60,8 +59,6 @@ interface Options {
    * gets a chance.
    */
   hints?: string;
-  /** Where transcription happens. Local unless both the switch and a key say otherwise. */
-  route?: VoiceRoute;
 }
 
 export function useListening(platform: Platform, options: Options): Listening {
@@ -86,16 +83,13 @@ export function useListening(platform: Platform, options: Options): Listening {
    * it can still be read when the thing that broke is the rendering, or when
    * the report arrives second-hand as "it just didn't do anything".
    */
-  const fail = useCallback(
-    (message: string) => {
-      setError(message);
-      void platformRef.current.logDiagnostic?.('listening', message).catch(() => {
-        // A diagnostics channel that throws must not become the thing being
-        // diagnosed.
-      });
-    },
-    [],
-  );
+  const fail = useCallback((message: string) => {
+    setError(message);
+    void platformRef.current.logDiagnostic?.('listening', message).catch(() => {
+      // A diagnostics channel that throws must not become the thing being
+      // diagnosed.
+    });
+  }, []);
 
   const start = useCallback(async () => {
     if (!platformRef.current.transcribeSpeech) {
@@ -110,15 +104,12 @@ export function useListening(platform: Platform, options: Options): Listening {
         onError: fail,
         onUtterance: async ({ audio }) => {
           const target = platformRef.current;
-          const via = latest.current.route;
-          const cloud =
-            via?.online && via.apiKey ? target.transcribeSpeechOnline : undefined;
-          if (!cloud && !target.transcribeSpeech) return;
+          if (!target.transcribeSpeech) return;
           setTranscribing(true);
           try {
-            const heard = cloud
-              ? await cloud.call(target, via!.apiKey as string, audio)
-              : await target.transcribeSpeech!.call(target, audio, latest.current.hints);
+            // On this machine, always. The connected-service branch that used
+            // to sit here is gone along with its key.
+            const heard = await target.transcribeSpeech.call(target, audio, latest.current.hints);
             // Silence is a normal outcome, not a failure: a door closing
             // crosses the gate and transcribes to nothing. Reporting it would
             // fill the screen with apologies for noises.

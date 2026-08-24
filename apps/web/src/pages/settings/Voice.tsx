@@ -22,12 +22,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Icons, Surface, Switch, cn } from '@atlas/ui';
-import type {
-  ListeningPreferences,
-  SpeechPreferences,
-  SpeechVoice,
-  VoicePreferences,
-} from '@atlas/core';
+import type { ListeningPreferences, SpeechPreferences, SpeechVoice } from '@atlas/core';
 
 interface Props {
   /** Empty when this build has no speech engine. */
@@ -42,10 +37,6 @@ interface Props {
   /** False in a build without the transcription engine. */
   listeningSupported: boolean;
   onListeningChange(next: Partial<ListeningPreferences>): void;
-  voiceService: VoicePreferences;
-  /** Whether a key exists for the online path at all. */
-  hasVoiceKey: boolean;
-  onVoiceServiceChange(next: Partial<VoicePreferences>): void;
 }
 
 export function Voice({
@@ -58,9 +49,6 @@ export function Voice({
   listening,
   listeningSupported,
   onListeningChange,
-  voiceService,
-  hasVoiceKey,
-  onVoiceServiceChange,
 }: Props) {
   const [previewing, setPreviewing] = useState<string | null>(null);
 
@@ -240,12 +228,6 @@ export function Voice({
         preferences={listening}
         onChange={onListeningChange}
       />
-
-      <OnlineVoices
-        preferences={voiceService}
-        hasKey={hasVoiceKey}
-        onChange={onVoiceServiceChange}
-      />
     </div>
   );
 }
@@ -269,8 +251,8 @@ function Listening({
             Listening isn&apos;t available in this build
           </h3>
           <p className="text-foreground-subtle mt-1 text-xs leading-relaxed">
-            Hearing you needs the transcription engine, which ships with the desktop app.
-            Everything else works without it.
+            Hearing you needs the transcription engine, which ships with the desktop app. Everything
+            else works without it.
           </p>
         </div>
       </Surface>
@@ -305,8 +287,8 @@ function Listening({
                 Keep listening after an answer
               </h2>
               <p className="text-foreground-subtle mt-1 text-xs leading-relaxed">
-                On the talking screen, carry a conversation without pressing anything between
-                turns. Off, each turn starts with a press.
+                On the talking screen, carry a conversation without pressing anything between turns.
+                Off, each turn starts with a press.
               </p>
             </div>
             <Switch
@@ -320,9 +302,9 @@ function Listening({
             <div className="min-w-0">
               <h2 className="text-foreground text-sm font-medium">Talking over Atlas stops him</h2>
               <p className="text-foreground-subtle mt-1 text-xs leading-relaxed">
-                Waiting out an answer you have already decided against is the worst part of
-                talking to a machine. Turn this off if the room is loud enough that he keeps
-                cutting himself off.
+                Waiting out an answer you have already decided against is the worst part of talking
+                to a machine. Turn this off if the room is loud enough that he keeps cutting himself
+                off.
               </p>
             </div>
             <Switch
@@ -356,60 +338,6 @@ function Listening({
           </Surface>
         </>
       )}
-    </div>
-  );
-}
-
-/**
- * Where voice work happens.
- *
- * The copy here says what was measured rather than what sounds good. The
- * obvious pitch for a cloud option is speed, and on this hardware it is
- * simply untrue: the local engines synthesise a sentence in about a fifth of
- * a second and transcribe a short clip in under one, both faster than a round
- * trip. What a service actually offers is a different voice and a bigger
- * transcription model, so that is what the switch promises. A setting that
- * oversells itself is one people turn on and then distrust.
- */
-function OnlineVoices({
-  preferences,
-  hasKey,
-  onChange,
-}: {
-  preferences: VoicePreferences;
-  hasKey: boolean;
-  onChange(next: Partial<VoicePreferences>): void;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-foreground text-xs font-medium">Where voice runs</h3>
-
-      <Surface className="flex items-start justify-between gap-4 p-4">
-        <div className="min-w-0">
-          <h2 className="text-foreground text-sm font-medium">Online voices</h2>
-          <p className="text-foreground-subtle mt-1 text-xs leading-relaxed">
-            Off, everything runs here and nothing you say or hear touches a network. On, speaking
-            and listening go through your connected service instead — a different voice, and a
-            larger model that copes better with accents, noise and unfamiliar names.
-          </p>
-          <p className="text-foreground-subtle mt-2 text-xs leading-relaxed">
-            It will not be faster. On this machine the local engines answer in well under a second,
-            which a round trip cannot match; the reason to turn this on is quality, not speed. Your
-            recordings and the text of replies are sent to the service while it is on.
-          </p>
-          {!hasKey && (
-            <p className="text-warning mt-2 text-xs leading-relaxed">
-              No key is saved yet, so this does nothing until you add one under Developer. Until
-              then Atlas keeps using the engines on this machine.
-            </p>
-          )}
-        </div>
-        <Switch
-          checked={preferences.online}
-          onCheckedChange={(online) => onChange({ online })}
-          aria-label="Online voices"
-        />
-      </Surface>
     </div>
   );
 }

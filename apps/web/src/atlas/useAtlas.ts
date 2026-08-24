@@ -24,8 +24,8 @@ import type {
 } from '@atlas/core';
 import { DEFAULT_SPEECH } from '@atlas/core';
 import { MemoryStore } from '@atlas/data';
-import type { ProviderKeyId } from '@atlas/data';
-import { createClaudeProvider, createOpenAIProvider } from '@atlas/platform';
+import type { CortexSettings } from '@atlas/data';
+import { createCortexProvider } from '@atlas/platform';
 import {
   Engine,
   Grammar,
@@ -71,7 +71,7 @@ export function useAtlas(
   capabilities: readonly CapabilityName[],
   storage: Storage,
   voiceProfile: VoiceProfile = {},
-  providerKeys: Partial<Record<ProviderKeyId, string>> = {},
+  cortex: CortexSettings = { enabled: false, baseUrl: '' },
   activeProviderId: string | null = null,
   /** How Atlas should speak. `VoiceProfile` above is a different thing entirely. */
   speech: SpeechPreferences = DEFAULT_SPEECH,
@@ -113,26 +113,22 @@ export function useAtlas(
     grammar.addMany(createCoreGrammar(working));
     grammar.addMany(createExtraGrammar());
 
-    // Registered unconditionally — `isConfigured()` is false with no saved
-    // key, and `active()` already treats "selected but unconfigured" as
-    // nothing selected (see SimpleIntelligenceRegistry), so there's no
-    // separate platform gate needed here the way skills need `needs: [...]`.
+    // One provider, registered unconditionally. `isConfigured()` is false
+    // until Cortex is switched on, and `active()` already treats
+    // "selected but unconfigured" as nothing selected (see
+    // SimpleIntelligenceRegistry), so there is no separate gate needed here
+    // the way skills need `needs: [...]`.
+    //
+    // This is the only registration in the app, and the only place a second
+    // one could be added. It is deliberately a single line: Cortex is the
+    // only path off the deterministic tiers, and everything above still
+    // works completely when it is off.
     const intelligence = new SimpleIntelligenceRegistry();
-    intelligence.register(createClaudeProvider(providerKeys.claude));
-    intelligence.register(createOpenAIProvider(providerKeys.openai));
+    intelligence.register(createCortexProvider(cortex));
     intelligence.setActive(activeProviderId);
 
     return new Engine({ skills, grammar, voice: voiceProfile, working, intelligence });
-  }, [
-    platform,
-    capabilities,
-    memory,
-    phrasing,
-    voiceProfile,
-    working,
-    providerKeys,
-    activeProviderId,
-  ]);
+  }, [platform, capabilities, memory, phrasing, voiceProfile, working, cortex, activeProviderId]);
 
   // Episodic memory doesn't touch the ask/io path at all — it just listens.
   useEffect(() => recordEpisodes(engine.bus, memory, engine.skills), [engine, memory]);

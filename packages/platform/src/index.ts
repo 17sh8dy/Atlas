@@ -12,7 +12,8 @@ import { createWebPlatform } from './web';
 
 export { createTauriPlatform, isTauri } from './tauri';
 export { createWebPlatform } from './web';
-export { createClaudeProvider, createOpenAIProvider } from './providers';
+export { createCortexProvider, isCortexReachable, CORTEX_DEFAULT_BASE_URL } from './providers';
+export type { CortexOptions } from './providers';
 
 /** The platform for the current runtime. */
 export function detectPlatform(): Platform {
