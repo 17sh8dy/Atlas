@@ -13,11 +13,24 @@
   --color-border-strong: 58 58 70;
   --color-foreground: 244 244 246;
   --color-foreground-muted: 161 161 174;
-  --color-foreground-subtle: 112 112 126;
-  --color-primary: 124 92 255;
+  /*
+   * Raised from `112 112 126`, which measured 3.55:1 on `surface-raised` —
+   * below AA for the 12px text this token is mostly used for. Dark was the
+   * benchmark the light theme was being rebuilt toward, and it turned out to
+   * have the same failure light did, one surface further up.
+   */
+  --color-foreground-subtle: 130 130 146;
+  /*
+   * Four points darker than the original `124 92 255`. White label text on
+   * the old value measured 4.35:1, just under AA, and this pairing is every
+   * primary button and every message you send. The shift is far below a
+   * noticeable difference — the brand purple is intact, it just clears the
+   * bar now.
+   */
+  --color-primary: 120 88 251;
   --color-primary-foreground: 255 255 255;
   --color-accent: 99 102 241;
-  --color-ring: 124 92 255;
+  --color-ring: 120 88 251;
   --color-danger: 239 68 68;
   /* Flat by default. A mixed accent scheme replaces this with a gradient;
      see accents.ts for why it is separate from --color-primary. */
@@ -36,7 +49,7 @@
 
      Raw channels, like every other colour here, so alpha can be applied at
      the point of use. */
-  --aurora-1: 124 92 255; /* violet — the accent, and the seam */
+  --aurora-1: 120 88 251; /* violet — the accent, and the seam */
   --aurora-2: 88 133 255; /* indigo */
   --aurora-3: 56 189 248; /* sky */
   --aurora-4: 45 212 191; /* teal */
@@ -57,7 +70,7 @@
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
   --shadow-md: 0 4px 16px -2px rgb(0 0 0 / 0.4);
   --shadow-lg: 0 12px 40px -8px rgb(0 0 0 / 0.55);
-  --shadow-glow: 0 0 0 1px rgb(124 92 255 / 0.3), 0 8px 30px -6px rgb(124 92 255 / 0.35);
+  --shadow-glow: 0 0 0 1px rgb(120 88 251 / 0.3), 0 8px 30px -6px rgb(120 88 251 / 0.35);
 
   /* ---- Motion ---- */
   --duration-fast: 120ms;
@@ -69,15 +82,47 @@
   color-scheme: dark;
 }
 
+/**
+ * Light.
+ *
+ * ── Not an inversion, and the surfaces are why ──────────────────────────────
+ * The previous light theme set `background: 250 250 252`, `surface: 255` and
+ * `surface-raised: 255` — a near-white page with white on white on top of it.
+ * Nothing had elevation, because there was nowhere left to go: every card,
+ * every secondary button and every switch track was the same colour as the
+ * page they sat on, and only their borders said they existed. That is the
+ * whole reason light mode read as flat and generic next to dark.
+ *
+ * The ramp is rebuilt with the same *relationship* dark has rather than the
+ * same values: elevation moves toward the bright end. In dark that means
+ * near-black → dark grey → lighter grey. In light it means grey canvas →
+ * off-white card → pure white control. Both say "higher is brighter"; neither
+ * is the other one flipped.
+ *
+ * That ordering matters because `surface-raised` does two jobs — a control on
+ * a card (a secondary button, a switch track, a Kbd) and an active tab on the
+ * page — and only the brightest step is distinguishable from both `surface`
+ * and `background` at once.
+ */
 :root[data-theme='light'] {
-  --color-background: 250 250 252;
-  --color-surface: 255 255 255;
+  /* Genuinely grey, so a white card has something to sit on. */
+  --color-background: 240 241 245;
+  --color-surface: 250 250 252;
   --color-surface-raised: 255 255 255;
-  --color-border: 228 228 234;
-  --color-border-strong: 202 202 212;
-  --color-foreground: 22 22 27;
-  --color-foreground-muted: 92 92 104;
-  --color-foreground-subtle: 132 132 146;
+  --color-border: 223 225 232;
+  --color-border-strong: 194 197 208;
+  --color-foreground: 20 21 26;
+  --color-foreground-muted: 88 92 104;
+  /*
+   * Darkened from `132 132 146`, which measured about 3.6:1 on white. Most of
+   * the text using this token is 12px, where WCAG AA wants 4.5:1 — so the old
+   * value was failing exactly where it was used most.
+   *
+   * Tuned against the *background*, not against white: now that the canvas is
+   * grey, the darkest surface is the worst case, and a value chosen against
+   * white passes on cards and quietly fails on the page behind them.
+   */
+  --color-foreground-subtle: 105 110 124;
   --color-primary: 109 74 255;
   --color-primary-foreground: 255 255 255;
   --color-accent: 79 82 221;
@@ -91,9 +136,12 @@
   --aurora-4: 13 148 136;
   --aurora-5: 168 62 200;
 
-  --shadow-sm: 0 1px 2px 0 rgb(16 16 20 / 0.06);
-  --shadow-md: 0 4px 16px -2px rgb(16 16 20 / 0.1);
-  --shadow-lg: 0 12px 40px -8px rgb(16 16 20 / 0.16);
+  /* A little stronger than before: a shadow is how a light UI says "above",
+     and the old values were tuned against a near-white page where any shadow
+     at all looked like dirt. */
+  --shadow-sm: 0 1px 2px 0 rgb(16 18 28 / 0.07);
+  --shadow-md: 0 4px 14px -2px rgb(16 18 28 / 0.12);
+  --shadow-lg: 0 14px 40px -10px rgb(16 18 28 / 0.2);
   --shadow-glow: 0 0 0 1px rgb(109 74 255 / 0.25), 0 8px 30px -6px rgb(109 74 255 / 0.25);
 
   color-scheme: light;
