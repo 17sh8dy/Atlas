@@ -1,5 +1,15 @@
 /**
- * Settings — a vertical-tab shell around ten sections.
+ * Settings — a vertical-tab shell around seven sections.
+ *
+ * Seven, not ten. Startup, Privacy and Default apps were placeholder pages —
+ * a disabled switch and two paragraphs explaining that the thing they named
+ * did not exist yet. Between them they held no control a person could
+ * operate. A settings rail is a promise about what can be configured, and
+ * three entries out of ten were breaking it; the roadmap belongs in
+ * docs/ROADMAP.md, where it does not look like a feature.
+ *
+ * The one sentence worth keeping — that Atlas makes no network calls — moved
+ * to About, where it reads as the fact it is rather than as an empty page.
  *
  * Vertical, not horizontal: the window's own `minWidth` (560px, see
  * `tauri.conf.json`) is tight for that many horizontal tab labels, and a
@@ -23,10 +33,7 @@ import { General } from './settings/General';
 import { Appearance } from './settings/Appearance';
 import { Voice } from './settings/Voice';
 import { Personalization } from './settings/Personalization';
-import { Startup } from './settings/Startup';
 import { Notifications } from './settings/Notifications';
-import { Privacy } from './settings/Privacy';
-import { DefaultApps } from './settings/DefaultApps';
 import { Intelligence } from './settings/Intelligence';
 import { About } from './settings/About';
 
@@ -52,15 +59,17 @@ interface Props {
   onListeningChange(next: Partial<ListeningPreferences>): void;
 }
 
-const SECTIONS = [
+/**
+ * The rail. Exported so a test can hold it against the panels that actually
+ * exist — a tab whose content is missing renders an empty pane, which looks
+ * exactly like a broken feature.
+ */
+export const SECTIONS = [
   { id: 'general', label: 'General', icon: Icons.SlidersHorizontal },
   { id: 'appearance', label: 'Appearance', icon: Icons.Palette },
   { id: 'voice', label: 'Voice', icon: Icons.Mic },
   { id: 'personalization', label: 'Personalization', icon: Icons.UserCircle },
-  { id: 'startup', label: 'Startup', icon: Icons.Power },
   { id: 'notifications', label: 'Notifications', icon: Icons.Bell },
-  { id: 'privacy', label: 'Privacy', icon: Icons.Lock },
-  { id: 'default-apps', label: 'Default apps', icon: Icons.AppWindow },
   { id: 'intelligence', label: 'Intelligence', icon: Icons.Brain },
   { id: 'about', label: 'About', icon: Icons.Info },
 ] as const;
@@ -130,17 +139,8 @@ export function Settings({
                 onVoiceProfileChange={onVoiceProfileChange}
               />
             </TabsContent>
-            <TabsContent value="startup">
-              <Startup />
-            </TabsContent>
             <TabsContent value="notifications">
               <Notifications platform={platform} capabilities={capabilities} storage={storage} />
-            </TabsContent>
-            <TabsContent value="privacy">
-              <Privacy />
-            </TabsContent>
-            <TabsContent value="default-apps">
-              <DefaultApps />
             </TabsContent>
             <TabsContent value="intelligence">
               <Intelligence
