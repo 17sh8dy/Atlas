@@ -49,6 +49,10 @@ export {
   Circle,
   // conversation actions
   RotateCcw,
+  // the capability browser
+  ChevronRight,
+  StickyNote,
+  Calculator,
   // listening
   MicOff,
   AudioLines,

@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AuroraBars, Button, Icons, cn } from '@atlas/ui';
 import type { Entry } from '../atlas/useAtlas';
+import { CapabilityBrowser } from './CapabilityBrowser';
 
 interface Props {
   entries: Entry[];
@@ -93,7 +94,12 @@ function MessageActions({
   // A message can be copied, then copied again before the confirmation has
   // faded. Without clearing, the first timer resets the label while the
   // second copy is still fresh.
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   const handle = useCallback(async () => {
     const ok = await onCopy(text);
@@ -231,6 +237,21 @@ function EntryView({
   // Results rows have their own actions already, and a result list is not
   // prose — copying it would produce a wall of titles nobody asked for. So
   // only spoken messages get the rail.
+
+  // Results that arrived with a grouping get the browser: sections with
+  // counts, collapsed, so a hundred-odd rows read as "a lot of things" rather
+  // than as a wall. A flat result set — a file search, a process list — is
+  // still a flat list, because grouping it would be inventing structure the
+  // skill did not report.
+  if (entry.rows?.some((row) => row.group)) {
+    return (
+      <CapabilityBrowser
+        rows={entry.rows}
+        title={entry.meta?.title}
+        subtitle={entry.meta?.subtitle}
+      />
+    );
+  }
 
   // Results.
   return (

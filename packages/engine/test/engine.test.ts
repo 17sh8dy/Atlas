@@ -3238,3 +3238,22 @@ test('escalation: with Cortex off, everything local still works', async () => {
   await h.engine.ask('what can you do?', io(h));
   assert.isAbove(h.rows.length, 0);
 });
+
+test('engine.help: every row carries the domain its surface groups on', async () => {
+  const h = harness();
+  await h.engine.ask('what can you do?', io(h));
+
+  assert.isAbove(h.rows.length, 50);
+  // A row without a group would land in an "Other" bucket in the browser —
+  // present, but filed under nothing. The grouping is only useful if it is
+  // total.
+  const ungrouped = h.rows.filter((r) => !r.group);
+  assert.deepEqual(ungrouped, [], `${ungrouped.length} rows have no domain`);
+
+  // And the rows are the real catalog, not a curated subset.
+  assert.equal(h.rows.length, h.engine.skills.available().length);
+  const groups = new Set(h.rows.map((r) => r.group));
+  assert.isAbove(groups.size, 5);
+  assert.include([...groups], 'files');
+  assert.include([...groups], 'system');
+});

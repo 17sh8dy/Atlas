@@ -100,6 +100,16 @@ export interface ResultRow {
   title: string;
   subtitle?: string;
   icon?: string;
+  /**
+   * Which bucket this row belongs to, when a result set has a natural
+   * grouping — the skill's domain for the capability list, a date for a file
+   * search that wanted one.
+   *
+   * Data, not layout. A surface is free to render groups as headings, as
+   * collapsible sections, or to ignore them entirely and show a flat list;
+   * the engine has no opinion and cannot have one, since it renders nothing.
+   */
+  group?: string;
   /** The underlying object, for whatever the row's actions need. */
   payload?: unknown;
   actions?: Array<{ label: string; skill: string; args: SkillArgs }>;

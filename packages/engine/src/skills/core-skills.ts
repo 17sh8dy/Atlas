@@ -126,7 +126,6 @@ function readableList(names: string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-
 /**
  * "OBS and Epic Games" → ["OBS", "Epic Games"].
  *
@@ -205,12 +204,23 @@ export function createCoreSkills(
       const byDomain = registry.byDomain();
       const total = registry.available().length;
       const rows: ResultRow[] = [];
-      for (const list of byDomain.values()) {
+      // Each row carries its domain. That one field is the whole difference
+      // between a hundred-line inventory and something a person can read:
+      // the surface groups on it, and decides for itself whether that means
+      // headings, collapsible sections or nothing at all. What the domains
+      // are *called* is not decided here — "files" is a fact about the
+      // registry, "Files" with an icon and a summary is presentation.
+      for (const [domain, list] of byDomain) {
         for (const s of list) {
-          rows.push({ title: s.label, subtitle: s.description, icon: s.icon ?? '✨' });
+          rows.push({
+            title: s.label,
+            subtitle: s.description,
+            icon: s.icon ?? '✨',
+            group: domain,
+          });
         }
       }
-      ctx.showResults?.(rows, { title: 'What I can do', subtitle: `${total} actions available` });
+      ctx.showResults?.(rows, { title: 'What I can do', subtitle: `${total} actions` });
       return { ok: true, spoken: true, message: '' };
     },
   });
