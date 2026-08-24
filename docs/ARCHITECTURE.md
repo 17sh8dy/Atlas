@@ -212,24 +212,42 @@ normal supported state. The engine depends on this port but needs nothing from
 it — which is the architectural expression of "the engine is the brain, models
 are accessories".
 
-Two real, working implementations exist: Claude and ChatGPT
-(`platform/src/providers.ts`, calling `ask_claude`/`ask_openai` in
-`intelligence.rs`), registered through `SimpleIntelligenceRegistry`
-(`engine/src/intelligence-registry.ts`) — the concrete registry the port
-described but nothing implemented before this. Both are bring-your-own-key:
-Atlas never pays for or supplies API access, and Settings → Developer says so
-explicitly. Keys are stored through the same `Storage` port as everything
-else (`data/src/provider-keys.ts`) — one local JSON file, not a separate
-encrypted keychain; see §8. `active()` treats a selected-but-unconfigured
-provider (a key removed after being chosen) as no provider at all, so the
-engine's offline path handles it correctly without a separate check anywhere
-else.
+**There is exactly one implementation, and it runs on this machine:
+Cortex.** `platform/src/providers.ts` calls `ask_cortex` in
+`intelligence.rs`, registered through `SimpleIntelligenceRegistry`
+(`engine/src/intelligence-registry.ts`).
 
-Both providers are non-streaming: one request, one complete answer, calling
-`onDone` directly and never `onDelta`. `Engine.converseWithProvider` was
-already written to degrade cleanly for a provider that never streams, so a
-real token-streaming version can replace the Rust side later without the
-engine changing.
+Until 2026-08-23 there were two — Claude and ChatGPT, posting to
+`api.anthropic.com` and `api.openai.com` with a user-supplied key — plus
+three more (Local Models, Gemini, Custom Provider) advertised as *Planned*
+that did nothing. All five are gone. The reason is the one that removed
+Supabase from this project: an assistant that reads your files, watches your
+processes and knows your habits should not also hold a credential for
+somebody else's datacentre and a habit of posting your questions to it. Every
+provider added is a privacy story that has to be defended forever; one local
+provider is a story that defends itself.
+
+There is no key field, because there is nothing to authenticate to. The only
+stored settings are whether Cortex is on and where it listens
+(`data/src/cortex-settings.ts`). `isConfigured()` reports whether the user
+switched it *on* — reachability is discovered at call time and reported
+through the port's existing `offline` reason, so a stopped service reads as
+stopped rather than as a feature nobody set up.
+
+**The endpoint is loopback-only, enforced in Rust.** `validate_base_url`
+accepts `127.0.0.1`, `localhost` and `::1` and nothing else, parsing the host
+rather than substring-matching it (`localhost.evil.com` is refused). Without
+that check, "the Cortex endpoint" would be a settings field that let a
+request go anywhere — precisely the cloud fallback this was rewritten to
+remove. `no-other-cloud-ai.test.ts` scans every source file in the repo for
+cloud hostnames and for the removed symbols, so the guarantee is checked
+rather than asserted.
+
+Cortex is non-streaming: one request, one complete answer, calling `onDone`
+directly and never `onDelta`. `Engine.converseWithProvider` was already
+written to degrade cleanly for a provider that never streams, so a real
+token-streaming version can replace the Rust side later without the engine
+changing.
 
 ### 6.4 Web search (`platform.rs::web`, `engine/skills/web-search-skills.ts`)
 
@@ -320,8 +338,9 @@ calling `exit()` and taking the whole app down with it.
 | Network calls happen in Rust, never as a webview `fetch()` | `web.rs` | Outside the CSP entirely; same narrow-command shape as everything else |
 | `fetch_page` refuses loopback/private/link-local targets | `web.rs::is_safe_fetch_target` | A manipulated search result shouldn't be able to make Atlas probe the user's own LAN |
 | Retrieved page content is framed as untrusted reference material, never instructions | `engine/research.ts` | The whole security boundary for what a search result or fetched page can make Atlas do: read it, never obey it |
-| API keys never enter the webview's own network stack | `intelligence.rs` | Same reasoning as web search — the request (and the key on it) goes out from Rust, never a webview `fetch()` |
-| A provider is bring-your-own-key, always | `Developer.tsx`, disclaimer text | Atlas never pays for or supplies AI access — stated on the same screen that collects the key, not buried in a ToS |
+| The AI endpoint is loopback-only | `intelligence.rs::validate_base_url` | Host is parsed, not substring-matched, so `localhost.evil.com` is refused. Otherwise the endpoint setting is a route off the machine |
+| There is exactly one provider, and no key to store | `providers.ts`, `cortex-settings.ts` | A credential Atlas never holds is a credential that cannot leak |
+| No other cloud AI, checked by reading the source | `no-other-cloud-ai.test.ts` | A unit test of the registry would pass while a second provider sat in `platform/` waiting to be wired |
 
 ---
 
@@ -357,20 +376,16 @@ Honest uncertainty, recorded rather than buried:
   word) versus what a model given real tool-calling could decide. Replacing it
   is Phase 4's job, once a provider exists that can request tool calls itself
   — see `research.ts`'s own doc comment for the exact seam.
-- **API keys are stored in the same plain local JSON file as everything
-  else, not an OS keychain.** Reasonable for a personal, single-user local
-  app, and consistent with how the rest of Atlas's settings already work —
-  but a key is more sensitive than a theme preference, and this file has no
-  special protection beyond normal filesystem permissions. Worth revisiting
-  with real OS-keychain integration (Windows Credential Manager, macOS
-  Keychain) if this app is ever used somewhere that bar matters more.
-- **Claude and ChatGPT integrations were never tested against the real
-  Anthropic/OpenAI APIs — no API keys were available during development.**
-  Request/response handling is covered by unit tests against fixtures built
-  from each provider's documented API shape (`intelligence.rs`'s test
-  module), the same rigor as `web_search`'s tests, but unlike `web_search`
-  (which *was* verified live against the real DuckDuckGo — see the entry
-  above) there is no equivalent live proof here yet. Model ids
-  (`claude-3-5-sonnet-20241022`, `gpt-4o-mini`) are hardcoded and will need
-  updating as providers retire old snapshots. First real use should
-  double-check both.
+- **~~API keys are stored in the same plain local JSON file~~ — settled by
+  deleting the feature.** This entry used to worry about provider keys
+  sitting in the same unencrypted JSON as a theme preference, and proposed
+  OS-keychain integration. Removing cloud providers removed the only
+  genuinely sensitive value Atlas stored, which settles it better than
+  encrypting it would have. Nothing in the preferences file is now more
+  sensitive than the rest of it.
+- **Atlas has no working model until Cortex serves `/v1/ask`.** The seam is
+  real and tested against a fake provider, and the deterministic tiers —
+  grammar, planner, small talk, web search — cover everything they always
+  did. But an open-ended question with Cortex stopped gets an honest "I can't
+  answer that from what's on this machine" rather than an answer. That is the
+  accepted cost of the removal, not an oversight.

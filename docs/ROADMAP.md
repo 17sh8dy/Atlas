@@ -4,12 +4,32 @@ Phases are completed one at a time, in full. A phase is done when it typechecks,
 lints, has tests where the logic is non-trivial, and actually runs — not when
 the code exists.
 
-## Where things stand (2026-08-21)
+## Where things stand (2026-08-23)
 
 **Done:** Phases 0, 1, 2, **8**, plus **6 and 7 delivered early** on 2026-08-17
-and an unnumbered interlude that took the catalog to **100 actions** and rebuilt
-the window chrome and app resolution. Phase 4 is **half-built**: Claude and
-ChatGPT are real, local models are not.
+and an unnumbered interlude that took the catalog to **110 actions** and rebuilt
+the window chrome and app resolution.
+
+**Phase 4 was inverted, and has been corrected by subtraction (2026-08-23).**
+It shipped the cloud half and left local "Planned", which was backwards. Claude
+and ChatGPT are now deleted, along with Gemini/Local/Custom as advertised
+future rows — and with them the OpenAI-backed *online voice* path, which shared
+the ChatGPT key. **Cortex is the only provider Atlas will ever have**, it runs
+on loopback, and there is no API key anywhere in the product. Speaking and
+listening are Piper and whisper.cpp with no branch at all.
+
+**A polish pass landed the same day** (seven commits): deterministic small talk
+so "hi" is answered rather than explained away; the 110-action list rebuilt as a
+six-category capability browser; the Settings rail cut from ten pages to seven
+by deleting placeholders; Voice reduced to four controls and an Advanced
+disclosure (with a real volume control — the `GainNode` had been there since
+Phase 8 with nothing calling it); a denser Home screen built from the skills'
+own declared examples; and a light theme with a real surface ramp, which
+incidentally caught two WCAG AA misses in *dark*.
+
+⚠️ **The open cost:** Cortex v0.1 has no server, so an open-ended question gets
+an honest "I can't answer that from what's on this machine" rather than an
+answer. The seam is built and tested; the model behind it is not.
 
 **Next:** **Phase 11 — the desktop assistant** (Brandon, 2026-08-21): cover
 what people use PowerShell for, as ~40–60 narrow validated skills, with AI
@@ -72,7 +92,8 @@ the welcome screen shows five live suggested actions. Typed "system status"
 into the conversation input and got real CPU/memory/disk numbers back through
 `platform.rs` — the whole grammar → skill → Platform → machine path works.
 Settings opens and matches the documented Intelligence Providers hierarchy
-(Navigator Engine always-on, Local Models/Claude/Gemini all "Planned"). Closing
+(Navigator Engine always-on, Local Models/Claude/Gemini all "Planned" — that
+whole hierarchy was deleted on 2026-08-23; see Phase 4). Closing
 the window hides it rather than quitting — the process, tray icon, and global
 hotkey window all stay registered. `Ctrl+Space` is a real OS-level global
 hotkey (verified with a simulated hardware keypress, independent of focus) and
@@ -260,22 +281,30 @@ of bug can only be verified by a human looking at the screen).
   index*, and shipping one scoped to the six home folders would bake the
   current `%USERPROFILE%` limit in deeper.
 
-## Phase 4 — Intelligence providers 🟡 half-built
+## Phase 4 — Intelligence: Cortex, and only Cortex 🟡 seam built, model missing
 
-**Built:** Claude and ChatGPT register for real. A key saved in Settings →
-Developer goes through the same `Storage` port as everything else
-(`packages/data/src/provider-keys.ts`), and "Connected" reflects
-`isConfigured()` on the actually-registered provider rather than a static
-label. Supporting pieces: `intelligence-registry.ts`, `research.ts`,
-`intelligence.rs`, `web.rs`.
+**Resolved by subtraction (2026-08-23).** This phase was half-built in the
+wrong half: Claude and ChatGPT were real while local was "Planned", inverting
+the rule that *the private option should be the easy one*. Rather than adding
+Ollama alongside them, the cloud providers were deleted.
 
-**Not built, and it's the wrong half to be missing:** **Local models (Ollama)
-are still "Planned."** The plan was local first, *because the private option
-should be the easy one and the default recommendation* — shipping the cloud
-providers first inverted that. Closing this phase means making Ollama real.
+**Built:** one provider. `createCortexProvider` (`platform/src/providers.ts`)
+calls `ask_cortex` / `cortex_reachable` (`intelligence.rs`), which accept
+loopback only — host parsed, not substring-matched. Settings → Developer is
+now Settings → **Intelligence**: one switch, a live Running / Not running
+state, and an endpoint field that refuses anything off this machine. No key
+field, because there is nothing to authenticate to. `cortex-settings.ts`
+replaced `provider-keys.ts`; the API-key storage is gone entirely.
 
-**Also outstanding:** Gemini, and a generic provider contract for endpoints
-that don't exist yet (the Developer tab already documents the contract).
+**Guarded:** `no-other-cloud-ai.test.ts` reads every `.ts`/`.tsx`/`.rs` file
+in the repo and fails on a cloud hostname or a removed symbol. Confirmed to
+fail when a violation is introduced — a guard nobody has watched fail is not
+a guard.
+
+**Not built:** the thing on the other end. Cortex v0.1 is a character-level
+GPT with no HTTP server, so the switch reads *Not running*. Closing this phase
+means Cortex serving `POST /v1/ask` `{prompt}` → `{text}` and `GET /health`,
+and a model behind it that can actually answer.
 
 **Decision (Brandon, 2026-08-21): ordinary conversation waits for Cortex.**
 Saying "hello" to Atlas today gets a deterministic reply from `phrasing.ts`,
@@ -445,11 +474,21 @@ The network path lives in `voice_cloud.rs` alone, and the port exposes
 `synthesizeSpeechOnline` / `transcribeSpeechOnline` as separate methods rather
 than a flag, so a call site shows which one it is without following anything.
 
+⚠️ **Both methods, and `voice_cloud.rs` behind them, were deleted on
+2026-08-23.** They posted recordings and reply text to OpenAI and shared the
+ChatGPT API key, so "no OpenAI" could not be true while they stood. Voice is
+Piper and whisper.cpp with no branch: nothing said to or by Atlas leaves the
+machine, and that is now a property of the code rather than of a switch. The
+cost is the larger transcription model that coped better with accents and
+noise; the local one is what there is.
+
 ### Still open in this phase
 
 - **Weather** — deferred, and the one item on the original list that conflicts
   with local-first-by-default. If it ships, it's opt-in with the user's own
-  API key, disclosed in Settings → Privacy — never on by default.
+  API key — never on by default. ⚠️ It can no longer be "disclosed in Settings
+  → Privacy": that tab was a placeholder and was deleted on 2026-08-23. The
+  disclosure now belongs wherever the feature's own switch lives.
 - A "stop talking" skill, so speech can be cut from the conversation rather
   than only from Settings or by talking over it.
 - The voice screen's visualiser reads real amplitude but is a plain pair of
