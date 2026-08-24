@@ -35,11 +35,12 @@ import { Bus } from './bus';
 import { Grammar } from './planner/grammar';
 import { Executor } from './planner/executor';
 import { SkillRegistry } from './skills/registry';
-import { createPhrasing } from './phrasing';
+import { createPhrasing, type Phrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
 import { buildAugmentedPrompt, formatSourcesFooter, needsWebSearch, runSearch } from './research';
 import { refusalFor, screenRequest } from './safety/content-policy';
 import { normalizeRequest } from './text/normalize';
+import { readSmallTalk } from './text/smalltalk';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -85,6 +86,12 @@ export class Engine {
   private readonly intelligence?: IntelligenceRegistry;
   private readonly threshold: number;
   private readonly working: WorkingMemory;
+  /**
+   * Shared with the executor rather than built twice. Both of them speak as
+   * Atlas, so both have to agree about his name and tone — which is the whole
+   * reason `phrasing.ts` exists.
+   */
+  private readonly phrasing: Phrasing;
 
   constructor(options: EngineOptions) {
     this.skills = options.skills;
@@ -93,7 +100,8 @@ export class Engine {
     this.intelligence = options.intelligence;
     this.threshold = options.confidenceThreshold ?? 0.5;
     this.working = options.working ?? new WorkingMemory();
-    this.executor = new Executor(this.skills, createPhrasing(options.voice));
+    this.phrasing = createPhrasing(options.voice);
+    this.executor = new Executor(this.skills, this.phrasing);
   }
 
   async ask(text: string, io: EngineIO): Promise<AskOutcome> {
@@ -179,6 +187,25 @@ export class Engine {
     if (instruction && !this.intelligence?.active()) {
       io.say(this.unresolvedReply(understood));
       return { ok: false, mode: 'chat', error: 'unresolved' };
+    }
+
+    // 3c. Small talk — the last deterministic tier.
+    //
+    //     Placed here, and not earlier, on purpose: the grammar, the AI
+    //     planner and the unresolved-instruction reply have all had their
+    //     turn already, so nothing that could possibly be an action can be
+    //     intercepted by a greeting table. What is left is the set of
+    //     messages that are *only* sociable — and answering those never
+    //     needed a model, just a closed list. See `text/smalltalk.ts`.
+    //
+    //     Reads the raw text, not the tidied one: `readSmallTalk` does its
+    //     own filler-stripping as a second pass, and "hey" is a greeting that
+    //     `normalizeRequest` would quite reasonably treat as filler to remove.
+    const social = readSmallTalk(raw);
+    if (social) {
+      const reply = this.phrasing.smallTalk(social, this.skills.available().length);
+      io.say(reply);
+      return { ok: true, mode: 'chat', text: reply };
     }
 
     // 4. Conversation.
@@ -380,18 +407,36 @@ export class Engine {
   }
 
   /**
-   * What to say when a free-form question arrives with no provider connected.
+   * What to say when a free-form question arrives and there is no model to
+   * answer it with.
    *
    * Led by what works, not by what's missing. An external model is an optional
    * accessory here; opening with "I'm not connected" would imply the assistant
    * were broken, when in fact every action still runs and always did.
+   *
+   * The older version of this string opened with "That one needs an external
+   * model … (Settings → Developer)", which was accurate and still wrong: it
+   * was the reply to *anything* unmatched, so it is what someone got for
+   * saying hello. Greetings now stop at tier 3c and never reach here, and what
+   * is left is a genuine question — so the reply names the one thing that
+   * would actually answer it rather than a settings page.
    */
   private offlineReply(): string {
     const n = this.skills.available().length;
+    const searchSkill = this.skills.get('research.search');
+    const canSearch = searchSkill ? this.skills.isAvailable(searchSkill) : false;
+
+    if (canSearch) {
+      return (
+        `I can't answer that one from what's on this machine. I can look it up ` +
+        `though — say “search the web for …” and I'll go and find it. ` +
+        `Otherwise there are ${n} actions I can run; “what can you do?” shows them.`
+      );
+    }
     return (
-      `That one needs an external model, which is optional and off by default ` +
-      `(Settings → Developer). Everything else works: I can run ${n} ` +
-      `actions right now — say “what can you do?” to see them.`
+      `I can't answer that one — I work from what's on this machine rather ` +
+      `than from a model. There are ${n} actions I can run though; ` +
+      `“what can you do?” shows them.`
     );
   }
 }

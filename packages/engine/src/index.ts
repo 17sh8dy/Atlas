@@ -44,6 +44,7 @@ export {
 } from './text/fuzzy';
 export type { Match, MatchOptions } from './text/fuzzy';
 export { readAffirmation, type Affirmation } from './text/affirmation';
+export { readSmallTalk, type SmallTalkKind } from './text/smalltalk';
 export { stripFiller, splitBrowserHint, normalizeRequest } from './text/normalize';
 export { KNOWN_SITES, resolveSite, isKnownSiteName, exactSiteName } from './text/sites';
 export type { KnownSite } from './text/sites';
@@ -58,7 +59,7 @@ export {
 } from './safety/content-policy';
 export type { BlockReason, PolicyVerdict } from './safety/content-policy';
 
-export { createPhrasing } from './phrasing';
+export { createPhrasing, JOKES } from './phrasing';
 export type { Phrasing } from './phrasing';
 
 export { WorkingMemory } from './working-memory';

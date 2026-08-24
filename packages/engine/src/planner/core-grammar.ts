@@ -498,7 +498,17 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         if (
           /^\s*help\s*[?.!]*$/.test(lower) ||
           /\bwhat (?:can|do) you do\b/.test(lower) ||
-          /\bwhat are your (?:skills|capabilities|actions|commands)\b/.test(lower)
+          /\bwhat are your (?:skills|capabilities|actions|commands)\b/.test(lower) ||
+          // "What can you help me with?" is how most people actually ask, and
+          // it used to miss every branch above — falling through to
+          // conversation, where the answer was a note about API keys. It is
+          // the same question as "what can you do?", so it gets the same
+          // answer rather than a table entry of its own.
+          /\bwhat (?:can|could) you help (?:me )?with\b/.test(lower) ||
+          /\bwhat else can you do\b/.test(lower) ||
+          /\bwhat (?:can|could) i ask you\b/.test(lower) ||
+          /\bshow me what you can do\b/.test(lower) ||
+          /\blist (?:all )?(?:your|the) (?:skills|capabilities|actions|commands)\b/.test(lower)
         ) {
           return plan(step('engine.help', {}), 'help');
         }
@@ -722,11 +732,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         }
         // Opening the bin only. Emptying it is `system.emptyRecycleBin`, which
         // is still confirm-gated — that one does not come back.
-        if (
-          opening &&
-          /\brecycle bin\b/.test(lower) &&
-          !/\b(?:empty|clear|delete)\b/.test(lower)
-        ) {
+        if (opening && /\brecycle bin\b/.test(lower) && !/\b(?:empty|clear|delete)\b/.test(lower)) {
           return plan(step('system.openTool', { tool: 'recycle-bin' }), 'system-tool');
         }
         return null;

@@ -19,6 +19,7 @@ import type {
 } from '@atlas/core';
 import { Engine } from '../src/engine';
 import { readAffirmation } from '../src/text/affirmation';
+import { readSmallTalk } from '../src/text/smalltalk';
 import { exactSiteName } from '../src/text/sites';
 import { Grammar } from '../src/planner/grammar';
 import { SkillRegistry } from '../src/skills/registry';
@@ -33,7 +34,7 @@ import { createNetworkSkills } from '../src/skills/network-skills';
 import { createServiceSkills, resolveService } from '../src/skills/service-skills';
 import { createCoreGrammar } from '../src/planner/core-grammar';
 import { createExtraGrammar } from '../src/planner/extra-grammar';
-import { createPhrasing } from '../src/phrasing';
+import { createPhrasing, JOKES } from '../src/phrasing';
 import { WorkingMemory } from '../src/working-memory';
 import { recordEpisodes } from '../src/episodic';
 import { SimpleIntelligenceRegistry } from '../src/intelligence-registry';
@@ -100,7 +101,13 @@ const SERVICES = [
     running: true,
     protected: true,
   },
-  { name: 'wuauserv', display: 'Windows Update', state: 'STOPPED', running: false, protected: false },
+  {
+    name: 'wuauserv',
+    display: 'Windows Update',
+    state: 'STOPPED',
+    running: false,
+    protected: false,
+  },
   {
     name: 'WaaSMedicSvc',
     display: 'Windows Update Medic Service',
@@ -1295,8 +1302,11 @@ test('with no provider, a question leads with what still works', async () => {
   const h = harness();
   await h.engine.ask('what is the capital of Peru?', io(h));
   const said = h.said.join(' ');
-  assert.match(said, /optional and off by default/);
-  assert.match(said, /Everything else works/);
+  // Never opens on what is missing. It names the one route that would
+  // actually answer the question, and the actions that work regardless.
+  assert.notMatch(said, MODEL_EXCUSE);
+  assert.match(said, /can't answer that one/i);
+  assert.match(said, /search the web/i);
   assert.match(said, /\d+ actions/);
 });
 
@@ -2439,10 +2449,15 @@ test('errors: an unresolvable instruction asks, it does not blame a missing mode
   assert.match(said, /couldn't (?:work out|figure out)/i);
 });
 
-test('errors: a real question still gets the honest answer about providers', async () => {
+test('errors: a real question is answered honestly, without blaming a model', async () => {
   const h = harness();
   await h.engine.ask('what is the capital of Peru?', io(h));
-  assert.match(h.said.join(' '), MODEL_EXCUSE);
+  const said = h.said.join(' ');
+  // The reply Atlas cannot give is still a reply. What it must not be is an
+  // explanation of an unconfigured setting the user never asked about.
+  assert.notMatch(said, MODEL_EXCUSE);
+  assert.match(said, /can't answer that one/i);
+  assert.match(said, /search the web/i);
 });
 
 test('fuzzy: the matcher is shared, not app-specific', () => {
@@ -2536,7 +2551,10 @@ test('emptying the recycle bin is still not opening it', () => {
   const h = harness();
   // The word "recycle bin" appears in both, so the open rule has to decline
   // the destructive phrasing or it would quietly swallow it.
-  assert.equal(h.engine.grammar.parse('empty the recycle bin')?.steps[0].skill, 'system.emptyRecycleBin');
+  assert.equal(
+    h.engine.grammar.parse('empty the recycle bin')?.steps[0].skill,
+    'system.emptyRecycleBin',
+  );
 });
 
 test('a stuttered verb still opens the app', async () => {
@@ -3023,4 +3041,167 @@ test('a named file search keeps the name', () => {
   const parsed = h.engine.grammar.parse('find my tax pdf');
   assert.equal(parsed?.steps[0]?.args.query, 'tax');
   assert.equal(parsed?.steps[0]?.args.kind, 'document');
+});
+
+// ---- small talk -------------------------------------------------------------
+//
+// The tier that answers "hi". Its whole risk is that it might answer
+// something else too, so roughly half of these tests are about what it must
+// NOT claim.
+
+test('smalltalk: a greeting is greeted, not lectured about providers', async () => {
+  const h = harness();
+  await h.engine.ask('hi', io(h));
+  const said = h.said.join(' ');
+  assert.notMatch(said, MODEL_EXCUSE);
+  assert.match(said, /what can i do for you/i);
+});
+
+test('smalltalk: every social kind gets a real answer with no provider at all', async () => {
+  const cases: Array<[string, RegExp]> = [
+    ['hey', /what can i do for you/i],
+    ['how are you?', /all good here/i],
+    ['thanks', /any time/i],
+    ['bye', /see you/i],
+    ['who are you?', /assistant that runs entirely on this machine/i],
+    ['tell me a joke', /\S/],
+    ['nice one', /glad that helped/i],
+  ];
+  for (const [text, expected] of cases) {
+    const h = harness();
+    const outcome = await h.engine.ask(text, io(h));
+    const said = h.said.join(' ');
+    assert.equal(outcome.mode, 'chat', text);
+    assert.isTrue(outcome.ok, text);
+    assert.notMatch(said, MODEL_EXCUSE, text);
+    assert.match(said, expected, text);
+  }
+});
+
+test('smalltalk: a joke is one Atlas actually knows', async () => {
+  const h = harness();
+  await h.engine.ask('tell me a joke', io(h));
+  assert.include(JOKES, h.said[0]);
+});
+
+test('smalltalk: "how are you" survives a greeting in front of it', async () => {
+  const h = harness();
+  await h.engine.ask('hey, how are you?', io(h));
+  // Stripped down to the question rather than answered as the "hey" it opens
+  // with — the second-pass rule `readAffirmation` follows too.
+  assert.match(h.said.join(' '), /all good here/i);
+});
+
+test('smalltalk: identity reports the real number of actions', async () => {
+  const h = harness();
+  await h.engine.ask('who are you?', io(h));
+  assert.include(h.said.join(' '), String(h.engine.skills.available().length));
+});
+
+test('smalltalk: it speaks as whoever Personalization says it is', () => {
+  const p = createPhrasing({ atlasName: 'Nova', userName: 'Sam' });
+  assert.match(p.smallTalk('greeting', 10), /Sam/);
+  assert.match(p.smallTalk('identity', 10), /Nova/);
+});
+
+test('smalltalk: replies vary rather than repeating one line forever', () => {
+  const p = createPhrasing();
+  const three = [
+    p.smallTalk('greeting', 5),
+    p.smallTalk('greeting', 5),
+    p.smallTalk('greeting', 5),
+  ];
+  assert.equal(new Set(three).size, 3);
+  // ...but a fresh Phrasing always opens the same way, so this is testable.
+  assert.equal(createPhrasing().smallTalk('greeting', 5), three[0]);
+});
+
+// --- the guard rail: small talk must never eat an instruction ----------------
+
+test('smalltalk: a greeting in front of a command still runs the command', async () => {
+  const h = harness();
+  await h.engine.ask('hey, open steam', io(h));
+  // The greeting came off in `normalizeRequest` and the grammar matched on
+  // the retry, exactly as it did before this tier existed. Lowercase because
+  // that is the text the second parse attempt is handed.
+  assert.deepEqual(h.journal.launched, ['steam']);
+  assert.notMatch(h.said.join(' '), /what can i do for you/i);
+});
+
+test('smalltalk: a courtesy wrapped around a command is not a social message', () => {
+  // The classifier is what stands between "thanks" the whole utterance and
+  // "thanks" the word someone happened to end an instruction with.
+  assert.equal(readSmallTalk('thanks'), 'thanks');
+  assert.isNull(readSmallTalk('open steam thanks'));
+  assert.isNull(readSmallTalk('hey open steam'));
+  assert.isNull(readSmallTalk('say good night to the dog'));
+});
+
+test('smalltalk: only a whole utterance counts', () => {
+  // Each of these contains a social word and is not a social message.
+  for (const text of [
+    'hide the window',
+    'open my notes',
+    'thanks folder',
+    'find the file called hello',
+    'search the web for how are you',
+    'remind me to say good night',
+  ]) {
+    assert.isNull(readSmallTalk(text), text);
+  }
+});
+
+test('smalltalk: the classifier reads the kinds it claims to', () => {
+  assert.equal(readSmallTalk('Hey!'), 'greeting');
+  assert.equal(readSmallTalk("how's it going"), 'howAreYou');
+  assert.equal(readSmallTalk('hows it going'), 'howAreYou');
+  assert.equal(readSmallTalk('Thank you so much!'), 'thanks');
+  assert.equal(readSmallTalk('good night'), 'goodbye');
+  assert.equal(readSmallTalk('what are you?'), 'identity');
+  assert.equal(readSmallTalk('can you tell me a joke'), 'joke');
+  assert.equal(readSmallTalk('nonsense here'), null);
+});
+
+test('smalltalk: a real question is still a question, not small talk', async () => {
+  // The tier sits after triage, so a genuine question falls past it into
+  // conversation exactly as before.
+  assert.isNull(readSmallTalk('what is the capital of France?'));
+  const h = harness();
+  const outcome = await h.engine.ask('what is the capital of France?', io(h));
+  assert.equal(outcome.error, 'not-configured');
+});
+
+test('smalltalk: a failed command reports the failure, it does not chat', async () => {
+  const h = harness();
+  const outcome = await h.engine.ask('open zzzqqq', io(h));
+  // Still a command, still an honest error about the app — the social tier
+  // sits behind the executor and never gets a look at this.
+  assert.equal(outcome.mode, 'command');
+  assert.match(h.said.join(' '), /couldn't figure out which app/i);
+  assert.notMatch(h.said.join(' '), /what can i do for you|any time/i);
+});
+
+// ---- "what can you help me with" -------------------------------------------
+
+test('help: the ways people actually ask all reach engine.help', () => {
+  const h = harness();
+  for (const text of [
+    'what can you do?',
+    'what can you help me with?',
+    'what can you help with?',
+    'what else can you do?',
+    'what can i ask you?',
+    'show me what you can do',
+    'list your capabilities',
+    'help',
+  ]) {
+    assert.equal(h.engine.grammar.parse(text)?.steps[0]?.skill, 'engine.help', text);
+  }
+});
+
+test('help: it lists real skills, and small talk never intercepts it', async () => {
+  const h = harness();
+  await h.engine.ask('what can you help me with?', io(h));
+  assert.isAbove(h.rows.length, 0);
+  assert.notMatch(h.said.join(' '), /what can i do for you/i);
 });
