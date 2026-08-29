@@ -37,6 +37,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
@@ -109,8 +110,23 @@ fn engine_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
+/// The voice model, named once.
+///
+/// `engine_dir` finds the executable; this is the other half, and synthesis
+/// needs both. Kept as a constant because `available` and `synthesize` have to
+/// agree about it — a check for one file and a load of another is how a
+/// capability comes to report true and then fail.
+const MODEL: &str = "en_GB-vctk-medium.onnx";
+
+/// True when this engine can actually speak.
+///
+/// Both pieces, not just the executable. `piper.exe` without its model is a
+/// program that starts and then exits with "the voice model is missing", so
+/// treating the exe alone as "installed" advertised a capability that could
+/// only fail — and, through `speech_voices`, eight voices that could only
+/// fail with it.
 pub fn available(app: &tauri::AppHandle) -> bool {
-    engine_dir(app).is_some()
+    engine_dir(app).is_some_and(|dir| dir.join(MODEL).exists())
 }
 
 pub fn voices() -> Vec<SpeechVoice> {
@@ -123,6 +139,64 @@ pub fn voices() -> Vec<SpeechVoice> {
             region: (*region).to_string(),
         })
         .collect()
+}
+
+/// A scratch file that deletes itself.
+///
+/// ## Why this is not one fixed path
+///
+/// It used to be `%TEMP%\atlas-speech.wav` — one name, reused by every call.
+/// Piper writes its output to a path rather than to stdout, so that name was
+/// shared mutable state between concurrent synthesis runs, and nothing
+/// serialised them: `synthesize_speech` hands each call to `spawn_blocking`,
+/// and the renderer's `cancelled` flag is a JavaScript-side flag that does not
+/// reach a process already running. Auditioning voices — clicking Preview
+/// twice in quick succession, which the voice settings page is *designed* to
+/// invite — put two `piper.exe` processes on one file, with two ways to lose:
+///
+/// - the second run's audio was read by the first, so Preview demonstrated the
+///   wrong voice, which is the one thing that button must never do;
+/// - the first run deleted the file the second was about to read, so a preview
+///   that had actually synthesised correctly reported "produced nothing".
+///
+/// A unique name per call removes the sharing rather than guarding it. A lock
+/// would also have worked and was rejected: it would make the second preview
+/// wait for the first to finish speaking, when the point of clicking it is
+/// that you have heard enough of the first.
+///
+/// ## Why a guard type rather than a delete at the end
+///
+/// The old code deleted the file after reading it, which is the one path that
+/// leaks the least. Every early return — a spawn failure, a non-zero exit, a
+/// read error — left the user's words in the temp directory. `Drop` runs on
+/// all of those, so cleanup is no longer something a future edit can forget.
+struct TempWav(PathBuf);
+
+impl TempWav {
+    /// A name no concurrent call can also pick.
+    ///
+    /// The process id separates two Atlas instances; the counter separates two
+    /// calls within one. Both are needed: the counter alone repeats across a
+    /// restart, and the pid alone repeats within a session.
+    fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let name = format!("atlas-speech-{}-{n}.wav", std::process::id());
+        Self(std::env::temp_dir().join(name))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempWav {
+    fn drop(&mut self) {
+        // Best effort by design. A file that cannot be removed is not worth
+        // failing a synthesis that already succeeded, and on Windows it means
+        // something else has it open — which will not be true a moment later.
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 /// Synthesise `text` and return the WAV bytes.
@@ -145,7 +219,7 @@ pub fn synthesize(
 
     let dir = engine_dir(app).ok_or("The speech engine isn't installed.")?;
     let exe = dir.join("piper").join("piper.exe");
-    let model = dir.join("en_GB-vctk-medium.onnx");
+    let model = dir.join(MODEL);
     if !model.exists() {
         return Err("The voice model is missing.".into());
     }
@@ -155,8 +229,9 @@ pub fn synthesize(
     // slow, never silence or a crash.
     let length_scale = pace.unwrap_or(1.06).clamp(0.6, 2.0);
 
-    let out = std::env::temp_dir().join("atlas-speech.wav");
-    let _ = fs::remove_file(&out);
+    // Unique per call, and removed when this binding goes out of scope — on
+    // the error paths below just as much as on the way out with audio.
+    let out = TempWav::new();
 
     let mut command = Command::new(&exe);
     // Without this, every single utterance flashes a console window on screen.
@@ -179,7 +254,7 @@ pub fn synthesize(
         .arg("--length_scale")
         .arg(format!("{length_scale}"))
         .arg("--output_file")
-        .arg(&out)
+        .arg(out.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         // Captured, not discarded. Piper reports a missing model, a bad
@@ -208,7 +283,7 @@ pub fn synthesize(
     let finished = child
         .wait_with_output()
         .map_err(|e| format!("The speech engine didn't finish: {e}"))?;
-    if !finished.status.success() || !out.exists() {
+    if !finished.status.success() || !out.path().exists() {
         let detail = String::from_utf8_lossy(&finished.stderr);
         // Piper logs progress to stderr even on success, so only the tail is
         // useful and only when something actually went wrong.
@@ -220,11 +295,11 @@ pub fn synthesize(
         });
     }
 
-    let bytes = fs::read(&out).map_err(|e| format!("Couldn't read the audio: {e}"))?;
     // The temp file has done its job the moment it is in memory. Piper writes
     // to a path rather than stdout, so the file is a step on the way, not
-    // something to leave lying around with the user's words in it.
-    let _ = fs::remove_file(&out);
+    // something to leave lying around with the user's words in it — `out`
+    // removes it as it drops, whichever way this function returns.
+    let bytes = fs::read(out.path()).map_err(|e| format!("Couldn't read the audio: {e}"))?;
     Ok(bytes)
 }
 
@@ -247,11 +322,19 @@ pub fn synthesize(
 /// as one.
 #[tauri::command]
 pub fn speech_voices(app: tauri::AppHandle) -> Vec<SpeechVoice> {
-    let mut all = Vec::new();
-    if crate::kokoro::available(&app) {
-        all.extend(crate::kokoro::voices());
+    // `kokoro::voices` is empty when the refined engine is absent *and* when
+    // only some of its voice files were fetched — it reports what can actually
+    // be spoken, one voice at a time, so there is no separate gate here.
+    let mut all = crate::kokoro::voices(&app);
+    // Piper needs a gate, because its own list is a fixed table of speakers
+    // inside one model: either all eight can be spoken or none can. Without
+    // this the table was returned unconditionally, so a build missing the
+    // engine still offered eight voices — the same lie the refined side used
+    // to tell, and the reason `Voice.tsx`'s "no speech engine" branch could
+    // never actually appear.
+    if available(&app) {
+        all.extend(voices());
     }
-    all.extend(voices());
     all
 }
 
@@ -290,7 +373,11 @@ pub async fn synthesize_speech(
             .as_deref()
             .is_some_and(|id| id.starts_with(REFINED_PREFIX));
 
-        if refined && crate::kokoro::available(&app) {
+        // `can_speak` rather than `available`, so that a refined id whose own
+        // voice file was never fetched takes the piper fallback below instead
+        // of erroring — which is what this function's doc comment has always
+        // promised, and what `available` was too coarse to deliver.
+        if refined && crate::kokoro::can_speak(&app, voice_id.as_deref()) {
             crate::kokoro::synthesize(&app, &text, voice_id, pace)
         } else {
             // Piper has no idea what a refined id means, and would silently
@@ -308,3 +395,65 @@ pub async fn synthesize_speech(
 /// How a refined voice id is recognised. The one place the two engines' id
 /// spaces meet, and the reason they can never collide.
 pub const REFINED_PREFIX: &str = "kokoro-";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_voice_maps_to_a_speaker_and_the_default_is_one_of_them() {
+        // The ids are the public contract: they are what settings hold on
+        // disk, so a rename here silently retargets someone's saved voice.
+        let ids: Vec<&str> = VOICES.iter().map(|(id, ..)| *id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "male-surrey",
+                "male-london",
+                "male-birmingham",
+                "male-yorkshire",
+                "male-newcastle",
+                "female-southern",
+                "female-manchester",
+                "female-oxford",
+            ]
+        );
+        assert!(VOICES.iter().any(|(id, ..)| *id == DEFAULT_VOICE));
+        // An unknown id falls back to the default rather than to silence —
+        // including a refined id, which reaches here only as `None` but must
+        // not become speaker 0 if that ever changes.
+        assert_eq!(speaker_for("no-such-voice"), speaker_for(DEFAULT_VOICE));
+    }
+
+    #[test]
+    fn two_synthesis_runs_never_share_a_scratch_file() {
+        // The race this fixes: one fixed name meant a second piper process
+        // overwrote — or deleted — the audio the first was about to read.
+        let a = TempWav::new();
+        let b = TempWav::new();
+        assert_ne!(a.path(), b.path(), "concurrent runs must not share a path");
+
+        // Both live in the temp directory and are recognisably ours, so a
+        // stray file can be traced back to Atlas.
+        for wav in [&a, &b] {
+            assert!(wav.path().starts_with(std::env::temp_dir()));
+            let name = wav.path().file_name().unwrap().to_string_lossy().to_string();
+            assert!(name.starts_with("atlas-speech-"), "unexpected name {name}");
+            assert!(name.ends_with(".wav"), "unexpected name {name}");
+        }
+    }
+
+    #[test]
+    fn the_scratch_file_is_removed_even_when_synthesis_fails() {
+        // Drop, not a delete at the end of the happy path: every early return
+        // in `synthesize` used to leak the user's words into the temp
+        // directory.
+        let path = {
+            let wav = TempWav::new();
+            fs::write(wav.path(), b"RIFF").expect("write the scratch file");
+            assert!(wav.path().exists());
+            wav.path().to_path_buf()
+        };
+        assert!(!path.exists(), "the scratch file should be gone with the guard");
+    }
+}

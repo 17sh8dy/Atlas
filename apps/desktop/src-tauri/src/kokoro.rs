@@ -170,9 +170,23 @@ fn voice_file(voice_id: &str) -> &'static str {
         .unwrap_or("bm_george")
 }
 
-pub fn voices() -> Vec<SpeechVoice> {
+/// Is this voice's style table actually on disk?
+///
+/// One `.bin` per voice, fetched separately from the model, so "the engine is
+/// installed" and "this voice is installed" are genuinely different questions.
+fn voice_installed(dir: &Path, file: &str) -> bool {
+    dir.join("voices").join(format!("{file}.bin")).exists()
+}
+
+/// The voices in `dir` that can actually be spoken.
+///
+/// Split out from [`voices`] so it can be tested against a directory rather
+/// than against whatever happens to be installed on the machine running the
+/// tests.
+fn voices_in(dir: &Path) -> Vec<SpeechVoice> {
     VOICES
         .iter()
+        .filter(|(.., file)| voice_installed(dir, file))
         .map(|(id, label, group, note, _)| SpeechVoice {
             id: (*id).to_string(),
             label: (*label).to_string(),
@@ -180,6 +194,37 @@ pub fn voices() -> Vec<SpeechVoice> {
             region: (*note).to_string(),
         })
         .collect()
+}
+
+/// Every refined voice this machine can actually produce.
+///
+/// ## Why this is filtered per voice rather than all-or-nothing
+///
+/// It used to return the whole table whenever [`available`] was true, and
+/// `available` is satisfied by *any one* voice file being present. So a
+/// half-finished download — the model and one `.bin` — listed all four, and
+/// three of them were rows that could only ever produce an error, because
+/// `styles_for` fails outright on a missing file rather than substituting
+/// another voice. That is exactly the failure the comment on `available` says
+/// this design exists to prevent: an option that cannot make a sound is worse
+/// than no option at all, because the person choosing it has no way to tell a
+/// missing file from a broken app.
+///
+/// Returning an empty list when nothing is installed is the same answer
+/// `speech_voices` already expects from a build without the model at all.
+pub fn voices(app: &tauri::AppHandle) -> Vec<SpeechVoice> {
+    // The engine's own pieces first: without these no voice is speakable, so
+    // listing any of them would be the same lie in a different place.
+    if espeak_dir(app).is_none() {
+        return Vec::new();
+    }
+    let Some(dir) = engine_dir(app) else {
+        return Vec::new();
+    };
+    if !dir.join("onnxruntime.dll").exists() {
+        return Vec::new();
+    }
+    voices_in(&dir)
 }
 
 // ---- where the files live ---------------------------------------------------
@@ -260,12 +305,19 @@ fn plain_path(path: &Path) -> String {
     text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
 }
 
-/// True when every piece this engine needs is present.
+/// True when this engine can speak in *something*.
 ///
 /// Checked rather than assumed because the model is a 90 MB download that a
 /// developer clone will not have until `pnpm speech` has been run, and a
 /// capability that lies about being there produces a mystery at synthesis
 /// time instead of a clear absence in Settings.
+///
+/// Deliberately "any voice", not "all four": this answers whether the refined
+/// engine exists on this machine, which is what `kokoro_status` reports and
+/// what `kokoro_warm` needs to know. *Which* voices it can speak is
+/// [`voices`], and routing a specific id is [`can_speak`] — the two questions
+/// were once the same function, and conflating them is what let a single
+/// installed `.bin` advertise four voices.
 pub fn available(app: &tauri::AppHandle) -> bool {
     let Some(dir) = engine_dir(app) else {
         return false;
@@ -276,9 +328,32 @@ pub fn available(app: &tauri::AppHandle) -> bool {
     if !dir.join("onnxruntime.dll").exists() {
         return false;
     }
-    VOICES
-        .iter()
-        .any(|(.., file)| dir.join("voices").join(format!("{file}.bin")).exists())
+    VOICES.iter().any(|(.., file)| voice_installed(&dir, file))
+}
+
+/// True when this engine can speak in *this* voice.
+///
+/// The routing question, and the reason it is not just `available`: the
+/// fallback in `synthesize_speech` promises that a refined id whose asset is
+/// missing falls back to piper rather than failing. `available` could not keep
+/// that promise voice by voice, so a saved preference for a voice whose `.bin`
+/// had not been fetched hit a hard error while a *different* refined voice sat
+/// installed next to it.
+///
+/// Unknown ids resolve through [`voice_file`] exactly as `Engine::speak` does,
+/// so an id this table has never heard of still behaves as it always did —
+/// it becomes the default voice, and is speakable when that voice's file is.
+pub fn can_speak(app: &tauri::AppHandle, voice_id: Option<&str>) -> bool {
+    if espeak_dir(app).is_none() {
+        return false;
+    }
+    let Some(dir) = engine_dir(app) else {
+        return false;
+    };
+    if !dir.join("onnxruntime.dll").exists() {
+        return false;
+    }
+    voice_installed(&dir, voice_file(voice_id.unwrap_or(DEFAULT_VOICE)))
 }
 
 // ---- espeak ----------------------------------------------------------------
@@ -951,8 +1026,8 @@ pub fn kokoro_status(app: tauri::AppHandle) -> KokoroStatus {
 }
 
 #[tauri::command]
-pub fn kokoro_voices() -> Vec<SpeechVoice> {
-    voices()
+pub fn kokoro_voices(app: tauri::AppHandle) -> Vec<SpeechVoice> {
+    voices(&app)
 }
 
 /// Load the model without saying anything.
@@ -987,6 +1062,7 @@ pub fn kokoro_unload() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::MutexGuard;
 
     #[test]
     fn wav_header_describes_the_samples_it_carries() {
@@ -1029,6 +1105,55 @@ mod tests {
         assert_eq!(voice_file("no-such-voice"), voice_file(DEFAULT_VOICE));
     }
 
+    /// A voices directory holding exactly `files`, in a directory of its own.
+    fn voices_dir(name: &str, files: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("atlas-kokoro-test-{name}"));
+        let voices = dir.join("voices");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&voices).expect("create the test voices directory");
+        for file in files {
+            std::fs::write(voices.join(format!("{file}.bin")), b"").expect("write a voice file");
+        }
+        dir
+    }
+
+    #[test]
+    fn only_voices_whose_file_exists_are_listed() {
+        // The half-finished download that started this: the model is there and
+        // so is one voice, which used to be enough to advertise all four.
+        let dir = voices_dir("partial", &["bm_george"]);
+
+        let listed = voices_in(&dir);
+        assert_eq!(listed.len(), 1, "one file on disk should list one voice");
+        assert_eq!(listed[0].id, "kokoro-george");
+
+        // And the three that are missing must not be selectable, because
+        // `styles_for` can only fail on them.
+        for id in ["kokoro-fable", "kokoro-daniel", "kokoro-lewis"] {
+            assert!(!listed.iter().any(|v| v.id == id), "{id} should not be listed");
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_full_install_lists_every_voice_and_an_empty_one_lists_none() {
+        // The ids are the public contract — settings on disk hold them — so
+        // this pins the whole set, not just the count.
+        let all: Vec<&str> = VOICES.iter().map(|(.., file)| *file).collect();
+        let dir = voices_dir("full", &all);
+        let listed = voices_in(&dir);
+        assert_eq!(listed.len(), VOICES.len());
+        for (id, ..) in VOICES {
+            assert!(listed.iter().any(|v| v.id == *id), "{id} should be listed");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let empty = voices_dir("empty", &[]);
+        assert!(voices_in(&empty).is_empty(), "no files means no voices");
+        let _ = std::fs::remove_dir_all(&empty);
+    }
+
     #[test]
     fn punctuation_the_model_knows_survives_and_the_rest_does_not() {
         let vocab = vocabulary();
@@ -1043,18 +1168,42 @@ mod tests {
         assert_eq!(punctuation_token('–'), Some('—'));
     }
 
+    /// Serialises every test that builds a real `Engine`.
+    ///
+    /// ⚠️ Not a nicety. espeak is initialised process-globally by
+    /// `Engine::load`, and the production path is single-threaded through
+    /// `ENGINE`'s mutex — which these tests bypass by constructing `Engine`
+    /// directly. Cargo runs tests on one thread each, so four of them loading
+    /// at once re-entered espeak's initialiser concurrently and it overran its
+    /// own voice table: `N_VOICES_LIST = 350 - 1 reached`, then a heap
+    /// corruption or an access violation that took the whole test binary down
+    /// and reported as a failure in whichever test happened to be running.
+    ///
+    /// The engine itself was never at fault, which is exactly what made it
+    /// expensive: the crash looked like a synthesis bug and was a fixture bug.
+    static ESPEAK: Mutex<()> = Mutex::new(());
+
     /// The engine, built straight out of the development vendor directory.
     ///
     /// Returns `None` when the model has not been fetched, so a clone that has
     /// not run `pnpm speech` skips these rather than failing.
-    fn dev_engine() -> Option<Engine> {
+    ///
+    /// The returned guard is what keeps the loads apart, so callers must hold
+    /// it for as long as they use the engine — binding it to `_guard` rather
+    /// than `_`, which would drop it immediately and restore the race.
+    fn dev_engine() -> Option<(MutexGuard<'static, ()>, Engine)> {
+        // Taken before the load, and recovered from a poisoned lock: one test
+        // panicking inside the guard must not cascade into every other test
+        // failing to acquire it.
+        let guard = ESPEAK.lock().unwrap_or_else(|e| e.into_inner());
+
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor");
         let kokoro = root.join("kokoro");
         let espeak = root.join("piper").join("piper");
         if !kokoro.join("kokoro.onnx").exists() || !espeak.join("espeak-ng.dll").exists() {
             return None;
         }
-        Some(Engine::load(kokoro, espeak).expect("the engine should load"))
+        Some((guard, Engine::load(kokoro, espeak).expect("the engine should load")))
     }
 
     /// ⚠️ Runs the real model. Ignored by default because it loads 90 MB of
@@ -1067,7 +1216,7 @@ mod tests {
     #[test]
     #[ignore = "loads the real model"]
     fn the_real_model_turns_a_sentence_into_audible_speech() {
-        let Some(mut engine) = dev_engine() else {
+        let Some((_guard, mut engine)) = dev_engine() else {
             eprintln!("skipped: run `pnpm --filter @atlas/desktop speech` first");
             return;
         };
@@ -1114,7 +1263,7 @@ mod tests {
     fn synthesis_is_comfortably_faster_than_speech() {
         use std::time::Instant;
 
-        let Some(mut engine) = dev_engine() else {
+        let Some((_guard, mut engine)) = dev_engine() else {
             eprintln!("skipped: run `pnpm --filter @atlas/desktop speech` first");
             return;
         };
@@ -1152,7 +1301,7 @@ mod tests {
     #[test]
     #[ignore = "loads the real model"]
     fn each_voice_produces_its_own_audio() {
-        let Some(mut engine) = dev_engine() else {
+        let Some((_guard, mut engine)) = dev_engine() else {
             eprintln!("skipped: run `pnpm --filter @atlas/desktop speech` first");
             return;
         };
@@ -1174,7 +1323,7 @@ mod tests {
     #[test]
     #[ignore = "loads the real model"]
     fn a_higher_pace_number_makes_a_longer_recording() {
-        let Some(mut engine) = dev_engine() else {
+        let Some((_guard, mut engine)) = dev_engine() else {
             eprintln!("skipped: run `pnpm --filter @atlas/desktop speech` first");
             return;
         };

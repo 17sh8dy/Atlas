@@ -34,6 +34,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Icons, Surface, Switch, cn } from '@atlas/ui';
+import { DEFAULT_SPEECH } from '@atlas/core';
 import type { ListeningPreferences, SpeechPreferences, SpeechVoice } from '@atlas/core';
 
 interface Props {
@@ -89,6 +90,35 @@ export function Voice({
     { key: 'male' as const, title: 'British male', note: '' },
     { key: 'female' as const, title: 'British female', note: '' },
   ];
+
+  /**
+   * Which row to show as chosen, when the saved voice is not one that can be
+   * spoken on this machine.
+   *
+   * A preference outlives the files it names: the refined voices are a
+   * separate download, so a saved `kokoro-` id is perfectly normal on a
+   * machine where that model has been removed or was never fetched. The
+   * engine already handles this — an id it cannot speak falls back to the
+   * piper default rather than failing — but the picker did not, and rendered
+   * a list with *nothing* selected while Atlas talked away in a voice the
+   * page never named. No selection reads as "no voice", which is the one
+   * thing that is not happening.
+   *
+   * ⚠️ This mirrors the engine's fallback and must keep mirroring it: for any
+   * id it cannot speak, `synthesize_speech` ends up at piper's `DEFAULT_VOICE`
+   * — which is what `DEFAULT_SPEECH.voiceId` holds. Deliberately *not*
+   * `voices[0]`: that is the first refined voice whenever the refined model is
+   * installed, so it would point at a voice the engine is not using and make
+   * the picker wrong in a new way rather than an old one.
+   *
+   * Display only. Storage is left exactly as it is, so re-fetching the model
+   * with `pnpm voices` brings the original choice back rather than finding it
+   * quietly overwritten with a substitute.
+   */
+  const speakable = voices.some((v) => v.id === preferences.voiceId);
+  const effectiveVoiceId = speakable
+    ? preferences.voiceId
+    : (voices.find((v) => v.id === DEFAULT_SPEECH.voiceId)?.id ?? voices[0]?.id);
 
   return (
     <div className="flex flex-col gap-6">
@@ -146,7 +176,7 @@ export function Voice({
                             )}
                           </div>
                           {inGroup.map((voice) => {
-                            const selected = voice.id === preferences.voiceId;
+                            const selected = voice.id === effectiveVoiceId;
                             const playing = previewing === voice.id;
                             return (
                               <div key={voice.id} className="flex items-center gap-2 px-3 py-1.5">
