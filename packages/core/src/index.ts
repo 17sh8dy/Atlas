@@ -17,6 +17,7 @@ export * from './models/skill';
 export * from './models/plan';
 export * from './models/memory';
 export * from './models/voice';
+export * from './models/personalization';
 export * from './models/speech';
 export * from './models/segment';
 export * from './models/listening';
