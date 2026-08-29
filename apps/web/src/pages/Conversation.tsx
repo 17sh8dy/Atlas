@@ -17,6 +17,7 @@ import type { SkillRegistry } from '@atlas/engine';
 import { Icons } from '@atlas/ui';
 import { Composer } from '../components/Composer';
 import { Transcript } from '../components/Transcript';
+import { HomeBackdrop } from '../effects/HomeBackdrop';
 import type { Entry } from '../atlas/useAtlas';
 
 interface Props {
@@ -211,46 +212,56 @@ function EmptyState({
   })).filter((g) => g.items.length > 0);
 
   return (
-    <div className="my-auto flex w-full flex-col items-center px-6 py-8">
-      <div className="accent-surface text-primary-foreground mb-3 grid h-10 w-10 place-items-center rounded-xl">
-        <Icons.Compass className="h-5 w-5" />
-      </div>
+    <div className="relative my-auto flex w-full flex-col items-center px-6 py-8">
+      {/*
+        Behind everything below it, and unable to come forward: the backdrop is
+        `z-0` and every child here sits in the `relative z-10` stack that
+        follows. See `HomeBackdrop` for why it is this restrained, and for the
+        three conditions under which it does not render at all.
+      */}
+      <HomeBackdrop />
 
-      <h1 className="text-foreground text-base font-semibold tracking-tight">{atlasName}</h1>
-      {personalized && (
-        <p className="text-foreground mt-1 max-w-md text-center text-sm leading-relaxed">
-          {greeting}
-        </p>
-      )}
-      <p className="text-foreground-subtle mt-1 max-w-md text-center text-xs leading-relaxed">
-        {skills.available().length} actions, all on this machine. No account, no key.
-      </p>
-
-      {groups.length > 0 && (
-        <div className="mt-7 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {groups.map((group) => (
-            <div key={group.category} className="atlas-glass min-w-0 rounded-xl p-3">
-              <p className="text-foreground-subtle mb-1.5 px-1.5 text-[10px] font-medium uppercase tracking-wide">
-                {group.category}
-              </p>
-              <div className="flex flex-col gap-0.5">
-                {group.items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onAsk(item.text)}
-                    title={item.text}
-                    className="text-foreground-muted hover:bg-surface-raised hover:text-foreground duration-fast flex items-center gap-2.5 rounded-lg px-1.5 py-2 text-left text-[15px] transition"
-                  >
-                    <span className="shrink-0 text-sm leading-none">{item.icon}</span>
-                    <span className="min-w-0 truncate">{item.text}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+      <div className="relative z-10 flex w-full flex-col items-center">
+        <div className="accent-surface text-primary-foreground mb-3 grid h-10 w-10 place-items-center rounded-xl">
+          <Icons.Compass className="h-5 w-5" />
         </div>
-      )}
+
+        <h1 className="text-foreground text-base font-semibold tracking-tight">{atlasName}</h1>
+        {personalized && (
+          <p className="text-foreground mt-1 max-w-md text-center text-sm leading-relaxed">
+            {greeting}
+          </p>
+        )}
+        <p className="text-foreground-subtle mt-1 max-w-md text-center text-xs leading-relaxed">
+          {skills.available().length} actions, all on this machine. No account, no key.
+        </p>
+
+        {groups.length > 0 && (
+          <div className="mt-7 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {groups.map((group) => (
+              <div key={group.category} className="atlas-glass min-w-0 rounded-xl p-3">
+                <p className="text-foreground-subtle mb-1.5 px-1.5 text-[10px] font-medium uppercase tracking-wide">
+                  {group.category}
+                </p>
+                <div className="flex flex-col gap-0.5">
+                  {group.items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onAsk(item.text)}
+                      title={item.text}
+                      className="text-foreground-muted hover:bg-surface-raised hover:text-foreground duration-fast flex items-center gap-2.5 rounded-lg px-1.5 py-2 text-left text-[15px] transition"
+                    >
+                      <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+                      <span className="min-w-0 truncate">{item.text}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
