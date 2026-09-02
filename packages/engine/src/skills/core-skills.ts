@@ -32,6 +32,7 @@ import type { AppEntry, KnownFolder, Memory, Platform, ResultRow, Skill } from '
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { rankMatches, nearMatches, RANK } from '../text/fuzzy';
 import { resolveSite, exactSiteName } from '../text/sites';
+import { attemptGoal } from '../planner/attempts';
 import { evaluateExpression } from './math';
 import { convertUnit } from './units';
 import type { SkillRegistry } from './registry';
@@ -829,78 +830,124 @@ export function createCoreSkills(
       const apps = await platform.listApps!();
       const { wanted, matches } = resolveAppName(apps, String(args.name).trim());
 
-      if (matches.length) {
-        const best = matches[0]!;
-        // A confident match launches. A typo-tolerant one is a guess, so when
-        // there is more than one of those, the user picks rather than Atlas.
-        const ambiguous = best.rank >= 4 && matches.length > 1;
+      // Three relevant, ordered ways to satisfy "open <name>" — each one a
+      // real, causally-connected strategy for *this* request, never a random
+      // action taken because attempts remain. See `planner/attempts.ts`.
+      const { result, final } = await attemptGoal<unknown>([
+        {
+          // A confident match launches. A typo-tolerant one is a guess, so
+          // when there is more than one of those, the user picks rather than
+          // Atlas — which is why this reports "not final" when ambiguous,
+          // letting the ladder fall through to the "did you mean" step below
+          // rather than trying something else that could also just guess.
+          id: 'installed-app',
+          async run() {
+            if (!matches.length) return { result: { ok: false, error: 'no installed app matched' } };
+            const best = matches[0]!;
+            const ambiguous = best.rank >= 4 && matches.length > 1;
 
-        // One exception to "installed applications win", and it is narrow.
-        // "open google" found Google Docs — a different product whose name
-        // merely begins with the word — while the thing actually called
-        // Google is a website. A partial match against a longer application
-        // name is a weaker claim than a site named precisely what was said.
-        // An *exact* application match still wins, so "open steam" is
-        // untouched.
-        const site = best.rank > RANK.exact ? exactSiteName(wanted) : null;
-        if (site && platform.openUrl) {
-          const ok = await platform.openUrl(site.url);
-          if (ok) return { ok: true, message: phrasing.opening(site.name) };
-        }
+            // One exception to "installed applications win", and it is
+            // narrow. "open google" found Google Docs — a different product
+            // whose name merely begins with the word — while the thing
+            // actually called Google is a website. A partial match against a
+            // longer application name is a weaker claim than a site named
+            // precisely what was said. An *exact* application match still
+            // wins, so "open steam" is untouched.
+            const site = best.rank > RANK.exact ? exactSiteName(wanted) : null;
+            if (site && platform.openUrl) {
+              const ok = await platform.openUrl(site.url);
+              if (ok) return { result: { ok: true, message: phrasing.opening(site.name) } };
+            }
 
-        if (!ambiguous) {
-          const ok = await platform.launchApp!(best.app.id);
-          return ok
-            ? { ok: true, message: phrasing.opening(best.app.name) }
-            : { ok: false, error: `${best.app.name} wouldn't start.` };
-        }
-      }
+            if (!ambiguous) {
+              const ok = await platform.launchApp!(best.app.id);
+              return {
+                // A real launch was attempted — committed, whether it worked
+                // or not. A failure here means "that program wouldn't
+                // start," never "let's also try it as a website."
+                final: true,
+                result: ok
+                  ? { ok: true, message: phrasing.opening(best.app.name) }
+                  : { ok: false, error: `${best.app.name} wouldn't start.` },
+              };
+            }
+            return { result: { ok: false, error: 'ambiguous' } };
+          },
+        },
+        {
+          // "open OBS and Epic Games" is one request naming two programs,
+          // and it arrives here as a single name because that is the only
+          // reading the grammar can safely take — see `splitTargets`. Only
+          // relevant once no single installed app matched the whole name.
+          id: 'multiple-named-apps',
+          async run() {
+            if (matches.length) return { result: { ok: false, error: 'not applicable' } };
+            const several = resolveSeveral(apps, wanted);
+            if (!several) return { result: { ok: false, error: 'no multi-target reading' } };
 
-      // Still nothing. "open OBS and Epic Games" is one request naming two
-      // programs, and it arrives here as a single name because that is the
-      // only reading the grammar can safely take — see `splitTargets`.
-      if (!matches.length) {
-        const several = resolveSeveral(apps, wanted);
-        if (several) {
-          const launched: string[] = [];
-          const failed: string[] = [];
-          for (const app of several) {
-            const ok = await platform.launchApp!(app.id);
-            (ok ? launched : failed).push(app.name);
-          }
-          if (launched.length) {
+            const launched: string[] = [];
+            const failed: string[] = [];
+            for (const app of several) {
+              const ok = await platform.launchApp!(app.id);
+              (ok ? launched : failed).push(app.name);
+            }
+            // Real launches were attempted — committed either way, same as
+            // the single-app case above.
+            if (launched.length) {
+              return {
+                final: true,
+                result: {
+                  ok: failed.length === 0,
+                  message: phrasing.opening(readableList(launched)),
+                  error: failed.length ? `${readableList(failed)} wouldn't start.` : undefined,
+                },
+              };
+            }
             return {
-              ok: failed.length === 0,
-              message: phrasing.opening(readableList(launched)),
-              error: failed.length ? `${readableList(failed)} wouldn't start.` : undefined,
+              final: true,
+              result: { ok: false, error: `${readableList(failed)} wouldn't start.` },
             };
-          }
-          return { ok: false, error: `${readableList(failed)} wouldn't start.` };
-        }
-      }
+          },
+        },
+        {
+          // Nothing installed matches. If the name is domain-shaped, that is
+          // what "open steelseries.gg" means when the app isn't there — and
+          // it is also what "open github.com" always meant. Then the sites
+          // people name without a domain — checked after installed apps
+          // deliberately, so "open discord" means the program when it's
+          // installed and the website when it isn't.
+          id: 'known-destination',
+          async run() {
+            if (matches.length) return { result: { ok: false, error: 'not applicable' } };
 
-      // Nothing installed matches. If the name is domain-shaped, that is what
-      // "open steelseries.gg" means when the app isn't there — and it is also
-      // what "open github.com" always meant.
-      if (!matches.length && looksLikeDomain(wanted) && platform.openUrl) {
-        const url = `https://${wanted}`;
-        const ok = await platform.openUrl(url);
-        if (ok) return { ok: true, message: `No app called “${wanted}” — opening ${url} instead.` };
-      }
+            if (looksLikeDomain(wanted) && platform.openUrl) {
+              const url = `https://${wanted}`;
+              const ok = await platform.openUrl(url);
+              if (ok) {
+                return {
+                  final: true,
+                  result: { ok: true, message: `No app called “${wanted}” — opening ${url} instead.` },
+                };
+              }
+            }
 
-      // Then the sites people name without a domain. This runs *after* the
-      // installed apps deliberately: "open discord" means the program when
-      // it's installed, and the website when it isn't. Typo tolerance comes
-      // from the same matcher the app list uses, so "youtub" lands here too.
-      if (!matches.length && platform.openUrl) {
-        const site = resolveSite(wanted);
-        if (site) {
-          const ok = await platform.openUrl(site.url);
-          if (ok) return { ok: true, message: phrasing.opening(site.name) };
-        }
-      }
+            if (platform.openUrl) {
+              const site = resolveSite(wanted);
+              if (site) {
+                const ok = await platform.openUrl(site.url);
+                if (ok) return { final: true, result: { ok: true, message: phrasing.opening(site.name) } };
+              }
+            }
+            return { result: { ok: false, error: 'no known destination' } };
+          },
+        },
+      ]);
 
-      // Suggestions use the wider net on purpose — see `nearMatches`.
+      if (final) return result;
+
+      // Every relevant strategy declined — the honest moment to ask rather
+      // than guess. Suggestions use the wider net on purpose, see
+      // `nearMatches`.
       const near = matches.length
         ? matches
         : nearMatches(apps, wanted, (a) => a.name).map((m) => ({ app: m.item, rank: m.rank }));

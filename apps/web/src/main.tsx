@@ -4,6 +4,7 @@ import { detectPlatform } from '@atlas/platform';
 import { detectStorage } from '@atlas/data';
 import { AtlasApp } from './app/AtlasApp';
 import { ThemeProvider } from './app/theme';
+import { EffectsProvider } from './app/effects';
 import '@atlas/tokens/tokens.css';
 import './styles/index.css';
 
@@ -18,7 +19,9 @@ const storage = detectStorage(platform.id);
 ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <ThemeProvider>
-      <AtlasApp platform={platform} storage={storage} />
+      <EffectsProvider>
+        <AtlasApp platform={platform} storage={storage} />
+      </EffectsProvider>
     </ThemeProvider>
   </React.StrictMode>,
 );

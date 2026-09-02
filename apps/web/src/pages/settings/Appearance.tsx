@@ -13,8 +13,9 @@
 
 import { ACCENTS, accentSwatch } from '@atlas/tokens';
 import type { AccentId, ThemeMode } from '@atlas/tokens';
-import { Icons, SegmentedControl, cn } from '@atlas/ui';
+import { Icons, SegmentedControl, Switch, cn } from '@atlas/ui';
 import { useTheme } from '../../app/theme';
+import { useEnhancedEffects } from '../../app/effects';
 
 const OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -24,6 +25,7 @@ const OPTIONS: { value: ThemeMode; label: string }[] = [
 
 export function Appearance() {
   const { mode, setMode, resolved, accent, setAccent } = useTheme();
+  const { enabled, setEnabled, active } = useEnhancedEffects();
 
   return (
     <div className="space-y-8">
@@ -53,6 +55,25 @@ export function Appearance() {
               onSelect={setAccent}
             />
           ))}
+        </div>
+      </section>
+
+      <section>
+        <div className="border-border flex items-center justify-between gap-4 rounded-xl border px-4 py-3.5">
+          <div>
+            <h2 className="text-foreground text-sm font-medium">Enhanced Effects</h2>
+            <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
+              Adds a subtle lift, glow and cursor-tracked highlight to buttons and cards. Off by
+              default — the standard interface is already finished without it.
+              {enabled && !active && (
+                <span className="text-foreground-subtle block">
+                  {' '}
+                  Currently inactive because your system has reduced motion turned on.
+                </span>
+              )}
+            </p>
+          </div>
+          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enhanced Effects" />
         </div>
       </section>
     </div>

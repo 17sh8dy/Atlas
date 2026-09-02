@@ -250,7 +250,9 @@ function EmptyState({
                       type="button"
                       onClick={() => onAsk(item.text)}
                       title={item.text}
-                      className="text-foreground-muted hover:bg-surface-raised hover:text-foreground duration-fast flex items-center gap-2.5 rounded-lg px-1.5 py-2 text-left text-[15px] transition"
+                      // atlas-enhance: opt-in hook for the Enhanced Effects
+                      // setting (styles/index.css) — inert unless it's on.
+                      className="text-foreground-muted hover:bg-surface-raised hover:text-foreground duration-fast atlas-enhance flex items-center gap-2.5 rounded-lg px-1.5 py-2 text-left text-[15px] transition"
                     >
                       <span className="shrink-0 text-sm leading-none">{item.icon}</span>
                       <span className="min-w-0 truncate">{item.text}</span>

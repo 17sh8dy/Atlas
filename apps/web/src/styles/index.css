@@ -38,3 +38,59 @@
     background-clip: content-box;
   }
 }
+
+/**
+ * Enhanced Effects — an optional lift, glow and cursor-tracked highlight on
+ * interactive surfaces (`.atlas-enhance`, applied by Button and Surface).
+ * Off by default; see Settings -> Appearance and `app/effects.tsx`.
+ *
+ * The `html[data-effects='enhanced']` gate is only ever present when both the
+ * setting is on AND `prefers-reduced-motion` is off — `effects.tsx` removes
+ * the attribute entirely rather than leaving these rules to fight the
+ * preference. `--duration-fast` collapsing to 0ms under reduced motion
+ * (tokens.css) is the second, independent line of defence.
+ *
+ * Every rule here is hover/focus/active-only and transition-based. Nothing
+ * runs a continuous animation loop, so there is no cost while idle or while
+ * the pointer is elsewhere.
+ */
+html[data-effects='enhanced'] .atlas-enhance {
+  position: relative;
+  transition:
+    transform var(--duration-fast) ease-out,
+    box-shadow var(--duration-fast) ease-out;
+}
+
+/* The cursor-tracked highlight. `--glow-x`/`--glow-y` are written by
+   `effects.tsx`'s pointermove handler, only while the effect is active, and
+   default to the surface's centre so a keyboard-focused element still gets
+   a highlight without ever having been pointed at. */
+html[data-effects='enhanced'] .atlas-enhance::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    180px circle at var(--glow-x, 50%) var(--glow-y, 50%),
+    rgb(var(--color-primary) / 0.16),
+    transparent 70%
+  );
+  transition: opacity var(--duration-fast) ease-out;
+}
+
+html[data-effects='enhanced'] .atlas-enhance:hover,
+html[data-effects='enhanced'] .atlas-enhance:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+html[data-effects='enhanced'] .atlas-enhance:hover::before,
+html[data-effects='enhanced'] .atlas-enhance:focus-visible::before {
+  opacity: 1;
+}
+
+html[data-effects='enhanced'] .atlas-enhance:active {
+  transform: translateY(0) scale(0.99);
+}

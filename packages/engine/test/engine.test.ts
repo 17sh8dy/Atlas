@@ -1221,6 +1221,78 @@ test('app.open resolves colloquial VS Code names via the alias table', async () 
   assert.deepEqual(h.journal.launched, ['code', 'code']);
 });
 
+// ---- app.open's bounded attempt ladder (planner/attempts.ts) ----------------
+//
+// app.open tries up to three relevant, ordered strategies before asking the
+// user — see the module doc on `attemptGoal`. These tests exercise that
+// ladder directly, examples A-F from the design: success stops immediately,
+// a failure falls through to the next *relevant* strategy, and exhausting
+// every strategy asks rather than invents something unrelated to try.
+
+test('Example A/F — a confident match launches on the first attempt and tries nothing else', async () => {
+  const h = harness();
+  const result = await h.engine.skills.invoke('app.open', { name: 'fortnite' }, io(h));
+
+  assert.isTrue(result.ok);
+  assert.deepEqual(h.journal.launched, ['fortnite']);
+  // No other strategy left a mark: no URL opened, no "did you mean" card shown.
+  assert.lengthOf(h.journal.urls, 0);
+  assert.lengthOf(h.rows, 0);
+});
+
+test('Example B — no single installed app matches, but a relevant second attempt succeeds', async () => {
+  const h = harness();
+  // No app is named "obs and epic games launcher", so the first attempt
+  // (installed-app) has nothing to launch — the second attempt (splitting a
+  // sentence naming two real, installed programs) is what actually resolves it.
+  const result = await h.engine.skills.invoke(
+    'app.open',
+    { name: 'obs and epic games launcher' },
+    io(h),
+  );
+
+  assert.isTrue(result.ok);
+  assert.sameMembers(h.journal.launched, ['obs', 'epic-games-launcher']);
+});
+
+test('Example B — no installed app or multi-target reading, but a known destination resolves it', async () => {
+  const h = harness();
+  // Not installed, not two names joined by "and" — the third attempt (a
+  // domain-shaped name) is the relevant one left, and it succeeds.
+  const result = await h.engine.skills.invoke('app.open', { name: 'example.com' }, io(h));
+
+  assert.isTrue(result.ok);
+  assert.lengthOf(h.journal.launched, 0);
+  assert.deepEqual(h.journal.urls, ['https://example.com']);
+});
+
+test('Example C/D — every relevant strategy declines, so Atlas asks instead of guessing', async () => {
+  const h = harness();
+  const result = await h.engine.skills.invoke('app.open', { name: 'zzzzqqqwx' }, io(h));
+
+  assert.isFalse(result.ok);
+  assert.include(result.error!, 'zzzzqqqwx');
+  // Nothing was launched and no URL was opened — every attempt genuinely
+  // declined rather than one of them guessing and failing quietly.
+  assert.lengthOf(h.journal.launched, 0);
+  assert.lengthOf(h.journal.urls, 0);
+});
+
+test('Example E — a name close to an installed app is offered, never invented commands elsewhere', async () => {
+  const h = harness();
+  const result = await h.engine.skills.invoke('app.open', { name: 'crosshairzzz' }, io(h));
+
+  assert.isTrue(result.ok);
+  assert.isAbove(h.rows.length, 0, 'the near-match card is how Atlas asks here');
+  assert.lengthOf(h.journal.launched, 0, 'an offer is not a launch');
+  // The bounded ladder has exactly three relevant strategies for app.open —
+  // none of which is "search the web" or "search files" — so neither ran.
+  assert.lengthOf(h.web.searchedQueries, 0);
+  assert.lengthOf(h.journal.opened, 0);
+  assert.lengthOf(h.journal.revealed, 0);
+});
+
+
 test('memory.remember + files.openAlias: teach a name, then open what it means', async () => {
   const h = harness();
   await h.engine.ask('remember my work folder is D:\\Dev', io(h));
