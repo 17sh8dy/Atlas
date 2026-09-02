@@ -233,7 +233,7 @@ function EmptyState({
           </p>
         )}
         <p className="text-foreground-subtle mt-1 max-w-md text-center text-xs leading-relaxed">
-          {skills.available().length} actions, all on this machine. No account, no key.
+          {skills.available().length} actions, all on this machine. No account needed, no key.
         </p>
 
         {groups.length > 0 && (

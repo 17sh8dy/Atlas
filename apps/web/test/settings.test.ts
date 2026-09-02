@@ -53,7 +53,30 @@ test('the placeholder tabs are gone and have not come back', () => {
       gone,
     );
   }
-  assert.lengthOf(SECTIONS, 7);
+  assert.lengthOf(SECTIONS, 8);
+});
+
+test('the Account tab is optional in the way it claims to be', () => {
+  /* Atlas's whole claim is that it works with nothing connected, and a sign-in button is the
+     exact moment that claim usually starts eroding. Two things keep it true, and both are
+     mechanical rather than a matter of remembering:
+
+       · the account lives in the SHELL. Nothing in core or engine may import it, or a skill
+         could start asking whether somebody is signed in;
+       · the panel leads with "Atlas does not need an account", so the promise is restated in
+         the one place a person goes looking for the opposite. */
+  assert.include(
+    SECTIONS.map((s) => s.id),
+    'account',
+  );
+
+  const panel = readFileSync(
+    fileURLToPath(new URL('../src/pages/settings/Account.tsx', import.meta.url)),
+    'utf8',
+  );
+  assert.include(panel, 'Atlas does not need an account');
+  // And no password field, ever: the device grant exists precisely so there is not one.
+  assert.notInclude(panel, 'type="password"');
 });
 
 test('no settings page is left orphaned in the folder', () => {

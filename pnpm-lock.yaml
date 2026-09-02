@@ -62,6 +62,9 @@ importers:
       '@atlas/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@nova/account-client':
+        specifier: file:../../../NovaHelp/packages/nova-account-client
+        version: file:../NovaHelp/packages/nova-account-client
       '@tauri-apps/api':
         specifier: ^2.1.1
         version: 2.11.1
@@ -553,6 +556,10 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@nova/account-client@file:../NovaHelp/packages/nova-account-client':
+    resolution: {directory: ../NovaHelp/packages/nova-account-client, type: directory}
+    engines: {node: '>=18'}
 
   '@radix-ui/primitive@1.1.5':
     resolution: {integrity: sha512-d86WIWFYNtGA0H/d8exstrTRTp7eWJYlYJbtNofxr/3ljupZYn6EFDG/Qgu/0Kc8v7yMUxySagqJsL1+PdYjWg==}
@@ -2540,6 +2547,8 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
+
+  '@nova/account-client@file:../NovaHelp/packages/nova-account-client': {}
 
   '@radix-ui/primitive@1.1.5': {}
 

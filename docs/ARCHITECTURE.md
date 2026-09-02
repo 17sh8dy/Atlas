@@ -26,7 +26,10 @@ grammar already understands.
 Three consequences shape everything else:
 
 1. **It works with nothing connected.** No account, no key, no network. That
-   isn't a degraded mode — it's the normal one.
+   isn't a degraded mode — it's the normal one. A Nova Account can be added
+   (Settings → Account) and is a shell concern: nothing in `core` or `engine`
+   knows it exists, no skill consults it, and signing in moves no data in either
+   direction. See `apps/web/src/account/novaAccount.ts`.
 2. **It's fast in the way that matters.** The common case never pays for the
    rare one.
 3. **It's auditable.** Because actions are declared rather than generated, "what

@@ -97,7 +97,7 @@ export function Intelligence({ storage, cortex, activeProviderId, onProviderChan
         <p className="text-foreground-muted mb-3 text-xs leading-relaxed">
           Atlas answers and acts on its own. Cortex is the one thing it escalates to — open-ended
           reasoning about the wider world — and it runs on this machine. Nothing is sent anywhere,
-          and there is no account or key.
+          and it needs no account or key.
         </p>
 
         <Surface className="flex items-center justify-between gap-4 p-4">

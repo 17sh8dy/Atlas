@@ -5,9 +5,14 @@ A local-first desktop assistant. Ask plainly, and it happens.
 > Powered by the Navigator Engine.
 
 Atlas understands what you ask, drives your machine, and keeps everything on it.
-It has no account, needs no API key, and makes no network call to do its job.
+It needs no account, no API key, and makes no network call to do its job.
 Connecting an external model is optional and adds exactly one thing: open-ended
 reasoning about the wider world.
+
+A **Nova Account** is optional too, and unlocks nothing: every skill, your memory,
+voice and the file index all run signed out, forever. Signing in makes Atlas the
+same identity as the other Nova products, and nothing on this machine is uploaded
+— see Settings → Account.
 
 ```
 you    find my tax pdf
@@ -92,10 +97,13 @@ reviewed in a diff.
 
 ## Where things stand
 
-Phase 0 of the assistant is in: the engine kernel, the platform seam, the Tauri
-shell, and a working conversation UI. See [`docs/ROADMAP.md`](docs/ROADMAP.md)
-for what's next and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for why any
-of it is shaped the way it is.
+**Version 0.5.0.** The engine kernel, the Tauri shell, memory, a hundred-plus
+skills, and voice (speaking and listening, both fully offline) are all built
+and working. Ordinary conversation is deliberately stiff until a local model
+lands behind Cortex — see [`docs/ROADMAP.md`](docs/ROADMAP.md) for exactly
+what's done, what's next (Phase 11 — the desktop assistant), and what's
+deliberately not built yet. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+explains why any of it is shaped the way it is.
 
 > Atlas was previously a wallpaper and personalization platform. That work is
 > preserved on the `archive/wallpaper-platform` branch.

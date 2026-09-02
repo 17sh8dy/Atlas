@@ -61,6 +61,9 @@ export {
   Palette,
   Mic,
   UserCircle,
+  // Distinct from UserCircle, which Personalization already uses: the two sections are next
+  // to each other in the rail, and one glyph on both reads as one section split in half.
+  UserRound,
   Power,
   Bell,
   Lock,

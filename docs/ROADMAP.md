@@ -53,10 +53,10 @@ designed, not a bug, so widening it is a decision to make deliberately (a
 user-managed allowed-folders list is the obvious shape) rather than a limit to
 quietly raise.
 
-**Baseline, verified 2026-08-22:** `pnpm typecheck` (7 packages), `pnpm lint`
-clean, **219 engine tests + 13 data tests + 30 Rust tests** (plus 4 ignored
-ones that touch the real machine or network: `cargo test -- --ignored`). ⚠️ There is no root `test` script;
-run `pnpm --filter @atlas/engine test` and `pnpm --filter @atlas/data test`.
+**Baseline, verified 2026-09-02:** `pnpm typecheck` (7 packages), `pnpm lint`
+clean, `pnpm test` (root script, added 2026-09-02) — **318 tests** across
+`core`/`data`/`engine`/`tokens`/`web` — plus 30 Rust tests (4 more ignored
+because they touch the real machine or network: `cargo test -- --ignored`).
 
 **The window's middle caption button maximises** rather than filling the
 monitor, as of 2026-08-21. tao already trims a maximised borderless window to

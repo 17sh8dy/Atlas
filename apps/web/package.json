@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@atlas/core": "workspace:*",
+    "@nova/account-client": "file:../../../NovaHelp/packages/nova-account-client",
     "@atlas/data": "workspace:*",
     "@atlas/engine": "workspace:*",
     "@atlas/platform": "workspace:*",

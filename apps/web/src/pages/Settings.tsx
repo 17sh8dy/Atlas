@@ -35,6 +35,7 @@ import { Voice } from './settings/Voice';
 import { Personalization } from './settings/Personalization';
 import { Notifications } from './settings/Notifications';
 import { Intelligence } from './settings/Intelligence';
+import { Account } from './settings/Account';
 import { About } from './settings/About';
 
 interface Props {
@@ -77,6 +78,9 @@ export const SECTIONS: readonly SettingsSection[] = [
   { id: 'personalization', label: 'Personalization', icon: Icons.UserCircle },
   { id: 'notifications', label: 'Notifications', icon: Icons.Bell },
   { id: 'intelligence', label: 'Intelligence', icon: Icons.Brain },
+  /* Second to last, above About. Atlas is complete signed out, and an account entry near the
+     top of a settings rail is how an optional thing starts reading as a required one. */
+  { id: 'account', label: 'Account', icon: Icons.UserRound },
   { id: 'about', label: 'About', icon: Icons.Info },
 ];
 
@@ -155,6 +159,9 @@ export function Settings({
                 activeProviderId={activeProviderId}
                 onProviderChange={onProviderChange}
               />
+            </TabsContent>
+            <TabsContent value="account">
+              <Account platform={platform} storage={storage} />
             </TabsContent>
             <TabsContent value="about">
               <About platform={platform} />

@@ -51,9 +51,10 @@ export function About({ platform }: { platform: Platform }) {
         <div>
           <h2 className="text-foreground text-sm font-medium">Everything stays here</h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
-            No account, no API key, nothing uploaded. Atlas speaks and listens on this machine, and
-            what it remembers sits in a file on this disk. It reaches the network only when you ask
-            it to — a web search, or opening a link — and never on its own.
+            No account needed, no API key, nothing uploaded. Atlas speaks and listens on this
+            machine, and what it remembers sits in a file on this disk. It reaches the network only
+            when you ask it to — a web search, opening a link, or signing in to the optional Nova
+            Account — and never on its own. Signing in uploads nothing; see Account.
           </p>
         </div>
       </section>
