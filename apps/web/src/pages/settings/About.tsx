@@ -58,6 +58,23 @@ export function About({ platform }: { platform: Platform }) {
           </p>
         </div>
       </section>
+
+      {/* CC BY 4.0 requires attribution wherever the work is distributed — this is that notice,
+          not decoration. Piper and whisper.cpp are MIT and need no credit here. */}
+      <section className="border-border flex items-start gap-3 rounded-xl border px-4 py-3.5">
+        <Icons.Mic className="text-primary mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <h2 className="text-foreground text-sm font-medium">Voice</h2>
+          <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
+            Speaking uses the <span className="text-foreground">en_GB-vctk-medium</span> voice
+            (Piper), trained on the University of Edinburgh Centre for Speech Technology
+            Research's VCTK Corpus, licensed{' '}
+            <span className="text-foreground">CC BY 4.0</span>. Listening uses{' '}
+            <span className="text-foreground">whisper.cpp</span> and OpenAI's Whisper{' '}
+            <span className="text-foreground">base.en</span> model. Both run on this machine.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }
