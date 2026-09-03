@@ -2,10 +2,14 @@
  * Generates the Atlas application icons.
  *
  * The mark is drawn in code rather than committed as opaque binaries so it can
- * be re-rendered at any size, tweaked in one place, and reviewed in a diff. It
- * is a rounded square in the Atlas indigo with a meridian-and-parallel globe
- * cut out of it — a nod to the atlas the app is named for, legible at 16px
- * where anything more detailed turns to mush.
+ * be re-rendered at any size, tweaked in one place, and reviewed in a diff.
+ * It is the Atlas diamond — a rotated square split at its vertical centre,
+ * outline on the left and solid on the right, round joins throughout — on a
+ * dark rounded-square tile. Geometry and colour follow the needle-mark spec
+ * at `design/logo/README.md` (and `design/logo/atlas-mark.svg`) exactly: a 5:6
+ * width:height diamond that widens toward 1:1 below 32px so it never reads as
+ * a thin sliver at tray/favicon sizes, with stroke weight rising as a
+ * percentage of icon size the smaller it gets.
  *
  *   node scripts/generate-icons.mjs
  *
@@ -20,11 +24,70 @@ import { fileURLToPath } from 'node:url';
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'src-tauri', 'icons');
 
-// Atlas indigo, matching --color-primary in @atlas/tokens.
-const BG = [99, 102, 241];
-const FG = [255, 255, 255];
+// The needle-mark spec's tile fill and mark colour (README.md in the logo
+// package: "Primary (dark neutral tile)").
+const BG = [0x2c, 0x2c, 0x2a];
+const FG = [0xf1, 0xef, 0xe8];
 
-/** Distance from a point to a line segment — used to stroke the globe curves. */
+/**
+ * Piecewise-linear lookup over the spec's named checkpoints, flat outside
+ * the given range. Both `STROKE_PCT` and `RATIO` below are transcribed
+ * directly from the README's size table rather than derived, since the
+ * table's values (particularly the "~1:1" note at 32px) are themselves
+ * already an approximation the designer chose — interpolating between exact
+ * numbers this code invented would drift from what was actually specified.
+ */
+function lerpTable(points, size) {
+  const sorted = [...points].sort((a, b) => a[0] - b[0]);
+  if (size <= sorted[0][0]) return sorted[0][1];
+  if (size >= sorted[sorted.length - 1][0]) return sorted[sorted.length - 1][1];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const [s0, v0] = sorted[i];
+    const [s1, v1] = sorted[i + 1];
+    if (size >= s0 && size <= s1) {
+      const t = (size - s0) / (s1 - s0);
+      return v0 + (v1 - v0) * t;
+    }
+  }
+  return sorted[sorted.length - 1][1];
+}
+
+const RATIO_5_6 = 5 / 6;
+
+// Stroke as a fraction of icon size — README's "Stroke %" column, plus the
+// 512px master's 12/512 as the upper anchor (2.34%, "full canonical
+// geometry" begins at 64px and above, where this is nearly the same number).
+const STROKE_PCT = [
+  [16, 0.075],
+  [20, 0.075],
+  [24, 0.075],
+  [32, 0.063],
+  [48, 0.052],
+  [64, 0.047],
+  [512, 12 / 512],
+];
+
+// Half-width : half-height. 5:6 at 64px and above ("full canonical
+// geometry"); square (1:1) at 24px and below ("floor size, maximum weight");
+// the widening happens between those two, which is where the spec's own
+// "~1:1" approximation at 32px falls out naturally rather than needing its
+// own entry.
+const RATIO_TABLE = [
+  [24, 1],
+  [48, RATIO_5_6],
+];
+
+/** Point-in-triangle via the sign of each edge's cross product. */
+function inTriangle(px, py, ax, ay, bx, by, cx, cy) {
+  const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+  const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+  const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNeg && hasPos);
+}
+
+/** Distance from a point to a line segment — used to stroke the diamond's edges. */
 function distToSegment(px, py, x1, y1, x2, y2) {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -38,7 +101,7 @@ function distToSegment(px, py, x1, y1, x2, y2) {
  * Render the mark at `size`, returning RGBA bytes.
  *
  * Coverage is sampled at 3×3 per pixel and averaged. Real antialiasing matters
- * far more than the drawing itself here: a hard-edged circle at 32px looks
+ * far more than the drawing itself here: a hard-edged diamond at 32px looks
  * broken, and this is the whole reason the icon is generated rather than
  * scaled down from one big PNG.
  */
@@ -49,12 +112,25 @@ function render(size) {
   const radius = size * 0.5;
   const corner = size * 0.22;
 
-  // Globe geometry, as fractions of the icon.
-  const globeR = size * 0.30;
-  const stroke = Math.max(size * 0.045, 1.1);
-  // Meridians as vertical ellipses, parallels as horizontal lines.
-  const meridianRx = [globeR, globeR * 0.42];
-  const parallelYs = [-globeR * 0.45, 0, globeR * 0.45];
+  // Diamond geometry. Half-height is fixed at the master's proportion
+  // (192/512) regardless of size — only the width breathes, per RATIO_TABLE
+  // — so the mark's vertical extent (and therefore its clear space) never
+  // changes shape, only how wide it sits inside that extent.
+  const halfH = size * (192 / 512);
+  const halfW = halfH * lerpTable(RATIO_TABLE, size);
+  const stroke = Math.max(size * lerpTable(STROKE_PCT, size), 1);
+
+  const top = [c, c - halfH];
+  const right = [c + halfW, c];
+  const bottom = [c, c + halfH];
+  const left = [c - halfW, c];
+  const edges = [
+    [...top, ...right],
+    [...right, ...bottom],
+    [...bottom, ...left],
+    [...left, ...top],
+  ];
+  const joints = [top, right, bottom, left];
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -74,34 +150,31 @@ function render(size) {
           if (outside > 0) continue;
           bgCover++;
 
-          // Globe: outline, meridians, parallels.
-          const gx = fx - c;
-          const gy = fy - c;
-          const dist = Math.hypot(gx, gy);
+          // The right half is solid fill. The left half shows only where the
+          // outline stroke lands — matching "outline on the left, solid on
+          // the right" from the mark's own spec.
+          let onMark = inTriangle(fx, fy, ...top, ...right, ...bottom);
 
-          let onGlobe = Math.abs(dist - globeR) <= stroke / 2;
-
-          if (!onGlobe && dist < globeR) {
-            for (const rx of meridianRx) {
-              // Distance to an ellipse of half-width rx and half-height globeR.
-              const norm = Math.hypot(gx / rx, gy / globeR);
-              const approx = Math.abs(norm - 1) * Math.min(rx, globeR);
-              if (approx <= stroke / 2) {
-                onGlobe = true;
+          if (!onMark) {
+            for (const [x1, y1, x2, y2] of edges) {
+              if (distToSegment(fx, fy, x1, y1, x2, y2) <= stroke / 2) {
+                onMark = true;
                 break;
               }
             }
           }
-          if (!onGlobe && dist < globeR) {
-            for (const py of parallelYs) {
-              const halfWidth = Math.sqrt(Math.max(0, globeR * globeR - py * py));
-              if (distToSegment(gx, gy, -halfWidth, py, halfWidth, py) <= stroke / 2) {
-                onGlobe = true;
+          // Round joins: a stroked polyline alone mitres at each vertex: a
+          // small disc at each joint is what makes the corner read as round
+          // rather than pointed, the same way `stroke-linejoin: round` does.
+          if (!onMark) {
+            for (const [jx, jy] of joints) {
+              if (Math.hypot(fx - jx, fy - jy) <= stroke / 2) {
+                onMark = true;
                 break;
               }
             }
           }
-          if (onGlobe) fgCover++;
+          if (onMark) fgCover++;
         }
       }
 

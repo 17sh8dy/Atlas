@@ -1,4 +1,5 @@
 export { cn } from './lib/cn';
+export { AtlasMark } from './components/AtlasMark';
 export { Button } from './components/Button';
 export type { ButtonProps, ButtonVariant, ButtonSize } from './components/Button';
 export { Surface } from './components/Surface';

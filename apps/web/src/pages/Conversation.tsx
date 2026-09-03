@@ -14,7 +14,7 @@
  */
 
 import type { SkillRegistry } from '@atlas/engine';
-import { Icons } from '@atlas/ui';
+import { AtlasMark } from '@atlas/ui';
 import { Composer } from '../components/Composer';
 import { Transcript } from '../components/Transcript';
 import { HomeBackdrop } from '../effects/HomeBackdrop';
@@ -223,7 +223,7 @@ function EmptyState({
 
       <div className="relative z-10 flex w-full flex-col items-center">
         <div className="accent-surface text-primary-foreground mb-3 grid h-10 w-10 place-items-center rounded-xl">
-          <Icons.Compass className="h-5 w-5" />
+          <AtlasMark className="h-5 w-5" />
         </div>
 
         <h1 className="text-foreground text-base font-semibold tracking-tight">{atlasName}</h1>

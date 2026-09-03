@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { Icons, cn } from '@atlas/ui';
+import { AtlasMark, Icons, cn } from '@atlas/ui';
 import { isTauri } from '@atlas/platform';
 
 interface Props {
@@ -175,7 +175,7 @@ function Wordmark() {
           the mark takes its height from the text and centres the mark inside
           that, which tips the whole group two pixels high instead. */}
       <span className="accent-surface text-primary-foreground grid h-5 w-5 shrink-0 place-items-center rounded-md">
-        <Icons.Compass className="h-3 w-3" />
+        <AtlasMark className="h-2.5 w-2.5" />
       </span>
       {/* `leading-none` on both: with each line box tight to its own glyphs,
           the baseline is set by the font alone and neither run can drift when

@@ -14,7 +14,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Platform } from '@atlas/core';
-import { Icons } from '@atlas/ui';
+import { AtlasMark, Icons } from '@atlas/ui';
 
 export function About({ platform }: { platform: Platform }) {
   const [version, setVersion] = useState<string | null>(null);
@@ -35,7 +35,7 @@ export function About({ platform }: { platform: Platform }) {
   return (
     <div className="flex flex-col gap-3">
       <section className="border-border flex items-start gap-3 rounded-xl border px-4 py-3.5">
-        <Icons.Compass className="text-primary mt-0.5 h-4 w-4 shrink-0" />
+        <AtlasMark className="text-primary mt-0.5 h-4 w-4 shrink-0" />
         <div>
           <h2 className="text-foreground text-sm font-medium">Atlas</h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
