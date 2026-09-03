@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
+    "dev:nova-local": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "bundle": "tauri build",
     "icons": "node scripts/generate-icons.mjs",
     "speech": "node scripts/fetch-speech.mjs",

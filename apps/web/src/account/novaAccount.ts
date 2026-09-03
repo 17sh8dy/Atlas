@@ -38,8 +38,21 @@ import { createNovaAccountClient, type NovaAccount, type NovaAccountClient } fro
 import { asyncStorage } from '@nova/account-client/storage';
 import type { Platform, Storage } from '@atlas/core';
 
-/** The one place the address appears. Must match the host allowed in tauri.conf.json's CSP. */
-export const NOVA_ORIGIN = 'https://nova.help';
+/**
+ * The one place the production address appears. Must match the host allowed
+ * in tauri.conf.json's CSP.
+ *
+ * `import.meta.env.DEV` is Vite's own dev/build flag — statically `false` and
+ * dead-code-eliminated in a production build (`vite build`), so a `vite dev`
+ * session run with the right env var can point at a local Nova.Help instead,
+ * with zero risk of a shipped build ever reading anything but the literal
+ * string below. The env var itself is opt-in and unset by default, so an
+ * ordinary `pnpm dev` behaves exactly like production unless a developer
+ * deliberately sets it (see apps/desktop/tauri.dev.conf.json for the matching
+ * CSP override, which only ever reaches `tauri dev`, never `tauri build`).
+ */
+export const NOVA_ORIGIN: string =
+  (import.meta.env.DEV && import.meta.env.VITE_NOVA_DEV_ORIGIN) || 'https://nova.help';
 
 /** Atlas's section of the support portal. A real page today. */
 export const NOVA_HELP_URL = `${NOVA_ORIGIN}/help/atlas`;
