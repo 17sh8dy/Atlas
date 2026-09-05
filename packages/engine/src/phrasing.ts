@@ -23,6 +23,23 @@ export interface Phrasing {
   rightThen(stepLabels: string[]): string;
   declined(): string;
   failed(detail: string): string;
+  /**
+   * One consequential step, asked about immediately before it runs.
+   *
+   * `why` is the skill's own `description` — already written as a plain
+   * sentence for exactly this — and `detail` is the concrete argument (a
+   * path, a name), appended only when there is one worth showing.
+   */
+  confirmPrompt(why: string, detail?: string): { question: string; detail: string };
+  /**
+   * A whole plan, shown once before anything in it runs — Plan First's
+   * approval gate. Each line is a step; `consequential` marks the ones that
+   * would otherwise have stopped to ask on their own.
+   */
+  planApproval(steps: ReadonlyArray<{ label: string; consequential: boolean }>): {
+    question: string;
+    detail: string;
+  };
   /** What Atlas says the first time a conversation opens. */
   greeting(): string;
   /**
@@ -80,6 +97,18 @@ export function createPhrasing(profile: VoiceProfile = {}): Phrasing {
     declined: () => 'Okay — left alone.',
     failed: (detail) => `⚠️ ${detail}`,
 
+    confirmPrompt: (why, detail) => ({
+      question: '⚠️ Are you sure?',
+      detail: `${atlasName} wants to ${lowerFirstSentence(why)}${detail ? ` — ${detail}` : ''}`,
+    }),
+
+    planApproval: (steps) => ({
+      question: `⚠️ Run this plan?`,
+      detail: steps
+        .map((s, i) => `${i + 1}. ${s.consequential ? '⚠ ' : ''}${s.label}`)
+        .join('\n'),
+    }),
+
     greeting: () => {
       if (profile.greeting?.trim()) return profile.greeting.trim();
       return userName
@@ -92,6 +121,17 @@ export function createPhrasing(profile: VoiceProfile = {}): Phrasing {
       return options[turn(kind) % options.length] as string;
     },
   };
+}
+
+/**
+ * A skill's `description` reads as its own sentence ("Send a file or folder
+ * to the recycle bin.") but is being spliced after "Atlas wants to", so the
+ * leading capital and the trailing full stop both have to go — a period
+ * followed by " — D:\Dev\old.txt" reads as two sentences glued together.
+ */
+function lowerFirstSentence(text: string): string {
+  const trimmed = text.trim().replace(/\.+$/, '');
+  return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
 }
 
 /**

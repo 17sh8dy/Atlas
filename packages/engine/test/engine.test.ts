@@ -8,6 +8,7 @@ import { test, assert, vi } from 'vitest';
 import type {
   CapabilityName,
   EpisodicEvent,
+  ExecutionMode,
   Fact,
   IntelligenceProvider,
   IntelligenceRegistry,
@@ -416,6 +417,7 @@ interface Harness {
   web: WebIndex;
   confirmAnswer: boolean;
   confirmsAsked: string[];
+  confirmDetails: Array<string | undefined>;
 }
 
 function harness(
@@ -432,7 +434,7 @@ function harness(
     'network',
     'services',
   ],
-  options: { provider?: IntelligenceProvider | null } = {},
+  options: { provider?: IntelligenceProvider | null; mode?: ExecutionMode } = {},
 ): Harness {
   const journal: Journal = {
     opened: [],
@@ -475,7 +477,13 @@ function harness(
 
   const intelligence =
     'provider' in options ? makeIntelligence(options.provider ?? null) : undefined;
-  const engine = new Engine({ skills, grammar, working, intelligence });
+  const engine = new Engine({
+    skills,
+    grammar,
+    working,
+    intelligence,
+    getExecutionMode: () => options.mode ?? 'doIt',
+  });
   recordEpisodes(engine.bus, memory, engine.skills);
 
   const h: Harness = {
@@ -488,6 +496,7 @@ function harness(
     memory,
     confirmAnswer: true,
     confirmsAsked: [],
+    confirmDetails: [],
   };
   return h;
 }
@@ -500,8 +509,9 @@ function io(h: Harness) {
       // read, which is not the same as what appeared on screen.
       if (options?.aloud !== false) h.spokenAloud.push(t);
     },
-    confirm: async (q: string) => {
+    confirm: async (q: string, detail?: string) => {
       h.confirmsAsked.push(q);
+      h.confirmDetails.push(detail);
       return h.confirmAnswer;
     },
     showResults: (items: ResultRow[]) => h.rows.push(...items),
@@ -977,6 +987,112 @@ test('executor: files.delete requires confirmation, same as any other risky skil
   await h.engine.ask('delete D:\\Dev\\old.txt', io(h));
   assert.equal(h.confirmsAsked.length, 1);
   assert.deepEqual(h.journal.deleted, []);
+});
+
+// ---- execution mode -----------------------------------------------------------
+//
+// `ExecutionMode` decides *when* a confirm step's question is put to the
+// user, never *whether* — see the executor's own doc comment. `doIt` and
+// `confirmActions` are the identical per-step loop and are covered together;
+// `planFirst` is the one that actually changes behaviour.
+
+test('mode: confirmActions asks per step, exactly like doIt', async () => {
+  const h = harness(undefined, { mode: 'confirmActions' });
+  await h.engine.ask('delete D:\\Dev\\old.txt', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.deleted, ['D:\\Dev\\old.txt']);
+});
+
+test('mode: planFirst never shows a plan card for an all-safe plan', async () => {
+  const h = harness(undefined, { mode: 'planFirst' });
+  await h.engine.run(
+    {
+      source: 'direct',
+      intent: 'test',
+      confidence: 1,
+      steps: [
+        { skill: 'system.info', args: {} },
+        { skill: 'app.list', args: {} },
+      ],
+    },
+    io(h),
+  );
+  assert.equal(h.confirmsAsked.length, 0);
+  // Falls through to the ordinary multi-step announcement instead.
+  assert.match(h.said[0]!, /^Right — .*, then /);
+});
+
+test('mode: planFirst asks once for a plan containing a consequential step, not once per step', async () => {
+  const h = harness(undefined, { mode: 'planFirst' });
+  const outcome = await h.engine.run(
+    {
+      source: 'direct',
+      intent: 'test',
+      confidence: 1,
+      steps: [
+        { skill: 'system.info', args: {} },
+        { skill: 'files.delete', args: { path: 'D:\\Dev\\old.txt' } },
+      ],
+    },
+    io(h),
+  );
+  // One approval for the whole plan — not one for the plan and a second for
+  // the delete step, which is the batching this mode exists to provide.
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.deleted, ['D:\\Dev\\old.txt']);
+  assert.isTrue(outcome.ok);
+});
+
+test('mode: planFirst\'s single approval names every step, marking the consequential ones', async () => {
+  const h = harness(undefined, { mode: 'planFirst' });
+  await h.engine.run(
+    {
+      source: 'direct',
+      intent: 'test',
+      confidence: 1,
+      steps: [
+        { skill: 'system.info', args: {} },
+        { skill: 'files.delete', args: { path: 'D:\\Dev\\old.txt' } },
+      ],
+    },
+    io(h),
+  );
+  const [detail] = h.confirmDetails;
+  assert.match(detail!, /1\. System status/);
+  assert.match(detail!, /2\. ⚠ Delete/);
+});
+
+test('mode: declining planFirst\'s approval cancels the whole plan, nothing runs', async () => {
+  const h = harness(undefined, { mode: 'planFirst' });
+  h.confirmAnswer = false;
+  const outcome = await h.engine.run(
+    {
+      source: 'direct',
+      intent: 'test',
+      confidence: 1,
+      steps: [
+        { skill: 'system.info', args: {} },
+        { skill: 'files.delete', args: { path: 'D:\\Dev\\old.txt' } },
+      ],
+    },
+    io(h),
+  );
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.deleted, []);
+  assert.equal(outcome.ran, 0);
+  assert.isTrue(outcome.aborted);
+  assert.match(h.said.join(' '), /left alone/i);
+});
+
+test('mode: planFirst still refuses a NEVER_STOP call outright, without ever drawing a plan card', async () => {
+  // The refusal tier sits below every execution mode — see `Skill.guard`.
+  // A plan containing a call that must not happen at all should never reach
+  // Plan First's approval card in the first place.
+  const h = harness(undefined, { mode: 'planFirst' });
+  h.confirmAnswer = true;
+  await h.engine.ask('stop the rpcss service', io(h));
+  assert.deepEqual(h.journal.services, []);
+  assert.deepEqual(h.confirmsAsked, [], 'a plan card was drawn in front of a refusal');
 });
 
 test('engine.help: "what can you do?" is answered, not treated as a question with no provider', async () => {

@@ -20,6 +20,7 @@
 import { Icons, Tabs, TabsContent, TabsList, TabsTrigger } from '@atlas/ui';
 import type {
   CapabilityName,
+  ExecutionMode,
   ListeningPreferences,
   Platform,
   SpeechPreferences,
@@ -43,6 +44,8 @@ interface Props {
   storage: Storage;
   capabilities: readonly CapabilityName[];
   skills: SkillRegistry;
+  executionMode: ExecutionMode;
+  onExecutionModeChange(mode: ExecutionMode): void;
   voiceProfile: VoiceProfile;
   onVoiceProfileChange(): void;
   cortex: CortexSettings;
@@ -89,6 +92,8 @@ export function Settings({
   storage,
   capabilities,
   skills,
+  executionMode,
+  onExecutionModeChange,
   voiceProfile,
   onVoiceProfileChange,
   cortex,
@@ -124,7 +129,13 @@ export function Settings({
 
           <div className="min-w-0 flex-1">
             <TabsContent value="general">
-              <General platform={platform} capabilities={capabilities} skills={skills} />
+              <General
+                platform={platform}
+                capabilities={capabilities}
+                skills={skills}
+                executionMode={executionMode}
+                onExecutionModeChange={onExecutionModeChange}
+              />
             </TabsContent>
             <TabsContent value="appearance">
               <Appearance />

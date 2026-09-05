@@ -13,6 +13,7 @@
  * can't do.
  */
 
+import type { ExecutionMode } from '@atlas/core';
 import type { SkillRegistry } from '@atlas/engine';
 import { AtlasMark } from '@atlas/ui';
 import { Composer } from '../components/Composer';
@@ -35,6 +36,8 @@ interface Props {
   onCopy(text: string): Promise<boolean>;
   /** Re-ask one of your own messages. */
   onAskAgain?(text: string): void;
+  executionMode: ExecutionMode;
+  onCycleExecutionMode(): void;
   /** Passed through to the composer; absent when this build cannot listen. */
   dictation?: { active: boolean; transcribing: boolean; onToggle(): void };
   dictated?: { text: string; at: number } | null;
@@ -53,6 +56,8 @@ export function Conversation({
   onAnswerConfirm,
   onCopy,
   onAskAgain,
+  executionMode,
+  onCycleExecutionMode,
   dictation,
   dictated,
 }: Props) {
@@ -83,6 +88,8 @@ export function Conversation({
         onSubmit={onAsk}
         busy={busy}
         awaitingAnswer={awaitingAnswer}
+        executionMode={executionMode}
+        onCycleExecutionMode={onCycleExecutionMode}
         dictation={dictation}
         dictated={dictated}
       />

@@ -8,7 +8,9 @@
  */
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Icons, cn } from '@atlas/ui';
+import type { ExecutionMode } from '@atlas/core';
+import { EXECUTION_MODE_META } from '@atlas/core';
+import { Icons, Kbd, cn } from '@atlas/ui';
 
 interface Props {
   onSubmit(text: string): void;
@@ -24,6 +26,9 @@ interface Props {
    * handled a typed answer correctly; nothing could get one to it.
    */
   awaitingAnswer?: boolean;
+  /** How much Atlas asks before it acts — see `@atlas/core`'s execution-mode model. */
+  executionMode: ExecutionMode;
+  onCycleExecutionMode(): void;
   placeholder?: string;
   /**
    * Dictation, when this build can listen and the microphone is switched on.
@@ -53,6 +58,8 @@ export function Composer({
   onSubmit,
   busy,
   awaitingAnswer = false,
+  executionMode,
+  onCycleExecutionMode,
   placeholder = 'Ask Atlas anything…',
   dictation,
   dictated,
@@ -95,6 +102,14 @@ export function Composer({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
+    }
+    // Shift+Tab would otherwise move focus backward out of the box — the
+    // browser's default for a plain textarea, since it doesn't insert a tab
+    // character either way. Claimed here for mode-cycling instead, which is
+    // why the chip below advertises exactly this key.
+    if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      onCycleExecutionMode();
     }
   };
 
@@ -198,6 +213,32 @@ export function Composer({
           </button>
         </div>
       </div>
+
+      {/*
+        The mode indicator. Not a setting buried in a menu — it sits exactly
+        where the thing it changes happens, the same reason the speech toggle
+        sits in the title bar rather than only in Settings (see AtlasApp).
+        Clicking it cycles too, so the control isn't keyboard-only.
+      */}
+      <button
+        type="button"
+        onClick={onCycleExecutionMode}
+        title={EXECUTION_MODE_META[executionMode].description}
+        className={cn(
+          'text-foreground-subtle hover:text-foreground duration-fast mt-2 flex items-center',
+          'gap-1.5 text-xs transition',
+        )}
+      >
+        <span aria-hidden="true" className="text-primary tracking-tighter">
+          ⏵⏵
+        </span>
+        <span className="font-medium">{EXECUTION_MODE_META[executionMode].label}</span>
+        <span aria-hidden="true">·</span>
+        <span className="inline-flex items-center gap-0.5">
+          <Kbd>Shift</Kbd>+<Kbd>Tab</Kbd>
+        </span>
+        <span>to cycle</span>
+      </button>
     </div>
   );
 }

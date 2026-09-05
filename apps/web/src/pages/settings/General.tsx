@@ -25,12 +25,16 @@
  */
 
 import type { SkillRegistry } from '@atlas/engine';
-import type { CapabilityName, Platform } from '@atlas/core';
+import type { CapabilityName, ExecutionMode, Platform } from '@atlas/core';
+import { EXECUTION_MODES, EXECUTION_MODE_META } from '@atlas/core';
+import { SegmentedControl } from '@atlas/ui';
 
 interface Props {
   platform: Platform;
   capabilities: readonly CapabilityName[];
   skills: SkillRegistry;
+  executionMode: ExecutionMode;
+  onExecutionModeChange(mode: ExecutionMode): void;
 }
 
 /**
@@ -99,11 +103,34 @@ function capabilityLabels(capabilities: readonly CapabilityName[]): string[] {
   return labels;
 }
 
-export function General({ platform, capabilities, skills }: Props) {
+export function General({
+  platform,
+  capabilities,
+  skills,
+  executionMode,
+  onExecutionModeChange,
+}: Props) {
   const labels = capabilityLabels(capabilities);
 
   return (
     <div>
+      <section className="mb-8">
+        <h2 className="text-foreground mb-3 text-sm font-medium">Execution mode</h2>
+        <p className="text-foreground-muted mb-3 text-xs leading-relaxed">
+          How much Atlas asks before it acts. This never changes which actions are safe and which
+          aren&apos;t — only when the question about a consequential one gets put to you. The same
+          three modes are also reachable from the composer (Shift+Tab cycles them).
+        </p>
+        <SegmentedControl
+          options={EXECUTION_MODES.map((mode) => ({ value: mode, label: EXECUTION_MODE_META[mode].label }))}
+          value={executionMode}
+          onChange={onExecutionModeChange}
+        />
+        <p className="text-foreground-subtle mt-2 text-xs leading-relaxed">
+          {EXECUTION_MODE_META[executionMode].description}
+        </p>
+      </section>
+
       <section>
         <h2 className="text-foreground mb-3 text-sm font-medium">Device</h2>
         <dl className="border-border overflow-hidden rounded-xl border text-sm">

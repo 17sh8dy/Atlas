@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CapabilityName,
+  ExecutionMode,
   ListeningPreferences,
   Platform,
   SpeechPreferences,
@@ -22,13 +23,15 @@ import type {
   Storage,
   VoiceProfile,
 } from '@atlas/core';
-import { DEFAULT_LISTENING, DEFAULT_SPEECH } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE, DEFAULT_LISTENING, DEFAULT_SPEECH, nextExecutionMode } from '@atlas/core';
 import {
   readActiveProvider,
   readCortexSettings,
+  readExecutionMode,
   readListeningPreferences,
   readSpeechPreferences,
   readVoiceProfile,
+  writeExecutionMode,
   writeListeningPreferences,
   writeSpeechPreferences,
 } from '@atlas/data';
@@ -53,6 +56,7 @@ interface Loaded {
   speech: SpeechPreferences;
   speechVoices: SpeechVoice[];
   listening: ListeningPreferences;
+  executionMode: ExecutionMode;
 }
 
 export function AtlasApp({ platform, storage }: { platform: Platform; storage: Storage }) {
@@ -72,8 +76,18 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       // the Voice tab renders that case rather than pretending otherwise.
       platform.speechVoices?.().catch(() => [] as SpeechVoice[]) ?? Promise.resolve([]),
       readListeningPreferences(storage).catch(() => DEFAULT_LISTENING),
+      readExecutionMode(storage).catch(() => DEFAULT_EXECUTION_MODE),
     ]).then(
-      ([capabilities, voiceProfile, cortex, activeProviderId, speech, speechVoices, listening]) => {
+      ([
+        capabilities,
+        voiceProfile,
+        cortex,
+        activeProviderId,
+        speech,
+        speechVoices,
+        listening,
+        executionMode,
+      ]) => {
         if (alive)
           setLoaded({
             capabilities,
@@ -83,6 +97,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
             speech,
             speechVoices,
             listening,
+            executionMode,
           });
       },
     );
@@ -112,6 +127,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       speech={loaded.speech}
       speechVoices={loaded.speechVoices}
       listening={loaded.listening}
+      executionMode={loaded.executionMode}
       onVoiceProfileChange={reload}
       onProviderChange={reload}
       onPreferencesSaved={reload}
@@ -129,6 +145,7 @@ function Ready({
   speech,
   speechVoices,
   listening: listeningPrefs,
+  executionMode,
   onVoiceProfileChange,
   onProviderChange,
   onPreferencesSaved,
@@ -142,6 +159,7 @@ function Ready({
   speech: SpeechPreferences;
   speechVoices: SpeechVoice[];
   listening: ListeningPreferences;
+  executionMode: ExecutionMode;
   onVoiceProfileChange: () => void;
   onProviderChange: () => void;
   onPreferencesSaved: () => void;
@@ -178,6 +196,23 @@ function Ready({
     activeProviderId,
     speechForScreen,
     voice.speak,
+    executionMode,
+  );
+
+  /**
+   * Written and reloaded rather than mirrored in local state — same reasoning
+   * as `onSpeechChange`: one source of truth for the setting.
+   */
+  const onExecutionModeChange = useCallback(
+    (next: ExecutionMode) => {
+      void writeExecutionMode(storage, next).then(onPreferencesSaved);
+    },
+    [storage, onPreferencesSaved],
+  );
+
+  const cycleExecutionMode = useCallback(
+    () => onExecutionModeChange(nextExecutionMode(executionMode)),
+    [onExecutionModeChange, executionMode],
   );
 
   /**
@@ -540,6 +575,8 @@ function Ready({
             onAnswerConfirm={atlas.answerConfirm}
             onCopy={atlas.copy}
             onAskAgain={askAloud}
+            executionMode={executionMode}
+            onCycleExecutionMode={cycleExecutionMode}
             dictation={
               listening.supported && listeningPrefs.enabled
                 ? {
@@ -557,6 +594,8 @@ function Ready({
             storage={storage}
             capabilities={capabilities}
             skills={atlas.skills}
+            executionMode={executionMode}
+            onExecutionModeChange={onExecutionModeChange}
             voiceProfile={voiceProfile}
             onVoiceProfileChange={onVoiceProfileChange}
             cortex={cortex}

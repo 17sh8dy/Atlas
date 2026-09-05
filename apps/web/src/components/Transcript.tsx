@@ -211,7 +211,13 @@ function EntryView({
           <div className="min-w-0 flex-1">
             <p className="text-foreground text-sm font-medium">{entry.question}</p>
             {entry.detail && (
-              <p className="text-foreground-subtle mt-1 break-all text-xs">{entry.detail}</p>
+              // `whitespace-pre-wrap` alongside `break-all`: a single-step
+              // confirmation is one long line that may need breaking mid-word
+              // (a path), while a Plan First approval is a newline-joined
+              // numbered list that has to keep its line breaks to read as one.
+              <p className="text-foreground-subtle mt-1 whitespace-pre-wrap break-all text-xs">
+                {entry.detail}
+              </p>
             )}
 
             {answered ? (

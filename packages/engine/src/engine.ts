@@ -23,6 +23,7 @@
  */
 
 import type {
+  ExecutionMode,
   IntelligenceProvider,
   IntelligenceRegistry,
   Plan,
@@ -31,6 +32,7 @@ import type {
   SkillContext,
   VoiceProfile,
 } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE } from '@atlas/core';
 import { Bus } from './bus';
 import { Grammar } from './planner/grammar';
 import { Executor } from './planner/executor';
@@ -76,6 +78,14 @@ export interface EngineOptions {
    * means those rules never have anything to resolve, not an error.
    */
   working?: WorkingMemory;
+  /**
+   * Read at the moment each plan runs, not captured at construction — cycling
+   * modes (Shift+Tab) has to take effect on the very next thing Atlas does,
+   * not the next time the engine happens to be rebuilt. A function rather
+   * than a value for exactly that reason; see `useAtlas`'s `speechRef` for
+   * the same pattern applied to speech preferences.
+   */
+  getExecutionMode?: () => ExecutionMode;
 }
 
 export class Engine {
@@ -92,6 +102,7 @@ export class Engine {
    * reason `phrasing.ts` exists.
    */
   private readonly phrasing: Phrasing;
+  private readonly getExecutionMode: () => ExecutionMode;
 
   constructor(options: EngineOptions) {
     this.skills = options.skills;
@@ -102,6 +113,7 @@ export class Engine {
     this.working = options.working ?? new WorkingMemory();
     this.phrasing = createPhrasing(options.voice);
     this.executor = new Executor(this.skills, this.phrasing);
+    this.getExecutionMode = options.getExecutionMode ?? (() => DEFAULT_EXECUTION_MODE);
   }
 
   async ask(text: string, io: EngineIO): Promise<AskOutcome> {
@@ -162,7 +174,7 @@ export class Engine {
     }
 
     if (matched && matched.confidence >= this.threshold) {
-      const outcome = await this.executor.run(matched, ctx);
+      const outcome = await this.executor.run(matched, ctx, { mode: this.getExecutionMode() });
       this.bus.emit('engine:done', { mode: 'command', plan: matched, outcome });
       return { ok: outcome.ok, mode: 'command', plan: matched, outcome };
     }
@@ -173,7 +185,7 @@ export class Engine {
     if (instruction) {
       const proposed = await this.planWithAI(understood);
       if (proposed) {
-        const outcome = await this.executor.run(proposed, ctx);
+        const outcome = await this.executor.run(proposed, ctx, { mode: this.getExecutionMode() });
         this.bus.emit('engine:done', { mode: 'command', plan: proposed, outcome });
         return { ok: outcome.ok, mode: 'command', plan: proposed, outcome };
       }
@@ -219,7 +231,7 @@ export class Engine {
 
   /** Run a plan built elsewhere — a button, a result row, a saved routine. */
   async run(plan: Plan, io: EngineIO): Promise<PlanOutcome> {
-    return this.executor.run(plan, this.context(io));
+    return this.executor.run(plan, this.context(io), { mode: this.getExecutionMode() });
   }
 
   private context(io: EngineIO): SkillContext {

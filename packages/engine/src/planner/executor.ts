@@ -1,10 +1,14 @@
 /**
  * The executor — runs a plan, and is where the safety model actually bites.
  *
- * Three rules, each learned from the way this goes wrong otherwise:
+ * Four rules, each learned from the way this goes wrong otherwise:
  *
  *  1. A `confirm` step stops and asks. One approval covers one step, never the
  *     session — "yes" to opening a file is not standing consent to open files.
+ *     `planFirst` is the one deliberate exception: there, one approval can
+ *     cover every step of a plan the user was just shown in full — still
+ *     bounded and still explicit, just scoped to the plan rather than the
+ *     step. See "Execution mode" below.
  *  2. A failed step aborts the rest by default. In a two-step plan whose first
  *     step didn't find the file, running the second against nothing is worse
  *     than stopping.
@@ -12,9 +16,26 @@
  *     after the user said no is the single most alarming thing an agent can do.
  *  4. A plan the content policy refuses never starts — it is not announced,
  *     not confirmed, and no step of it runs. See `safety/content-policy.ts`.
+ *
+ * ── Execution mode ───────────────────────────────────────────────────────────
+ * `ExecutionMode` (see `@atlas/core`) decides *when* a confirm step's question
+ * is put to the user, never *whether* — that is still `Skill.risk` alone.
+ *
+ * `doIt` and `confirmActions` run the identical per-step loop: a safe step
+ * runs, a confirm step asks right there, immediately before it runs. They are
+ * named separately because `confirmActions` is the guarantee that this stays
+ * true even once something else (like `planFirst`) exists that could batch
+ * approvals — picking it means "never batch mine."
+ *
+ * `planFirst` only changes anything when the plan actually contains a confirm
+ * step: it shows every step once, up front, and one approval covers the whole
+ * plan — the individual `ctx.confirm` below is then skipped for steps that
+ * were already named in it. A plan of only safe steps never shows this card;
+ * matching every other mode, harmless things stay silent.
  */
 
-import type { Plan, PlanOutcome, SkillContext, StepOutcome } from '@atlas/core';
+import type { ExecutionMode, Plan, PlanOutcome, SkillContext, StepOutcome } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { refusalFor, screenPlan } from '../safety/content-policy';
@@ -22,6 +43,8 @@ import { refusalFor, screenPlan } from '../safety/content-policy';
 export interface ExecutorOptions {
   /** Set false to run every step regardless of failures. */
   stopOnError?: boolean;
+  /** Defaults to `doIt` — today's behaviour, unchanged for callers who don't pass one. */
+  mode?: ExecutionMode;
 }
 
 export class Executor {
@@ -36,6 +59,7 @@ export class Executor {
 
   async run(plan: Plan, ctx: SkillContext, options: ExecutorOptions = {}): Promise<PlanOutcome> {
     const stopOnError = options.stopOnError !== false;
+    const mode = options.mode ?? DEFAULT_EXECUTION_MODE;
     const outcomes: StepOutcome[] = [];
 
     if (!plan.steps.length) {
@@ -63,9 +87,55 @@ export class Executor {
       };
     }
 
-    // A multi-step plan says what it's about to do first, so the user can stop
-    // it before it starts rather than watching it happen.
-    if (plan.steps.length > 1) {
+    // Plan First's gate: only when there is something in the plan actually
+    // worth approving in advance. A plan of entirely safe steps falls through
+    // to the ordinary "right then" announcement below, same as every other
+    // mode — this is what keeps harmless requests just as quiet under this
+    // mode as under the other two.
+    const hasConsequentialStep = plan.steps.some(
+      (s) => this.skills.get(s.skill)?.risk === 'confirm',
+    );
+    // Same reasoning as the per-step guard check below, applied to the whole
+    // plan: a card must never appear in front of something that would then be
+    // refused. Checked eagerly, before the card would be drawn, rather than
+    // discovered mid-plan — a batch approval covering a step that can never
+    // run is worse than no batching at all, so a plan with a refusal in it
+    // just falls back to asking (or refusing) step by step, same as `doIt`.
+    const hasGuardedStep = plan.steps.some((s) => {
+      const skill = this.skills.get(s.skill);
+      return Boolean(skill?.guard?.(s.args));
+    });
+    const usingPlanApproval = mode === 'planFirst' && hasConsequentialStep && !hasGuardedStep;
+
+    if (usingPlanApproval) {
+      const { question, detail } = this.phrasing.planApproval(
+        plan.steps.map((s) => {
+          const skill = this.skills.get(s.skill);
+          return {
+            label: skill?.label ?? s.skill,
+            consequential: skill?.risk === 'confirm',
+          };
+        }),
+      );
+      const approved = await ctx.confirm(question, detail);
+      if (!approved) {
+        ctx.say(this.phrasing.declined());
+        return {
+          ok: false,
+          ran: 0,
+          outcomes: plan.steps.map((s) => ({
+            skill: s.skill,
+            ok: false,
+            skipped: true,
+            error: 'Cancelled.',
+          })),
+          aborted: true,
+        };
+      }
+    } else if (plan.steps.length > 1) {
+      // A multi-step plan says what it's about to do first, so the user can
+      // stop it before it starts rather than watching it happen. Skipped
+      // above because the plan-approval card already said as much.
       const names = plan.steps.map((s) => this.skills.get(s.skill)?.label.toLowerCase() ?? s.skill);
       ctx.say(this.phrasing.rightThen(names));
     }
@@ -101,13 +171,17 @@ export class Executor {
         break;
       }
 
-      if (skill.risk === 'confirm') {
-        const detail = Object.values(step.args)
+      // Plan First already put this exact step in front of the user as part
+      // of the whole-plan approval above — asking again here would be the
+      // "trip back to the keyboard" this mode exists to avoid.
+      if (skill.risk === 'confirm' && !usingPlanApproval) {
+        const argsDetail = Object.values(step.args)
           .filter((v) => v !== undefined && v !== null && v !== '')
           .map(String)
           .join(' · ');
 
-        const approved = await ctx.confirm(`${skill.label}?`, detail || undefined);
+        const { question, detail } = this.phrasing.confirmPrompt(skill.description, argsDetail);
+        const approved = await ctx.confirm(question, detail);
         if (!approved) {
           outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
           ctx.say(this.phrasing.declined());

@@ -18,6 +18,7 @@ export { writePreference, readVoiceProfile } from './preferences';
 export type { PreferenceSubject } from './preferences';
 export { MemoryStore } from './memory-store';
 export { readSpeechPreferences, writeSpeechPreferences } from './speech-preferences';
+export { readExecutionMode, writeExecutionMode } from './execution-mode-preference';
 export { readListeningPreferences, writeListeningPreferences } from './listening-preferences';
 export {
   readCortexSettings,

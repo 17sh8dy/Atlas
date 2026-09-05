@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ExecutionMode,
   Platform,
   ResultRow,
   SpeechOptions,
@@ -22,7 +23,7 @@ import type {
   Storage,
   VoiceProfile,
 } from '@atlas/core';
-import { DEFAULT_SPEECH } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH } from '@atlas/core';
 import { MemoryStore } from '@atlas/data';
 import type { CortexSettings } from '@atlas/data';
 import { createCortexProvider } from '@atlas/platform';
@@ -81,6 +82,7 @@ export function useAtlas(
    * playing, and two players would mean two Atlases able to talk at once.
    */
   speak: (text: string, options?: SpeechOptions) => void = () => {},
+  executionMode: ExecutionMode = DEFAULT_EXECUTION_MODE,
 ) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -89,6 +91,16 @@ export function useAtlas(
   const push = useCallback((entry: Omit<Entry, 'id'>) => {
     setEntries((prev) => [...prev, { ...entry, id: nextId++ }]);
   }, []);
+
+  /**
+   * Read from a ref for the same reason `speechRef` is: cycling modes
+   * (Shift+Tab) has to take effect on the very next thing Atlas does, and
+   * rebuilding the engine mid-conversation to pick up a new dependency value
+   * would cost far more (working memory, the skill registry) than a setting
+   * that changed is worth.
+   */
+  const executionModeRef = useRef<ExecutionMode>(executionMode);
+  executionModeRef.current = executionMode;
 
   const phrasing = useMemo(() => createPhrasing(voiceProfile), [voiceProfile]);
   const memory = useMemo(() => new MemoryStore(storage), [storage]);
@@ -127,7 +139,14 @@ export function useAtlas(
     intelligence.register(createCortexProvider(cortex));
     intelligence.setActive(activeProviderId);
 
-    return new Engine({ skills, grammar, voice: voiceProfile, working, intelligence });
+    return new Engine({
+      skills,
+      grammar,
+      voice: voiceProfile,
+      working,
+      intelligence,
+      getExecutionMode: () => executionModeRef.current,
+    });
   }, [platform, capabilities, memory, phrasing, voiceProfile, working, cortex, activeProviderId]);
 
   // Episodic memory doesn't touch the ask/io path at all — it just listens.
