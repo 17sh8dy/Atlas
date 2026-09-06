@@ -3145,6 +3145,66 @@ test('opening several: the same app named twice opens once', async () => {
   assert.deepEqual(h.journal.launched, ['steam']);
 });
 
+// ---- two different instructions in one sentence ---------------------------------
+//
+// `appOpen` is deliberately the greediest rule — "anything shaped like open X"
+// — which is exactly what let it swallow a second, unrelated instruction as
+// if it were part of an app's name. `Grammar.tryCompound` re-parses each half
+// of an "X and Y" / "X then Y" sentence on its own, and only accepts the split
+// when both halves independently earn a plan through the ordinary chain.
+
+test('compound: "open X and search youtube for Y" is two commands, not one', async () => {
+  const h = harness();
+  await h.engine.ask('open steam and search youtube for fortnite', io(h));
+  assert.deepEqual(h.journal.launched, ['steam']);
+  assert.lengthOf(h.journal.urls, 1);
+  assert.match(h.journal.urls[0]!, /youtube\.com\/results\?search_query=fortnite/);
+});
+
+test('compound: the order can run the other way too', async () => {
+  const h = harness();
+  await h.engine.ask('search youtube for fortnite and open steam', io(h));
+  assert.deepEqual(h.journal.launched, ['steam']);
+  assert.lengthOf(h.journal.urls, 1);
+  assert.match(h.journal.urls[0]!, /youtube\.com\/results\?search_query=fortnite/);
+});
+
+test('compound: "then" works as the connector too', async () => {
+  const h = harness();
+  await h.engine.ask('open discord then search for tide times', io(h));
+  assert.deepEqual(h.journal.launched, ['discord']);
+  assert.lengthOf(h.journal.urls, 1);
+  assert.match(h.journal.urls[0]!, /google\.com\/search\?q=tide/);
+});
+
+test('compound: two apps named together stays one launch, not a split', async () => {
+  const h = harness();
+  const plan = h.engine.grammar.parse('open obs and epic games');
+  // Still a single app.open step — resolveSeveral, not the compound path —
+  // because "epic games" alone (no leading verb) can't stand as its own plan.
+  assert.equal(plan?.steps.length, 1);
+  assert.equal(plan?.steps[0]?.skill, 'app.open');
+});
+
+test('compound: a lone "and" inside a real query is never split', async () => {
+  const h = harness();
+  const plan = h.engine.grammar.parse('search the web for cats and dogs');
+  // "dogs" alone matches no rule, so the split is declined and the whole
+  // phrase stays one query.
+  assert.equal(plan?.steps.length, 1);
+  assert.equal(plan?.steps[0]?.args.query, 'cats and dogs');
+});
+
+test('compound: free-text skills are never second-guessed', async () => {
+  const h = harness();
+  // A todo's own text legitimately contains "and" — this must never be read
+  // as two instructions, whatever it starts with.
+  const plan = h.engine.grammar.parse('remind me to open the garage and turn off the lights');
+  assert.equal(plan?.steps.length, 1);
+  assert.equal(plan?.steps[0]?.skill, 'todo.add');
+  assert.equal(plan?.steps[0]?.args.text, 'open the garage and turn off the lights');
+});
+
 // ---- what is worth reading aloud -----------------------------------------------
 //
 // Speaking every reply is fine right up until the reply is a password. These
