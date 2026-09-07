@@ -36,6 +36,11 @@ trash = "3"
 # -command shape as everything else in this file.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "multipart"] }
 scraper = "0.20"
+# screen.rs: encodes the raw BGRA buffer GDI hands back into PNG. GDI capture
+# is real, bug-prone work the ecosystem already solved correctly; writing a
+# PNG encoder by hand for this would be new bugs for no new capability.
+# `default-features = false` keeps every codec but PNG out of the binary.
+image = { version = "0.25", default-features = false, features = ["png"] }
 percent-encoding = "2"
 # Kokoro (kokoro.rs) — the refined voice, run in this process rather than
 # shelled out to.
@@ -75,6 +80,26 @@ windows = { version = "0.58", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
+  # window.rs: DwmGetWindowAttribute's extended-frame-bounds atom is the true
+  # visible outline of a window, unlike GetWindowRect which since Windows 10
+  # includes several pixels of invisible resize border on every side.
+  "Win32_Graphics_Dwm",
+  # uia.rs: UI Automation is a COM API (IUIAutomation and friends). Bound
+  # directly against `windows` rather than through a wrapper crate — every
+  # other native surface in this codebase (kokoro.rs's ONNX/espeak loading,
+  # services.rs's ShellExecuteEx) is hand-written against `windows` the same
+  # way, and a second, less-audited crate would only save boilerplate.
+  "Win32_System_Com",
+  "Win32_UI_Accessibility",
+  # screen.rs: GDI bitmap capture (BitBlt/CreateDIBSection/GetDIBits) and
+  # display enumeration.
+  "Win32_Graphics_Gdi",
+  # PrintWindow — despite what it does, Windows' own metadata files it under
+  # the print/XPS surface rather than Gdi or WindowsAndMessaging.
+  "Win32_Storage_Xps",
+  # GetDpiForMonitor, so a captured screen's pixel size matches its reported
+  # bounds on a scaled display instead of silently disagreeing with them.
+  "Win32_UI_HiDpi",
 ] }
 
 [dev-dependencies]

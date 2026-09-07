@@ -26,6 +26,12 @@ import type {
   WifiStatus,
   PathInfo,
   WebSearchResult,
+  WindowEntry,
+  CursorPosition,
+  MouseButton,
+  UiaNode,
+  DisplayInfo,
+  WindowsCompatibility,
 } from '@atlas/core';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -153,6 +159,58 @@ export function createTauriPlatform(): Platform {
     listServices: () => invoke<ServiceEntry[]>('list_services'),
     serviceDetail: (name) => invoke<ServiceDetail>('service_detail', { name }),
     serviceControl: (name, action) => invoke<ServiceOutcome>('service_control', { name, action }),
+
+    listWindows: () => invoke<WindowEntry[]>('list_windows'),
+    activeWindow: () => invoke<WindowEntry | null>('active_window'),
+    focusWindow: (id) => invoke<boolean>('focus_window', { id }),
+    minimizeWindow: (id) => invoke<boolean>('minimize_window', { id }),
+    maximizeWindow: (id) => invoke<boolean>('maximize_window', { id }),
+    restoreWindow: (id) => invoke<boolean>('restore_window', { id }),
+    setWindowBounds: (id, bounds) =>
+      invoke<boolean>('set_window_bounds', {
+        id,
+        x: bounds.x ?? null,
+        y: bounds.y ?? null,
+        width: bounds.width ?? null,
+        height: bounds.height ?? null,
+      }),
+    closeWindow: (id) => invoke<boolean>('close_window', { id }),
+    endProcess: (pid) => invoke<boolean>('end_process', { pid }),
+
+    moveMouse: (x, y) => invoke<boolean>('move_mouse', { x, y }),
+    cursorPosition: () => invoke<CursorPosition>('cursor_position'),
+    mouseClick: (x, y, button, double) =>
+      invoke<boolean>('mouse_click', { x, y, button, double: double ?? null }),
+    mouseScroll: (amount) => invoke<boolean>('mouse_scroll', { amount }),
+    mouseDrag: (fromX, fromY, toX, toY, button) =>
+      invoke<boolean>('mouse_drag', {
+        fromX,
+        fromY,
+        toX,
+        toY,
+        button: (button as MouseButton | undefined) ?? null,
+      }),
+    pressKey: (key) => invoke<boolean>('press_key', { key }),
+    hotkey: (modifiers, key) => invoke<boolean>('hotkey', { modifiers, key }),
+    typeText: (text) => invoke<boolean>('type_text', { text }),
+
+    uiaTree: (windowId, maxDepth) =>
+      invoke<UiaNode>('uia_tree', { windowId, maxDepth: maxDepth ?? null }),
+    uiaFocusedElement: () => invoke<UiaNode | null>('uia_focused_element'),
+    uiaInvoke: (windowId, path) => invoke<boolean>('uia_invoke', { windowId, path }),
+    uiaSetExpanded: (windowId, path, expand) =>
+      invoke<boolean>('uia_set_expanded', { windowId, path, expand }),
+    uiaSetValue: (windowId, path, value) =>
+      invoke<boolean>('uia_set_value', { windowId, path, value }),
+    uiaFocus: (windowId, path) => invoke<boolean>('uia_focus', { windowId, path }),
+
+    // Same shape as `synthesizeSpeech`: the command returns a
+    // `tauri::ipc::Response`, so the bytes need the same transport-agnostic
+    // conversion — see `toArrayBuffer`'s doc comment.
+    captureWindow: async (windowId) => toArrayBuffer(await invoke<unknown>('capture_window', { windowId })),
+    captureScreen: async () => toArrayBuffer(await invoke<unknown>('capture_screen')),
+    listDisplays: () => invoke<DisplayInfo[]>('list_displays'),
+    windowsCompatibility: () => invoke<WindowsCompatibility>('windows_compatibility'),
 
     logDiagnostic: (scope, message) => invoke<void>('log_diagnostic', { scope, message }),
   };

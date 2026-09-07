@@ -30,6 +30,10 @@ export { createNotesSkills } from './skills/notes-skills';
 export { createOsSkills } from './skills/os-skills';
 export { createNetworkSkills } from './skills/network-skills';
 export { createServiceSkills } from './skills/service-skills';
+export { createWindowSkills } from './skills/window-skills';
+export { createInputSkills } from './skills/input-skills';
+export { createUiaSkills } from './skills/uia-skills';
+export { createScreenSkills } from './skills/screen-skills';
 export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
 
@@ -48,6 +52,8 @@ export { readSmallTalk, type SmallTalkKind } from './text/smalltalk';
 export { stripFiller, splitBrowserHint, normalizeRequest } from './text/normalize';
 export { KNOWN_SITES, resolveSite, isKnownSiteName, exactSiteName } from './text/sites';
 export type { KnownSite } from './text/sites';
+export { resolveWindow, liveWindows } from './text/windows';
+export type { WindowMatch } from './text/windows';
 
 export {
   filterDestinations,

@@ -26,6 +26,11 @@ import type { SpeechOptions, SpeechVoice } from '../models/speech';
 import type { Transcript } from '../models/listening';
 import type { NetworkAdapter, WifiStatus } from '../models/network';
 import type { ServiceAction, ServiceDetail, ServiceEntry, ServiceOutcome } from '../models/service';
+import type { WindowEntry } from '../models/window';
+import type { CursorPosition, MouseButton } from '../models/input';
+import type { UiaNode } from '../models/uia';
+import type { DisplayInfo } from '../models/screen';
+import type { WindowsCompatibility } from '../models/compat';
 
 /** Names the engine checks before offering a skill. */
 export type CapabilityName =
@@ -38,6 +43,10 @@ export type CapabilityName =
   | 'notifications'
   | 'os' // the machine itself: lock, power, volume, media keys
   | 'windows' // Atlas's own window: show, hide, position
+  | 'window-control' // OTHER windows on the desktop: list, focus, move, close
+  | 'input' // synthetic mouse and keyboard, for when nothing else can reach it
+  | 'ui-automation' // inspect and operate other apps' actual controls
+  | 'screen' // capture what's on screen, and read display information
   | 'network' // search the web, fetch a page
   | 'services' // Windows services: list, inspect, start/stop
   | 'speech' // say things out loud, locally
@@ -244,6 +253,108 @@ export interface Platform {
   listServices?(): Promise<ServiceEntry[]>;
   serviceDetail?(name: string): Promise<ServiceDetail>;
   serviceControl?(name: string, action: ServiceAction): Promise<ServiceOutcome>;
+
+  /**
+   * Windows other than Atlas's own, gated by `window-control`.
+   *
+   * `listWindows` returns the same set Alt+Tab roughly shows — visible,
+   * titled, top-level windows — because that is the set a person means by
+   * "my windows". `activeWindow` deliberately answers even for a window that
+   * filter would exclude: "what's focused right now" should never come back
+   * empty just because the focused thing is a utility window.
+   *
+   * Every method taking an `id` re-resolves it against the live desktop
+   * rather than trusting a handle the renderer is holding onto — a window can
+   * close between being listed and being acted on, the same trust boundary
+   * every path-taking method on this port already has.
+   */
+  listWindows?(): Promise<WindowEntry[]>;
+  activeWindow?(): Promise<WindowEntry | null>;
+  focusWindow?(id: string): Promise<boolean>;
+  minimizeWindow?(id: string): Promise<boolean>;
+  maximizeWindow?(id: string): Promise<boolean>;
+  restoreWindow?(id: string): Promise<boolean>;
+  /** Any field left out keeps the window's current value for it. */
+  setWindowBounds?(
+    id: string,
+    bounds: { x?: number; y?: number; width?: number; height?: number },
+  ): Promise<boolean>;
+  /** A request to close, the same one `WM_CLOSE` sends — not a forced kill. */
+  closeWindow?(id: string): Promise<boolean>;
+  /**
+   * End a running process outright, gated by `window-control` alongside the
+   * rest of this group since both read from the same process list. Refused
+   * rather than merely confirmed for anything the session doesn't survive
+   * losing — see `end_process`'s guard in `window.rs`.
+   */
+  endProcess?(pid: number): Promise<boolean>;
+
+  /**
+   * Synthetic mouse and keyboard, gated by `input` — the last resort, tried
+   * only once a Windows API or UI Automation can't reach a control.
+   *
+   * `moveMouse`, `cursorPosition` and `mouseScroll` are `safe` at the skill
+   * layer: moving the cursor or scrolling is cosmetic and instantly
+   * reversible. A click, a drag, a key press or typed text can do anything
+   * the target application lets a human do, which is why every one of those
+   * is `confirm` — see `window-skills.ts`'s doc comment for the same
+   * reasoning applied to closing a window.
+   */
+  moveMouse?(x: number, y: number): Promise<boolean>;
+  cursorPosition?(): Promise<CursorPosition>;
+  mouseClick?(x: number, y: number, button: MouseButton, double?: boolean): Promise<boolean>;
+  /** Notches, not pixels — positive scrolls up, negative scrolls down. */
+  mouseScroll?(amount: number): Promise<boolean>;
+  mouseDrag?(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    button?: MouseButton,
+  ): Promise<boolean>;
+  /** A named key from a closed table — never an arbitrary code. */
+  pressKey?(key: string): Promise<boolean>;
+  /** Up to three modifiers plus one key, e.g. `(['ctrl'], 'c')`. */
+  hotkey?(modifiers: string[], key: string): Promise<boolean>;
+  /** Arbitrary Unicode text, sent character by character. */
+  typeText?(text: string): Promise<boolean>;
+
+  /**
+   * UI Automation, gated by `ui-automation` — the preferred way to operate
+   * another application, ahead of raw input, because it acts on the control
+   * itself rather than guessing at where it happens to be drawn.
+   *
+   * `path` addresses an element as the sequence of child indices from the
+   * window's root — see `UiaNode`'s doc comment for why. `uiaTree` is `safe`
+   * at the skill layer; every action method acts on another application on
+   * your behalf and is `confirm`.
+   */
+  uiaTree?(windowId: string, maxDepth?: number): Promise<UiaNode>;
+  /** Whatever currently has keyboard focus, system-wide. */
+  uiaFocusedElement?(): Promise<UiaNode | null>;
+  /** Click, toggle or select — whichever pattern the element actually supports. */
+  uiaInvoke?(windowId: string, path: number[]): Promise<boolean>;
+  uiaSetExpanded?(windowId: string, path: number[], expand: boolean): Promise<boolean>;
+  /** Direct text entry via ValuePattern — fails when the control doesn't support it. */
+  uiaSetValue?(windowId: string, path: number[], value: string): Promise<boolean>;
+  /** Bring keyboard focus to an element, e.g. before falling back to `typeText`. */
+  uiaFocus?(windowId: string, path: number[]): Promise<boolean>;
+
+  /**
+   * Screen capture and displays, gated by `screen` — reached for only once a
+   * Windows API or UI Automation can't answer the question (see
+   * `screen-skills.ts`). Both captures resolve to a PNG.
+   */
+  captureWindow?(windowId: string): Promise<ArrayBuffer>;
+  captureScreen?(): Promise<ArrayBuffer>;
+  listDisplays?(): Promise<DisplayInfo[]>;
+
+  /**
+   * Which Windows this is — informational, shown in About. Not gated by a
+   * `CapabilityName`: nothing in this port actually varies by version, so
+   * there is no skill to hide and no planner decision this affects.
+   */
+  windowsCompatibility?(): Promise<WindowsCompatibility>;
 
   /**
    * Write a line to the app's diagnostics file.

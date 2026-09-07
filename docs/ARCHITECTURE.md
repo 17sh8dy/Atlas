@@ -323,6 +323,51 @@ CPU without VNNI (which includes every Zen 3 machine), and `resource_dir()`
 returns a `\\?\` verbatim path that espeak cannot use — it responded by
 calling `exit()` and taking the whole app down with it.
 
+### 6.6 Operating other applications (`window.rs`, `input.rs`, `uia.rs`, `screen.rs`)
+
+Phase 12 (`ROADMAP.md`) added three domains Phase 11's original ten didn't
+anticipate: controlling *other* windows on the desktop, synthesizing mouse and
+keyboard input, and UI Automation — reading and acting on another app's actual
+controls. All three still answer to the rules already established above; this
+section records the two decisions that were genuinely new.
+
+**Risk stayed two-tier, and the existing test decided every case.** "Does this
+change something closing a window won't undo?" turns out to answer this whole
+surface without inventing a third tier: enumerating/inspecting windows,
+reading the UI tree, reading what's focused, moving the mouse and scrolling
+are `safe`; closing a window, ending a process, and every UI-Automation action
+or synthesized click/keypress/typed string are `confirm`. The one addition is
+that raw input is *uniformly* on the `confirm` side — there is no `safe`
+click, because a click can do anything the target application would let a
+human at the keyboard do, and there is no way to know in advance which.
+
+**An element is addressed as a path, never held as a live pointer.**
+`window.rs` already re-resolves a window handle by id on every call, checked
+with `IsWindow`, because a window can close between being listed and being
+acted on. `uia.rs` extends the same discipline to something a COM pointer
+can't do at all — cross the IPC boundary — by addressing a UI Automation
+element as the sequence of child indices from its window's root (`UiaNode.path`
+in `core/models/uia.ts`). Every action re-walks that path fresh from the root
+immediately before acting, and fails cleanly ("that part of the window has
+changed") if the shape underneath no longer matches, rather than acting on
+whatever happens to be there now. `uia.typeInto` tries `ValuePattern` first
+and falls back to focusing the element plus `input.rs`'s keystrokes only when
+the control doesn't support direct entry — the "API → UIA → input" preference
+order expressed as one skill instead of three the caller has to sequence.
+
+⚠️ **No local OCR, no pixel-level vision, and no cloud "describe the screen"
+skill.** `screen.rs` captures real pixels (GDI `BitBlt`/`PrintWindow`, encoded
+to PNG), but "understanding" what's in them is deliberately left to UI
+Automation's bounding rectangles, which already say what and where a control
+is more reliably than pixel guessing would. A vision-based `screen.describe`
+was planned and then dropped once it became clear the intelligence port
+(`core/ports/intelligence.ts`) is Cortex-only and text-prompt-only — `ask`
+has no channel for an image, and Cortex itself has no vision model. Building
+a "describe" skill on top of that would have been exactly the kind of
+placeholder function this project refuses to ship; it waits for a real
+vision-capable provider to exist. See Phase 12 in `ROADMAP.md` for what that
+leaves deferred.
+
 ---
 
 ## 7. Safety

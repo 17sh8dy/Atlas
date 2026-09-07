@@ -22,12 +22,22 @@ mod platform;
 #[cfg(windows)]
 mod services;
 #[cfg(windows)]
+mod input;
+#[cfg(windows)]
+mod uia;
+#[cfg(windows)]
+mod screen;
+#[cfg(windows)]
+mod compat;
+#[cfg(windows)]
 mod kokoro;
 #[cfg(windows)]
 mod speech;
 mod storage;
 #[cfg(windows)]
 mod web;
+#[cfg(windows)]
+mod window;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -98,6 +108,10 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
         "notifications",
         "os",
         "windows",
+        "window-control",
+        "input",
+        "ui-automation",
+        "screen",
         "network",
         "services",
     ];
@@ -181,6 +195,33 @@ pub fn run() {
             services::list_services,
             services::service_detail,
             services::service_control,
+            window::list_windows,
+            window::active_window,
+            window::focus_window,
+            window::minimize_window,
+            window::maximize_window,
+            window::restore_window,
+            window::set_window_bounds,
+            window::close_window,
+            window::end_process,
+            input::move_mouse,
+            input::cursor_position,
+            input::mouse_click,
+            input::mouse_scroll,
+            input::mouse_drag,
+            input::press_key,
+            input::hotkey,
+            input::type_text,
+            uia::uia_tree,
+            uia::uia_focused_element,
+            uia::uia_invoke,
+            uia::uia_set_expanded,
+            uia::uia_set_value,
+            uia::uia_focus,
+            screen::capture_window,
+            screen::capture_screen,
+            screen::list_displays,
+            compat::windows_compatibility,
             diagnostics::log_diagnostic,
             diagnostics::read_diagnostics,
             web::web_search,

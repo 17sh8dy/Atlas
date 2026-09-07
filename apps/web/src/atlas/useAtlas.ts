@@ -41,6 +41,10 @@ import {
   createOsSkills,
   createNetworkSkills,
   createServiceSkills,
+  createWindowSkills,
+  createInputSkills,
+  createUiaSkills,
+  createScreenSkills,
   createTextSkills,
   createUtilitySkills,
   createWebSearchSkills,
@@ -120,6 +124,10 @@ export function useAtlas(
     skills.registerMany(createOsSkills(platform));
     skills.registerMany(createNetworkSkills(platform));
     skills.registerMany(createServiceSkills(platform));
+    skills.registerMany(createWindowSkills(platform));
+    skills.registerMany(createInputSkills(platform));
+    skills.registerMany(createUiaSkills(platform));
+    skills.registerMany(createScreenSkills(platform));
 
     const grammar = new Grammar();
     grammar.addMany(createCoreGrammar(working));

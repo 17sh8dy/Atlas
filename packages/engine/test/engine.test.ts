@@ -33,6 +33,11 @@ import { createNotesSkills } from '../src/skills/notes-skills';
 import { createOsSkills } from '../src/skills/os-skills';
 import { createNetworkSkills } from '../src/skills/network-skills';
 import { createServiceSkills, resolveService } from '../src/skills/service-skills';
+import { createWindowSkills } from '../src/skills/window-skills';
+import { createInputSkills } from '../src/skills/input-skills';
+import { createUiaSkills } from '../src/skills/uia-skills';
+import { createScreenSkills } from '../src/skills/screen-skills';
+import { resolveWindow } from '../src/text/windows';
 import { createCoreGrammar } from '../src/planner/core-grammar';
 import { createExtraGrammar } from '../src/planner/extra-grammar';
 import { createPhrasing, JOKES } from '../src/phrasing';
@@ -63,6 +68,35 @@ interface Journal {
   appended: Array<{ path: string; content: string }>;
   os: string[];
   services: Array<{ name: string; action: string }>;
+  windowActions: Array<{ id: string; action: string }>;
+  windowBounds: Array<{ id: string; bounds: Record<string, number> }>;
+  endedProcesses: number[];
+  mouseMoves: Array<{ x: number; y: number }>;
+  clicks: Array<{ x: number; y: number; button: string; double: boolean }>;
+  scrolls: number[];
+  drags: Array<{ fromX: number; fromY: number; toX: number; toY: number; button: string }>;
+  keysPressed: string[];
+  hotkeys: Array<{ modifiers: string[]; key: string }>;
+  typed: string[];
+  uiaInvokes: Array<{ id: string; path: number[] }>;
+  uiaExpands: Array<{ id: string; path: number[]; expand: boolean }>;
+  uiaSetValues: Array<{ id: string; path: number[]; value: string }>;
+  uiaFocuses: Array<{ id: string; path: number[] }>;
+  screenCaptures: number;
+  windowCaptures: string[];
+}
+
+/** Just enough of a PNG for `pngDimensions` to read a width/height back out of. */
+function fakePng(width: number, height: number): ArrayBuffer {
+  const buf = new ArrayBuffer(24);
+  const view = new DataView(buf);
+  view.setUint32(0, 0x89504e47);
+  view.setUint32(4, 0x0d0a1a0a);
+  view.setUint32(8, 13);
+  view.setUint32(12, 0x49484452); // 'IHDR'
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return buf;
 }
 
 interface WebIndex {
@@ -115,6 +149,77 @@ const SERVICES = [
     state: 'STOPPED',
     running: false,
     protected: false,
+  },
+];
+
+/** The Notepad window's UI Automation tree: a text field, then a button. */
+const NOTEPAD_TREE = {
+  path: [] as number[],
+  role: 'window',
+  name: 'Untitled - Notepad',
+  automationId: '',
+  enabled: true,
+  x: 100,
+  y: 100,
+  width: 800,
+  height: 600,
+  children: [
+    {
+      path: [0],
+      role: 'edit',
+      name: 'Search',
+      automationId: 'SearchBox',
+      enabled: true,
+      x: 110,
+      y: 110,
+      width: 200,
+      height: 24,
+      children: [],
+    },
+    {
+      path: [1],
+      role: 'button',
+      name: 'Find Next',
+      automationId: 'FindNextButton',
+      enabled: true,
+      x: 320,
+      y: 110,
+      width: 80,
+      height: 24,
+      children: [],
+    },
+  ],
+};
+
+/** A small desktop: two ordinary windows and one Atlas would filter as a utility window. */
+const WINDOWS = [
+  {
+    id: '1001',
+    title: 'Untitled - Notepad',
+    className: 'Notepad',
+    processName: 'notepad.exe',
+    pid: 4001,
+    x: 100,
+    y: 100,
+    width: 800,
+    height: 600,
+    minimized: false,
+    maximized: false,
+    active: true,
+  },
+  {
+    id: '1002',
+    title: 'general - Discord',
+    className: 'Chrome_WidgetWin_1',
+    processName: 'discord.exe',
+    pid: 4002,
+    x: 200,
+    y: 150,
+    width: 1000,
+    height: 700,
+    minimized: false,
+    maximized: false,
+    active: false,
   },
 ];
 
@@ -281,6 +386,126 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       };
     },
 
+    listWindows: async () => WINDOWS.map((w) => ({ ...w })),
+    activeWindow: async () => {
+      const active = WINDOWS.find((w) => w.active);
+      return active ? { ...active } : null;
+    },
+    focusWindow: async (id) => {
+      journal.windowActions.push({ id, action: 'focus' });
+      return WINDOWS.some((w) => w.id === id);
+    },
+    minimizeWindow: async (id) => {
+      journal.windowActions.push({ id, action: 'minimize' });
+      return WINDOWS.some((w) => w.id === id);
+    },
+    maximizeWindow: async (id) => {
+      journal.windowActions.push({ id, action: 'maximize' });
+      return WINDOWS.some((w) => w.id === id);
+    },
+    restoreWindow: async (id) => {
+      journal.windowActions.push({ id, action: 'restore' });
+      return WINDOWS.some((w) => w.id === id);
+    },
+    setWindowBounds: async (id, bounds) => {
+      journal.windowBounds.push({ id, bounds: bounds as Record<string, number> });
+      return WINDOWS.some((w) => w.id === id);
+    },
+    closeWindow: async (id) => {
+      journal.windowActions.push({ id, action: 'close' });
+      return WINDOWS.some((w) => w.id === id);
+    },
+    endProcess: async (pid) => {
+      journal.endedProcesses.push(pid);
+      return [4242, 17, 99].includes(pid);
+    },
+
+    moveMouse: async (x, y) => {
+      journal.mouseMoves.push({ x, y });
+      return true;
+    },
+    cursorPosition: async () => ({ x: 42, y: 84 }),
+    mouseClick: async (x, y, button, double) => {
+      journal.clicks.push({ x, y, button, double: double ?? false });
+      return true;
+    },
+    mouseScroll: async (amount) => {
+      journal.scrolls.push(amount);
+      return true;
+    },
+    mouseDrag: async (fromX, fromY, toX, toY, button) => {
+      journal.drags.push({ fromX, fromY, toX, toY, button: button ?? 'left' });
+      return true;
+    },
+    pressKey: async (key) => {
+      journal.keysPressed.push(key);
+      return true;
+    },
+    hotkey: async (modifiers, key) => {
+      journal.hotkeys.push({ modifiers, key });
+      return true;
+    },
+    typeText: async (text) => {
+      journal.typed.push(text);
+      return true;
+    },
+
+    uiaTree: async (windowId) => (windowId === '1001' ? NOTEPAD_TREE : { ...NOTEPAD_TREE, children: [] }),
+    uiaFocusedElement: async () => ({
+      path: [],
+      role: 'edit',
+      name: 'Focused Field',
+      automationId: '',
+      enabled: true,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      children: [],
+    }),
+    uiaInvoke: async (windowId, path) => {
+      journal.uiaInvokes.push({ id: windowId, path });
+      return windowId === '1001';
+    },
+    uiaSetExpanded: async (windowId, path, expand) => {
+      journal.uiaExpands.push({ id: windowId, path, expand });
+      return windowId === '1001';
+    },
+    uiaSetValue: async (windowId, path, value) => {
+      journal.uiaSetValues.push({ id: windowId, path, value });
+      // Only the text field at path [0] accepts a direct value — the shape
+      // that forces `uia.typeInto` to fall back for anything else.
+      return windowId === '1001' && path.length === 1 && path[0] === 0;
+    },
+    uiaFocus: async (windowId, path) => {
+      journal.uiaFocuses.push({ id: windowId, path });
+      return windowId === '1001';
+    },
+
+    captureScreen: async () => {
+      journal.screenCaptures += 1;
+      return fakePng(1920, 1080);
+    },
+    captureWindow: async (id) => {
+      journal.windowCaptures.push(id);
+      return fakePng(800, 600);
+    },
+    listDisplays: async () => [
+      {
+        name: '\\\\.\\DISPLAY1',
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        workX: 0,
+        workY: 0,
+        workWidth: 1920,
+        workHeight: 1040,
+        primary: true,
+        dpi: 96,
+      },
+    ],
+
     pathInfo: async (path) => ({
       path,
       name: path.split(/[\\/]/).pop() ?? path,
@@ -431,6 +656,10 @@ function harness(
     'notifications',
     'os',
     'windows',
+    'window-control',
+    'input',
+    'ui-automation',
+    'screen',
     'network',
     'services',
   ],
@@ -454,6 +683,22 @@ function harness(
     appended: [],
     os: [],
     services: [],
+    windowActions: [],
+    windowBounds: [],
+    endedProcesses: [],
+    mouseMoves: [],
+    clicks: [],
+    scrolls: [],
+    drags: [],
+    keysPressed: [],
+    hotkeys: [],
+    typed: [],
+    uiaInvokes: [],
+    uiaExpands: [],
+    uiaSetValues: [],
+    uiaFocuses: [],
+    screenCaptures: 0,
+    windowCaptures: [],
   };
   const web = makeWebIndex();
   const platform = makePlatform(capabilities, journal, web);
@@ -470,6 +715,10 @@ function harness(
   skills.registerMany(createOsSkills(platform));
   skills.registerMany(createNetworkSkills(platform));
   skills.registerMany(createServiceSkills(platform));
+  skills.registerMany(createWindowSkills(platform));
+  skills.registerMany(createInputSkills(platform));
+  skills.registerMany(createUiaSkills(platform));
+  skills.registerMany(createScreenSkills(platform));
 
   const grammar = new Grammar();
   grammar.addMany(createCoreGrammar(working));
@@ -3101,6 +3350,386 @@ test('services: with no services capability the skills are not merely disabled',
   const ids = h.engine.skills.available().map((s) => s.id);
   assert.notInclude(ids, 'service.list');
   assert.notInclude(ids, 'service.stop');
+});
+
+// ---- windows (the first pack past Phase 11's original ten) --------------------
+//
+// Reads and cosmetic changes (list, focus, minimize/maximize/restore, move) are
+// `safe`; closing a window is `confirm`, the same "does this change something
+// closing a window won't undo" test everything else in this codebase uses —
+// applied here to something that is *literally* closing a window.
+
+test('windows: listing shows both, and asks nothing', async () => {
+  const h = harness();
+  await h.engine.ask('what windows do I have open', io(h));
+  assert.equal(h.rows.length, 2);
+  assert.deepEqual(h.confirmsAsked, []);
+});
+
+test('windows: the active one is reported by title and process', async () => {
+  const h = harness();
+  await h.engine.ask('what window is active', io(h));
+  assert.match(h.said.join(' '), /Untitled - Notepad \(notepad\.exe\)/);
+});
+
+test('windows: focusing a named window resolves it and asks nothing', async () => {
+  const h = harness();
+  await h.engine.ask('focus the notepad window', io(h));
+  assert.deepEqual(h.journal.windowActions, [{ id: '1001', action: 'focus' }]);
+  assert.deepEqual(h.confirmsAsked, []);
+  assert.match(h.said.join(' '), /Switched to Untitled - Notepad/);
+});
+
+test('windows: minimize, maximize and restore all resolve by title', async () => {
+  const h = harness();
+  await h.engine.ask('minimize the discord window', io(h));
+  await h.engine.ask('maximize the discord window', io(h));
+  await h.engine.ask('restore the discord window', io(h));
+  assert.deepEqual(
+    h.journal.windowActions,
+    ['minimize', 'maximize', 'restore'].map((action) => ({ id: '1002', action })),
+  );
+});
+
+test('windows: moving one leaves out whatever dimension was not given', async () => {
+  const h = harness();
+  const outcome = await h.engine.skills.invoke(
+    'window.move',
+    { name: 'notepad', width: 800, height: 600 },
+    io(h),
+  );
+  assert.isTrue(outcome.ok);
+  assert.deepEqual(h.journal.windowBounds, [{ id: '1001', bounds: { width: 800, height: 600 } }]);
+});
+
+test('windows: closing one asks first, and does nothing if declined', async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  await h.engine.ask('close the notepad window', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.windowActions, []);
+});
+
+test('windows: closing one runs once approved', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('close the notepad window', io(h));
+  assert.deepEqual(h.journal.windowActions, [{ id: '1001', action: 'close' }]);
+});
+
+test('windows: resolution offers candidates rather than guessing between two', () => {
+  const windows = [
+    { ...WINDOWS[0]!, id: 'a', title: 'Report - Word', processName: 'winword.exe' },
+    { ...WINDOWS[0]!, id: 'b', title: 'Budget - Word', processName: 'winword.exe' },
+  ];
+  const match = resolveWindow(windows, 'word');
+  assert.equal(match.kind, 'many');
+});
+
+test('windows: "close" alone still dismisses Atlas, not a window', () => {
+  const h = harness();
+  const parsed = h.engine.grammar.parse('close');
+  assert.equal(parsed?.steps[0]?.skill, 'atlas.hide');
+});
+
+test('windows: reading and repositioning never ask permission; closing always does', () => {
+  const h = harness();
+  for (const id of [
+    'window.list',
+    'window.active',
+    'window.focus',
+    'window.minimize',
+    'window.maximize',
+    'window.restore',
+    'window.move',
+  ]) {
+    assert.equal(h.engine.skills.get(id)?.risk, 'safe', id);
+  }
+  assert.equal(h.engine.skills.get('window.close')?.risk, 'confirm');
+});
+
+test('windows: with no window-control capability the skills are hidden, not disabled', () => {
+  const h = harness(['files', 'fs', 'apps', 'system', 'processes', 'os', 'windows', 'network']);
+  const ids = h.engine.skills.available().map((s) => s.id);
+  assert.notInclude(ids, 'window.list');
+  assert.notInclude(ids, 'window.close');
+});
+
+// ---- ending a process ----------------------------------------------------------
+
+test('process: ending one the session cannot lose is refused, not confirmed', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('end explorer.exe', io(h));
+  assert.deepEqual(h.journal.endedProcesses, [], 'it reached the machine anyway');
+  assert.deepEqual(h.confirmsAsked, [], 'a card was drawn in front of a refusal');
+  assert.match(h.said.join(' '), /won.t end/i);
+});
+
+test('process: an ordinary one asks first, then ends', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('end chrome.exe', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.endedProcesses, [4242]);
+});
+
+test('process: declining the card leaves it running', async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  await h.engine.ask('force close process 4242', io(h));
+  assert.deepEqual(h.journal.endedProcesses, []);
+});
+
+// ---- synthetic input -------------------------------------------------------------
+//
+// Moving the cursor and scrolling are cosmetic and reversible, so they're
+// `safe`; a click, a drag, a key press or typed text can do anything the
+// target application would let a human do, so every one of those asks first.
+
+test('input: moving the mouse and reading its position ask nothing', async () => {
+  // No one-shot grammar for coordinates — same scoping decision as
+  // `window.move` — so this goes through the registry directly, the way that
+  // skill's own test does.
+  const h = harness();
+  await h.engine.skills.invoke('input.moveMouse', { x: 500, y: 300 }, io(h));
+  assert.deepEqual(h.journal.mouseMoves, [{ x: 500, y: 300 }]);
+  assert.deepEqual(h.confirmsAsked, []);
+});
+
+test('input: scrolling is safe and direction maps to sign', async () => {
+  const h = harness();
+  await h.engine.ask('scroll down', io(h));
+  await h.engine.ask('scroll up 5', io(h));
+  assert.deepEqual(h.journal.scrolls, [-3, 5]);
+  assert.deepEqual(h.confirmsAsked, []);
+});
+
+test('input: pressing a named key asks first', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('press enter', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.keysPressed, ['enter']);
+});
+
+test('input: declining a key press sends nothing', async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  await h.engine.ask('press escape', io(h));
+  assert.deepEqual(h.journal.keysPressed, []);
+});
+
+test('input: a hotkey splits into modifiers and one key', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('press ctrl+shift+s', io(h));
+  assert.deepEqual(h.journal.hotkeys, [{ modifiers: ['ctrl', 'shift'], key: 's' }]);
+});
+
+test('input: typed quoted text is sent verbatim, quotes stripped', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('type "hello there"', io(h));
+  assert.deepEqual(h.journal.typed, ['hello there']);
+});
+
+test('input: click and drag both ask first', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.skills.invoke('input.click', { x: 10, y: 20 }, io(h));
+  assert.deepEqual(h.journal.clicks, [{ x: 10, y: 20, button: 'left', double: false }]);
+  await h.engine.skills.invoke('input.drag', { fromX: 0, fromY: 0, toX: 5, toY: 5 }, io(h));
+  assert.deepEqual(h.journal.drags, [{ fromX: 0, fromY: 0, toX: 5, toY: 5, button: 'left' }]);
+});
+
+test('input: risk matches consequence, not input method', () => {
+  const h = harness();
+  for (const id of ['input.moveMouse', 'input.cursorPosition', 'input.scroll']) {
+    assert.equal(h.engine.skills.get(id)?.risk, 'safe', id);
+  }
+  for (const id of ['input.click', 'input.drag', 'input.pressKey', 'input.hotkey', 'input.typeText']) {
+    assert.equal(h.engine.skills.get(id)?.risk, 'confirm', id);
+  }
+});
+
+test('input: with no input capability the skills are hidden, not disabled', () => {
+  const h = harness([
+    'files',
+    'fs',
+    'apps',
+    'system',
+    'processes',
+    'os',
+    'windows',
+    'window-control',
+    'network',
+  ]);
+  const ids = h.engine.skills.available().map((s) => s.id);
+  assert.notInclude(ids, 'input.click');
+  assert.notInclude(ids, 'input.moveMouse');
+});
+
+// ---- UI Automation ---------------------------------------------------------------
+//
+// Reading the tree, and what's focused, are `safe`; every action acts on
+// another application on your behalf and is `confirm` — the same test as
+// window.close and every input skill.
+
+test('uia: the tree resolves the window by name and lists its controls', async () => {
+  const h = harness();
+  const outcome = await h.engine.skills.invoke('uia.tree', { window: 'notepad' }, io(h));
+  assert.isTrue(outcome.ok);
+  // Root + text field + button.
+  assert.equal(h.rows.length, 3);
+  assert.deepEqual(h.confirmsAsked, []);
+});
+
+test('uia: an unknown window name is a clean error, not a crash', async () => {
+  const h = harness();
+  const outcome = await h.engine.skills.invoke('uia.tree', { window: 'nonexistent' }, io(h));
+  assert.isFalse(outcome.ok);
+});
+
+test('uia: invoking a control resolves the window and acts', async () => {
+  // No one-shot grammar for a window-plus-path action — same scoping
+  // decision as `window.move` and `input.click` — so this is the AI
+  // planner's job in the real app; here it goes through the registry
+  // directly, the way those skills' own tests do.
+  const h = harness();
+  const outcome = await h.engine.skills.invoke(
+    'uia.invoke',
+    { window: 'notepad', path: '1' },
+    io(h),
+  );
+  assert.isTrue(outcome.ok);
+  assert.deepEqual(h.journal.uiaInvokes, [{ id: '1001', path: [1] }]);
+});
+
+test('uia: setValue is tried first, and reported as typing either way', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  const outcome = await h.engine.skills.invoke(
+    'uia.typeInto',
+    { window: 'notepad', path: '0', text: 'hello' },
+    io(h),
+  );
+  assert.isTrue(outcome.ok);
+  assert.deepEqual(h.journal.uiaSetValues, [{ id: '1001', path: [0], value: 'hello' }]);
+  // The direct path worked, so the keystroke fallback must never have run.
+  assert.deepEqual(h.journal.uiaFocuses, []);
+  assert.deepEqual(h.journal.typed, []);
+});
+
+test('uia: typeInto falls back to focus-plus-keystrokes when setValue fails', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  const outcome = await h.engine.skills.invoke(
+    'uia.typeInto',
+    { window: 'notepad', path: '1', text: 'hello' },
+    io(h),
+  );
+  assert.isTrue(outcome.ok);
+  assert.deepEqual(h.journal.uiaSetValues, [{ id: '1001', path: [1], value: 'hello' }]);
+  assert.deepEqual(h.journal.uiaFocuses, [{ id: '1001', path: [1] }]);
+  assert.deepEqual(h.journal.typed, ['hello']);
+});
+
+test('uia: expand and collapse both resolve the window and ask first', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.skills.invoke('uia.expand', { window: 'notepad', path: '1' }, io(h));
+  await h.engine.skills.invoke('uia.collapse', { window: 'notepad', path: '1' }, io(h));
+  assert.deepEqual(h.journal.uiaExpands, [
+    { id: '1001', path: [1], expand: true },
+    { id: '1001', path: [1], expand: false },
+  ]);
+});
+
+test('uia: risk matches consequence — reads are safe, every action confirms', () => {
+  const h = harness();
+  for (const id of ['uia.tree', 'uia.focusedElement']) {
+    assert.equal(h.engine.skills.get(id)?.risk, 'safe', id);
+  }
+  for (const id of ['uia.invoke', 'uia.expand', 'uia.collapse', 'uia.setValue', 'uia.typeInto']) {
+    assert.equal(h.engine.skills.get(id)?.risk, 'confirm', id);
+  }
+});
+
+test('uia: with no ui-automation capability the skills are hidden, not disabled', () => {
+  const h = harness([
+    'files',
+    'fs',
+    'apps',
+    'system',
+    'processes',
+    'os',
+    'windows',
+    'window-control',
+    'input',
+    'network',
+  ]);
+  const ids = h.engine.skills.available().map((s) => s.id);
+  assert.notInclude(ids, 'uia.tree');
+  assert.notInclude(ids, 'uia.invoke');
+});
+
+// ---- screen capture ---------------------------------------------------------------
+//
+// Read-only and reversible in the sense that matters — nothing on the
+// machine changes — so everything here is `safe`.
+
+test('screen: capturing the whole screen reports its real dimensions', async () => {
+  const h = harness();
+  const outcome = await h.engine.ask('take a screenshot', io(h));
+  assert.equal(h.journal.screenCaptures, 1);
+  assert.isTrue(outcome.ok);
+  assert.match(h.said.join(' '), /1920.1080/);
+});
+
+test('screen: a screenshot is never read aloud', () => {
+  const h = harness();
+  assert.equal(h.engine.skills.get('screen.capture')?.aloud, false);
+});
+
+test('screen: capturing a window resolves it by name first', async () => {
+  const h = harness();
+  const outcome = await h.engine.skills.invoke('screen.captureWindow', { window: 'notepad' }, io(h));
+  assert.isTrue(outcome.ok);
+  assert.deepEqual(h.journal.windowCaptures, ['1001']);
+});
+
+test('screen: listing displays never asks permission', async () => {
+  const h = harness();
+  await h.engine.ask('what monitors do I have', io(h));
+  assert.equal(h.rows.length, 1);
+  assert.deepEqual(h.confirmsAsked, []);
+});
+
+test('screen: every skill in this pack is a safe read', () => {
+  const h = harness();
+  for (const id of ['screen.capture', 'screen.captureWindow', 'screen.listDisplays']) {
+    assert.equal(h.engine.skills.get(id)?.risk, 'safe', id);
+  }
+});
+
+test('screen: with no screen capability the skills are hidden, not disabled', () => {
+  const h = harness([
+    'files',
+    'fs',
+    'apps',
+    'system',
+    'processes',
+    'os',
+    'windows',
+    'window-control',
+    'input',
+    'ui-automation',
+    'network',
+  ]);
+  const ids = h.engine.skills.available().map((s) => s.id);
+  assert.notInclude(ids, 'screen.capture');
+  assert.notInclude(ids, 'screen.listDisplays');
 });
 
 // ---- opening more than one thing -----------------------------------------------

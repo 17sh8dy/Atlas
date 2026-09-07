@@ -901,5 +901,142 @@ export function createExtraGrammar(): GrammarRule[] {
         return plan(step(id, { name }), `service-${verb}`);
       },
     },
+
+    // ---- windows ----------------------------------------------------------
+    //
+    // Every rule below requires the literal word "window", the same way the
+    // services block above requires "service" — it's what tells "close the
+    // notepad window" apart from "close notepad" (an app-lifecycle question
+    // this grammar doesn't otherwise have a rule for) and from bare "close",
+    // which `core-grammar.ts` already claims for dismissing Atlas itself.
+
+    {
+      name: 'windowList',
+      order: -6.7,
+      questionSafe: ['window-list', 'window-active'],
+      test(lower) {
+        if (/\b(?:what|which)\s+windows\s+(?:do\s+i\s+have\s+)?(?:are\s+)?open\b/.test(lower) ||
+          /\b(?:list|show)\s+(?:me\s+)?(?:the\s+)?(?:open\s+)?windows\b/.test(lower)) {
+          return plan(step('window.list', {}), 'window-list');
+        }
+        if (
+          /\b(?:what|which)\s+window\s+is\s+(?:active|focused|focussed)\b/.test(lower) ||
+          /\bwhat'?s\s+focused\s+(?:right\s+now)?\b/.test(lower)
+        ) {
+          return plan(step('window.active', {}), 'window-active');
+        }
+        return null;
+      },
+    },
+
+    {
+      name: 'windowControl',
+      order: -6.69,
+      test(lower) {
+        const m = lower.match(
+          /^\s*(minimize|maximize|restore|close|focus)\s+(?:on\s+)?(?:the\s+|my\s+)?(.+?)\s+window\s*[?.!]*$/,
+        );
+        if (!m?.[1] || !m[2]) return null;
+
+        const verb = m[1];
+        const name = m[2];
+        const id =
+          verb === 'minimize'
+            ? 'window.minimize'
+            : verb === 'maximize'
+              ? 'window.maximize'
+              : verb === 'restore'
+                ? 'window.restore'
+                : verb === 'close'
+                  ? 'window.close'
+                  : 'window.focus';
+        return plan(step(id, { name }), `window-${verb}`);
+      },
+    },
+
+    {
+      name: 'endProcess',
+      order: -6.68,
+      test(lower) {
+        const m =
+          lower.match(/^\s*(?:end|kill|force\s*(?:close|quit|end))\s+(?:the\s+)?process\s+(.+?)\s*[?.!]*$/) ??
+          lower.match(/^\s*(?:end|kill|force\s*(?:close|quit))\s+(?:the\s+)?(.+?)\s*[?.!]*$/);
+        if (!m?.[1]) return null;
+        return plan(step('system.endProcess', { process: m[1] }), 'end-process');
+      },
+    },
+
+    // ---- input --------------------------------------------------------------
+    //
+    // Only the one-shot phrasings people actually type in a single sentence.
+    // Anything needing coordinates ("click at 500, 300") has no natural
+    // one-liner grammar and is left to the AI planner, which is exactly the
+    // case that tier exists for.
+
+    {
+      name: 'pressNamedKeyOrHotkey',
+      order: -6.67,
+      test(lower) {
+        // "press ctrl+c" / "press ctrl + shift + s" — a combo, not a single
+        // named key, told apart by the presence of "+".
+        const combo = lower.match(/^\s*press\s+([a-z0-9]+(?:\s*\+\s*[a-z0-9]+)+)\s*[?.!]*$/);
+        if (combo?.[1]) {
+          return plan(
+            step('input.hotkey', { combo: combo[1].replace(/\s*\+\s*/g, '+') }),
+            'hotkey',
+          );
+        }
+
+        const single = lower.match(
+          /^\s*press\s+(enter|return|escape|esc|tab|backspace|delete|del|insert|ins|home|end|space|spacebar|up|down|left|right|pageup|pagedown|f[1-9]|f1[0-2])\s*[?.!]*$/,
+        );
+        if (single?.[1]) return plan(step('input.pressKey', { key: single[1] }), 'press-key');
+
+        return null;
+      },
+    },
+
+    {
+      name: 'scroll',
+      order: -6.66,
+      test(lower) {
+        const m = lower.match(/^\s*scroll\s+(up|down)(?:\s+(\d+))?\s*[?.!]*$/);
+        if (!m?.[1]) return null;
+        const notches = m[2] ? Number(m[2]) : 3;
+        const amount = m[1] === 'up' ? notches : -notches;
+        return plan(step('input.scroll', { amount }), 'scroll');
+      },
+    },
+
+    {
+      name: 'typeText',
+      order: -6.65,
+      test(_lower, raw) {
+        const m = raw.match(/^\s*type\s+(["'“].+?["'”])\s*[?.!]*$/i);
+        if (!m?.[1]) return null;
+        return plan(step('input.typeText', { text: stripQuotes(m[1]) }), 'type-text');
+      },
+    },
+
+    // ---- screen -------------------------------------------------------------
+
+    {
+      name: 'screenCapture',
+      order: -6.64,
+      questionSafe: ['displays'],
+      test(lower) {
+        if (
+          /^\s*(?:take\s+a\s+)?screenshot\s*[?.!]*$/.test(lower) ||
+          /^\s*capture\s+(?:the\s+)?screen\s*[?.!]*$/.test(lower)
+        ) {
+          return plan(step('screen.capture', {}), 'screenshot');
+        }
+        if (/\b(?:what|which)\s+(?:monitors?|displays?)\b.*\b(?:have|connected|do i have)\b/.test(lower) ||
+          /^\s*(?:list|show)\s+(?:me\s+)?(?:my\s+)?(?:monitors?|displays?)\s*[?.!]*$/.test(lower)) {
+          return plan(step('screen.listDisplays', {}), 'displays');
+        }
+        return null;
+      },
+    },
   ];
 }

@@ -251,6 +251,7 @@ dependencies = [
 name = "atlas-desktop"
 version = "0.5.0"
 dependencies = [
+ "image",
  "libloading 0.8.9",
  "open",
  "ort",

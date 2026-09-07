@@ -13,11 +13,12 @@
  */
 
 import { useEffect, useState } from 'react';
-import type { Platform } from '@atlas/core';
+import type { Platform, WindowsCompatibility } from '@atlas/core';
 import { AtlasMark, Icons } from '@atlas/ui';
 
 export function About({ platform }: { platform: Platform }) {
   const [version, setVersion] = useState<string | null>(null);
+  const [windows, setWindows] = useState<WindowsCompatibility | null>(null);
 
   useEffect(() => {
     if (platform.id !== 'tauri') return;
@@ -31,6 +32,16 @@ export function About({ platform }: { platform: Platform }) {
       alive = false;
     };
   }, [platform.id]);
+
+  useEffect(() => {
+    let alive = true;
+    void platform.windowsCompatibility?.().then((info) => {
+      if (alive) setWindows(info);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [platform]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -75,6 +86,32 @@ export function About({ platform }: { platform: Platform }) {
           </p>
         </div>
       </section>
+
+      {platform.id === 'tauri' && (
+        <section className="border-border flex items-start gap-3 rounded-xl border px-4 py-3.5">
+          <Icons.MonitorSmartphone className="text-primary mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <h2 className="text-foreground text-sm font-medium">Compatibility</h2>
+            <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
+              For the best Atlas experience, keeping Windows up to date is highly recommended. Some
+              Atlas capabilities rely on Windows features and APIs that may vary between versions.
+              An up-to-date system helps ensure I can provide the widest range of functionality.
+              {windows && (
+                <>
+                  {' '}
+                  This machine is running{' '}
+                  <span className="text-foreground">
+                    {windows.productName}
+                    {windows.displayVersion ? ` (${windows.displayVersion})` : ''}, build {windows.build}
+                    {windows.ubr !== undefined ? `.${windows.ubr}` : ''}
+                  </span>
+                  .
+                </>
+              )}
+            </p>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -666,6 +666,67 @@ and a test is named after the collision.
 
 ---
 
+## Phase 12 — Operating the machine
+
+Three domains Phase 11's original ten groups didn't anticipate: controlling
+*other* windows on the desktop, synthesizing mouse and keyboard input, and UI
+Automation — reading and acting on another application's real controls rather
+than guessing at screen coordinates. Same governing rule as Phase 11: no
+`exec`, every capability a narrow validated skill, risk keyed to consequence.
+See §6.6 of `ARCHITECTURE.md` for the two decisions that were genuinely new
+(risk stays two-tier; an element is addressed as a path, never held live).
+
+### Built
+
+| Group | Skills | Risk | State |
+| --- | --- | --- | --- |
+| 🪟 Window control | `window.list/active/focus/minimize/maximize/restore/move/close`, `system.endProcess` | reads + move = safe; close/end = confirm, guarded against OS-critical processes | ✅ |
+| 🖱️⌨️ Input | `input.moveMouse/cursorPosition/scroll` (safe), `input.click/drag/pressKey/hotkey/typeText` (confirm) | uniformly `confirm` for anything that acts — see §6.6 | ✅ |
+| 🧩 UI Automation | `uia.tree/focusedElement` (safe), `uia.invoke/expand/collapse/setValue/typeInto` (confirm) | ✅ |
+| 🖥️ Screen | `screen.capture/captureWindow/listDisplays` | all safe (read-only) | ✅ |
+| ℹ️ Compatibility | `windows_compatibility` (Rust command, not a skill — informational, surfaced in About) | n/a | ✅ |
+
+All four skill packs plus `compat.rs` shipped together, each with real Rust
+unit tests (including live ones against this actual desktop — a real window
+enumerated, a real UI Automation tree walked against whatever had focus, a
+real screenshot encoded to a real PNG, a real Windows build number read from
+the registry) and engine tests against the scripted-`Platform` double.
+`pnpm -r typecheck`, root `eslint .`, and `pnpm test` all clean.
+
+**Grammar stayed deliberately narrow.** Only the one-shot phrasings people
+actually type in a single sentence got a rule — list/focus/minimize/maximize/
+restore/close a named window, end a process, press a named key or hotkey,
+type quoted text, scroll, take a screenshot, list displays. Anything needing
+free-form argument extraction across multiple fields ("click the Save button
+in the dialog that's open", "type X into the search field in window Y") has
+no one-liner grammar and is left to the AI-plan path, which is exactly the
+case that tier exists for — confirmed by the engine tests for those skills,
+which invoke the registry directly the same way `window.move`'s own test does
+rather than pretending a grammar rule exists.
+
+### Deferred, and why — not built as placeholders
+
+- **Local OCR.** `screen.rs` captures real pixels; reading text out of them
+  isn't built. UI Automation's bounding rectangles already say what and where
+  a control is, which is what the request itself asks to prefer — OCR is a
+  clean, cheap follow-up (Windows ships one), just not part of this pass.
+- **A vision-based `screen.describe` skill.** Planned, then dropped: the
+  intelligence port is Cortex-only and text-prompt-only (`ask(prompt: string,
+  ...)` has no image channel), so there is currently no provider this skill
+  could actually call. Building it anyway would have been exactly the
+  placeholder-function shape this project refuses to ship. Waits for a real
+  vision-capable provider.
+- **An autonomous observe-and-replan loop.** The request describes "execute →
+  observe → replan"; that's already true *between* turns and *within* one
+  AI plan's fixed step sequence, but not *within* a single step reacting live
+  to what just appeared on screen. That would be a new agentic loop — a
+  separate architectural decision (iteration budget, cost if a cloud model is
+  doing the looking) — and wasn't part of what this phase built.
+  `attemptGoal()` (`planner/attempts.ts`, built for `app.open`) is a
+  same-skill retry ladder and doesn't generalize to it.
+
+---
+
 ## Versioning
 
 **Decision (2026-08-19): when Phase 8 — Voice ships, the version goes to
