@@ -23,10 +23,16 @@
  */
 
 import { useEffect, useState } from 'react';
-import type { PersonalizationField, Storage, VoiceProfile } from '@atlas/core';
-import { checkPersonalization, personalizationMessage } from '@atlas/core';
+import type { AtlasRole, PersonalizationField, Storage, VoiceProfile } from '@atlas/core';
+import {
+  ATLAS_ROLES,
+  ATLAS_ROLE_META,
+  DEFAULT_ATLAS_ROLE,
+  checkPersonalization,
+  personalizationMessage,
+} from '@atlas/core';
 import { writePreference } from '@atlas/data';
-import { Button, Input } from '@atlas/ui';
+import { Button, Icons, Input, cn } from '@atlas/ui';
 
 interface Props {
   storage: Storage;
@@ -36,35 +42,133 @@ interface Props {
 
 export function Personalization({ storage, voiceProfile, onVoiceProfileChange }: Props) {
   return (
-    <div className="flex flex-col gap-6">
-      <Field
-        label="What should Atlas call you?"
-        placeholder="Your name"
-        initial={voiceProfile.userName ?? ''}
-        subject="user.name"
-        field="userName"
-        storage={storage}
-        onSaved={onVoiceProfileChange}
-      />
-      <Field
-        label="What should Atlas call itself?"
-        placeholder="Atlas"
-        initial={voiceProfile.atlasName ?? ''}
-        subject="atlas.name"
-        field="atlasName"
-        storage={storage}
-        onSaved={onVoiceProfileChange}
-      />
-      <Field
-        label="Custom greeting"
-        placeholder="Leave blank for a generated one"
-        initial={voiceProfile.greeting ?? ''}
-        subject="greeting"
-        field="greeting"
-        storage={storage}
-        onSaved={onVoiceProfileChange}
-      />
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
+        <Field
+          label="What should Atlas call you?"
+          placeholder="Your name"
+          initial={voiceProfile.userName ?? ''}
+          subject="user.name"
+          field="userName"
+          storage={storage}
+          onSaved={onVoiceProfileChange}
+        />
+        <Field
+          label="What should Atlas call itself?"
+          placeholder="Atlas"
+          initial={voiceProfile.atlasName ?? ''}
+          subject="atlas.name"
+          field="atlasName"
+          storage={storage}
+          onSaved={onVoiceProfileChange}
+        />
+        <Field
+          label="Custom greeting"
+          placeholder="Leave blank for a generated one"
+          initial={voiceProfile.greeting ?? ''}
+          subject="greeting"
+          field="greeting"
+          storage={storage}
+          onSaved={onVoiceProfileChange}
+        />
+      </div>
+
+      <RoleSection storage={storage} voiceProfile={voiceProfile} onSaved={onVoiceProfileChange} />
     </div>
+  );
+}
+
+/**
+ * Atlas Role — how Atlas works alongside you, not what it can do.
+ *
+ * Every role reaches the same 137 actions; picking one only changes the
+ * opening line (`AtlasRoleMeta.greeting`, in `@atlas/core`'s `atlas-role.ts`)
+ * — the sentence Atlas opens with before anything has been asked of it, where
+ * a relationship reads differently from a straight question. The preview line
+ * below the grid renders that exact function, so nobody has to open Home and
+ * clear the transcript just to hear what a choice sounds like — and it goes
+ * stale the instant `userName` or `atlasName` changes elsewhere on this
+ * screen, which is why it is read from the live `voiceProfile` prop rather
+ * than captured once.
+ *
+ * Deliberately not a `Field`: there is nothing to type and nothing to
+ * validate — `checkPersonalization` exists for free text that could contain
+ * something unsafe, and a fixed sentence chosen from seven has no such risk.
+ * Selecting a card saves immediately, the same as `Appearance`'s accent
+ * swatches, rather than waiting on a Save button with nothing to review.
+ */
+function RoleSection({
+  storage,
+  voiceProfile,
+  onSaved,
+}: {
+  storage: Storage;
+  voiceProfile: VoiceProfile;
+  onSaved(): void;
+}) {
+  const role = voiceProfile.role ?? DEFAULT_ATLAS_ROLE;
+  const atlasName = voiceProfile.atlasName?.trim() || 'Atlas';
+  const userName = voiceProfile.userName?.trim() || undefined;
+  const [pending, setPending] = useState<AtlasRole | null>(null);
+
+  return (
+    <section>
+      <h2 className="text-foreground mb-1 text-sm font-medium">Atlas Role</h2>
+      <p className="text-foreground-subtle mb-3 text-xs leading-relaxed">
+        How Atlas works alongside you. The skills never change — only the opening line does.
+      </p>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {ATLAS_ROLES.map((id) => {
+          const meta = ATLAS_ROLE_META[id];
+          const selected = id === role;
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={selected}
+              disabled={pending !== null}
+              onClick={async () => {
+                if (selected) return;
+                setPending(id);
+                await writePreference(storage, 'role', id);
+                setPending(null);
+                onSaved();
+              }}
+              className={cn(
+                'duration-fast flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition',
+                'focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 disabled:opacity-60',
+                selected
+                  ? 'border-border-strong bg-surface text-foreground'
+                  : 'border-border bg-surface/40 text-foreground-muted hover:bg-surface hover:text-foreground',
+              )}
+            >
+              <span className="text-base leading-none">{meta.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-sm font-medium">{meta.label}</span>
+                  {selected && <Icons.Check className="text-primary h-3.5 w-3.5 shrink-0" />}
+                </span>
+                <span className="text-foreground-subtle mt-0.5 block text-xs leading-relaxed">
+                  {meta.feeling}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {!voiceProfile.greeting?.trim() ? (
+        <p className="text-foreground-subtle mt-3 text-xs leading-relaxed">
+          Opens with: <span className="text-foreground">“{ATLAS_ROLE_META[role].greeting(atlasName, userName)}”</span>
+        </p>
+      ) : (
+        <p className="text-foreground-subtle mt-3 text-xs leading-relaxed">
+          Your custom greeting above is in use, so this role's opening line won't be heard until it's
+          cleared.
+        </p>
+      )}
+    </section>
   );
 }
 

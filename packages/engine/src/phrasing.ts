@@ -14,6 +14,7 @@
  */
 
 import type { VoiceProfile } from '@atlas/core';
+import { ATLAS_ROLE_META, DEFAULT_ATLAS_ROLE } from '@atlas/core';
 import type { SmallTalkKind } from './text/smalltalk';
 
 export interface Phrasing {
@@ -111,9 +112,8 @@ export function createPhrasing(profile: VoiceProfile = {}): Phrasing {
 
     greeting: () => {
       if (profile.greeting?.trim()) return profile.greeting.trim();
-      return userName
-        ? `Hey ${userName} — I'm ${atlasName}. What do you need?`
-        : `Hey — I'm ${atlasName}. What do you need?`;
+      const role = ATLAS_ROLE_META[profile.role ?? DEFAULT_ATLAS_ROLE] ?? ATLAS_ROLE_META[DEFAULT_ATLAS_ROLE];
+      return role.greeting(atlasName, userName);
     },
 
     smallTalk: (kind, actionCount) => {

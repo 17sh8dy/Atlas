@@ -16,6 +16,7 @@
 export * from './models/skill';
 export * from './models/plan';
 export * from './models/execution-mode';
+export * from './models/atlas-role';
 export * from './models/memory';
 export * from './models/voice';
 export * from './models/personalization';

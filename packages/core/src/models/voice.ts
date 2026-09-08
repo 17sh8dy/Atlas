@@ -1,3 +1,5 @@
+import type { AtlasRole } from './atlas-role';
+
 /**
  * What Atlas calls the user, and what it calls itself.
  *
@@ -12,4 +14,6 @@ export interface VoiceProfile {
   atlasName?: string;
   /** A custom first-open greeting. Falls back to a generated one. */
   greeting?: string;
+  /** How Atlas presents itself — see `atlas-role.ts`. Falls back to `assistant`. */
+  role?: AtlasRole;
 }
