@@ -7,12 +7,13 @@
  * one button away rather than a permanent fixture.
  *
  * The empty state does the teaching. A blank box gives no clue what a program
- * like this accepts, so the first screen is a short list of things that
- * genuinely work in *this* build — drawn from the skills actually available on
- * this platform, not a fixed marketing list that promises what a browser tab
- * can't do.
+ * like this accepts, so the first screen shows a handful of broad things Atlas
+ * helps with. See the doc comment on `CARDS` below for why these are
+ * hand-written categories rather than the literal skill commands the screen
+ * used to show, and why clicking one no longer runs anything.
  */
 
+import { useState } from 'react';
 import type { ExecutionMode } from '@atlas/core';
 import type { SkillRegistry } from '@atlas/engine';
 import { AtlasMark } from '@atlas/ui';
@@ -61,6 +62,12 @@ export function Conversation({
   dictation,
   dictated,
 }: Props) {
+  // A Home card was clicked: its starter text (possibly '') goes into the
+  // composer and takes focus. `at` forces the effect in `Composer` to fire
+  // even when the same card is clicked twice in a row with nothing typed
+  // in between — same pattern as `dictated` just below it.
+  const [prefill, setPrefill] = useState<{ text: string; at: number } | null>(null);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -70,7 +77,7 @@ export function Conversation({
             greeting={greeting}
             personalized={personalized}
             atlasName={atlasName}
-            onAsk={onAsk}
+            onSelect={(starter) => setPrefill({ text: starter, at: Date.now() })}
           />
         ) : (
           <Transcript
@@ -92,6 +99,7 @@ export function Conversation({
         onCycleExecutionMode={onCycleExecutionMode}
         dictation={dictation}
         dictated={dictated}
+        prefill={prefill}
       />
     </div>
   );
@@ -100,131 +108,127 @@ export function Conversation({
 /**
  * The first screen, and the only teaching Atlas does.
  *
- * ── What was wrong with it ──────────────────────────────────────────────────
- * Six cards, two columns, each a 90px-tall tile with an icon above a line of
- * text. They filled the window on a laptop and still only showed six of a
- * hundred and ten things, which is the worst of both: it takes the whole
- * screen to say very little. A first screen that large reads as a dashboard,
- * and Atlas is not a dashboard — it is a box you type into.
+ * ── Two things this screen tried before, and why both were wrong ───────────
+ * v1 was six icon-over-one-line tiles — "open file explorer", "what's my
+ * battery" — literally `skill.examples[…]` read off the registry. It filled a
+ * laptop screen to show six of a hundred and thirty-seven things, which is a
+ * dashboard, not an assistant.
  *
- * So the tiles became rows, gathered into one glass panel per category —
- * the same six headings the capability browser uses, so the two places that
- * answer "what can this thing do?" agree with each other. Nineteen
- * suggestions still take less room than six cards did, because a row costs a
- * line and a tile costs a block.
+ * v2 fixed the space problem by turning tiles into rows inside one glass panel
+ * per category, nineteen suggestions deep. It solved density and created a new
+ * problem: each row was still one skill's own example sentence — "what's 12 *
+ * 7", "tip on 84.50" — which demonstrates that skill and nothing else. Reading
+ * nineteen of those teaches "here are things I have seen Atlas do," not "I
+ * could just tell Atlas what I want," and every one of them was also a live
+ * command: clicking it *ran* something, so the screen still read as a control
+ * panel of buttons rather than an invitation to type.
  *
- * The panels use `.atlas-glass`, which until now was the voice screen and
- * nowhere else. Its doc comment explains why that was a rule and why Home is
- * the exception: the expensive half of a backdrop-filter is re-filtering, and
- * nothing behind these panels ever moves.
+ * ── This version: six categories, hand-written, and none of them run ───────
+ * `CARDS` below is not read from the registry. That is deliberate, for the
+ * first time on this screen: a category like "Control my PC" describes a
+ * dozen different skills at once ("lock my pc", "take a screenshot", "what's
+ * my battery"), and no single `skill.examples[0]` can stand in for all of
+ * them without becoming exactly the over-specific chip this rewrite removes.
+ * The cost is that these six sentences need a human to update them if a whole
+ * *category* of ability disappears — `home.test.ts` can't check a hand-written
+ * sentence against the grammar the way it checked a literal skill id. What it
+ * still checks: every card names something a real domain in the registry
+ * covers, so a category can't quietly refer to capabilities Atlas dropped.
  *
- * ── The phrasings are the skills' own ───────────────────────────────────────
- * Every label here is `skill.examples[…]`, read from the registry at render.
- * Nothing on this screen is a sentence somebody wrote into the UI hoping the
- * grammar would take it — which is exactly how a suggestion rots into a lie
- * after a rule changes. The shortest example wins, because this is a grid of
- * one-line chips and a suggestion that wraps is a suggestion that looks
- * broken.
- *
- * A skill this build does not have is skipped, so the browser never suggests
- * something only the desktop app can do.
+ * Clicking a card never executes anything — seeing "Search the web" run a web
+ * search with no query was worse than not being able to click it. Instead it
+ * drops a starter phrase into the composer and focuses it (`Conversation`'s
+ * `prefill` state, read by `Composer`), cursor at the end, so the person
+ * finishes the sentence in their own words. The broadest cards ("Control my
+ * PC", "Work with my notes", "Do something for me") have no natural single
+ * verb to start with, so those just focus an empty composer — identical to
+ * clicking "Do something for me", which exists specifically to say out loud
+ * that typing anything, unprompted, is the whole point of this screen.
  *
  * ── No "recent" row, deliberately ───────────────────────────────────────────
  * It was considered and dropped. Episodic memory stores what *happened*
  * ("Opening Steam.") rather than what was typed, so a recent row could be
- * shown but not re-run — and a row of chips that does nothing when clicked is
- * precisely the unfinished feeling the rest of this work is removing.
- * Conversation history that could be replayed dies with the process today;
- * when Phase 3 persists it, this is where it goes.
+ * shown but not re-run — and a row that does nothing when clicked is precisely
+ * the unfinished feeling the rest of this work is removing. Conversation
+ * history that could be replayed dies with the process today; when Phase 3
+ * persists it, this is where it goes.
  */
-
-/**
- * Curated per category. Order is what a person reaches for, not the registry's.
- *
- * ── The rule: a suggestion has to work on anyone's machine ──────────────────
- * Home suggests what Atlas can do *in general*, never anything about this
- * particular computer's files. The first version broke that and it showed
- * immediately: `files.list`'s example was a path on the D: drive, which Atlas
- * refuses — `is_permitted` allows only what sits under the user's home folder,
- * so that suggestion was broken on every machine, including the one it was
- * written on. Clicking it produced an error, which is worse than showing
- * nothing at all.
- *
- * The file skills are all still registered and still in the capability
- * browser; they are simply not something to *suggest* cold, because a useful
- * file request names a file only the person asking knows about. "Open file
- * explorer" is the shape that belongs here: something anyone can click and
- * have work.
- *
- * "No path in a suggestion" is enforced by `home.test.ts`. The rest is
- * judgement, and the judgement is: if a chip only makes sense to whoever
- * wrote it, it does not belong on this screen.
- */
-export const SUGGESTED: ReadonlyArray<{ category: string; skills: readonly string[] }> = [
-  {
-    category: 'System',
-    skills: [
-      'system.info',
-      'system.battery',
-      'system.openTool',
-      'screen.capture',
-      'system.lock',
-      'window.list',
-      'net.online',
-    ],
-  },
-  { category: 'Web', skills: ['web.openBrowser', 'web.search', 'web.searchYoutube'] },
-  { category: 'Utilities', skills: ['math.calculate', 'math.tip', 'time.now', 'util.password'] },
-  { category: 'Notes', skills: ['notes.list', 'todo.list', 'memory.list'] },
-];
-
-/**
- * Which of a skill's examples becomes the chip.
- *
- * The first one, because that is the phrasing the skill's author chose as
- * canonical — unless it is too long for a panel, in which case the shortest
- * wins so the row does not ellipsise.
- *
- * It used to be *always* the shortest, which was a layout rule pretending to
- * be an editorial one. It picked "open task manager" over "open file
- * explorer" purely on a one-character difference, and "new guid" over
- * "generate a uuid", which is worse writing chosen by accident.
- *
- * `MAX` is set by what fits a panel at 15px, measured rather than guessed:
- * `uppercase "hello world"` (23) sits comfortably and is the longest chip on
- * the screen.
- */
-export function chipFor(examples: readonly string[]): string {
-  const MAX = 24;
-  const first = examples[0]!;
-  if (first.length <= MAX) return first;
-  return [...examples].sort((a, b) => a.length - b.length)[0]!;
+interface HomeCard {
+  icon: string;
+  label: string;
+  description: string;
+  /**
+   * Dropped into the composer on click, cursor placed at the end. Omitted for
+   * a category too broad for one natural sentence start — clicking those just
+   * focuses the (empty) composer instead.
+   */
+  starter?: string;
+  /**
+   * Registry domains this card promises are real, checked by `home.test.ts`
+   * against the same domain tags the capability browser groups by. Not shown
+   * anywhere — it exists so a category whose domain quietly disappears from
+   * every skill pack gets caught here instead of by a person clicking a card
+   * that no longer means anything.
+   */
+  domains: readonly string[];
 }
+
+export const CARDS: readonly HomeCard[] = [
+  {
+    icon: '🔎',
+    label: 'Search the web',
+    description: 'Find information, websites, images, and more.',
+    starter: 'search the web for ',
+    domains: ['web', 'research'],
+  },
+  {
+    icon: '🚀',
+    label: 'Open something',
+    description: 'Launch an app, website, file, or folder.',
+    starter: 'open ',
+    domains: ['apps', 'web', 'files'],
+  },
+  {
+    icon: '🖥️',
+    label: 'Control my PC',
+    description: 'Check your system, windows, battery, and more.',
+    domains: ['system', 'notifications'],
+  },
+  {
+    icon: '📁',
+    label: 'Find something',
+    description: 'Locate files, folders, or applications.',
+    starter: 'find ',
+    domains: ['files', 'apps'],
+  },
+  {
+    icon: '📝',
+    label: 'Work with my notes',
+    description: 'Read, create, or manage notes and to-dos.',
+    domains: ['notes', 'memory'],
+  },
+  {
+    icon: '🛠️',
+    label: 'Do something for me',
+    description: 'Tell Atlas what you need, in your own words.',
+    domains: ['core', 'atlas'],
+  },
+];
 
 function EmptyState({
   skills,
   greeting,
   personalized,
   atlasName,
-  onAsk,
+  onSelect,
 }: {
   skills: SkillRegistry;
   greeting: string;
   personalized: boolean;
   atlasName: string;
-  onAsk(text: string): void;
+  /** A card was clicked; carries its starter text, or '' for an empty focus. */
+  onSelect(starter: string): void;
 }) {
-  const available = new Map(skills.available().map((s) => [s.id, s]));
-
-  const groups = SUGGESTED.map(({ category, skills: ids }) => ({
-    category,
-    items: ids.flatMap((id) => {
-      const skill = available.get(id);
-      if (!skill?.examples?.length) return [];
-      return [{ id, text: chipFor(skill.examples), icon: skill.icon ?? '•' }];
-    }),
-  })).filter((g) => g.items.length > 0);
-
   return (
     <div className="relative my-auto flex w-full flex-col items-center px-6 py-8">
       {/*
@@ -250,33 +254,25 @@ function EmptyState({
           {skills.available().length} actions, all on this machine. No account needed, no key.
         </p>
 
-        {groups.length > 0 && (
-          <div className="mt-7 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {groups.map((group) => (
-              <div key={group.category} className="atlas-glass min-w-0 rounded-xl p-3">
-                <p className="text-foreground-subtle mb-1.5 px-1.5 text-[10px] font-medium uppercase tracking-wide">
-                  {group.category}
-                </p>
-                <div className="flex flex-col gap-0.5">
-                  {group.items.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onAsk(item.text)}
-                      title={item.text}
-                      // atlas-enhance: opt-in hook for the Enhanced Effects
-                      // setting (styles/index.css) — inert unless it's on.
-                      className="text-foreground-muted hover:bg-surface-raised hover:text-foreground duration-fast atlas-enhance flex items-center gap-2.5 rounded-lg px-1.5 py-2 text-left text-[15px] transition"
-                    >
-                      <span className="shrink-0 text-sm leading-none">{item.icon}</span>
-                      <span className="min-w-0 truncate">{item.text}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="mt-7 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {CARDS.map((card) => (
+            <button
+              key={card.label}
+              type="button"
+              onClick={() => onSelect(card.starter ?? '')}
+              title={card.description}
+              // atlas-enhance: opt-in hook for the Enhanced Effects setting
+              // (styles/index.css) — inert unless it's on.
+              className="atlas-glass atlas-enhance hover:bg-surface-raised duration-fast min-w-0 rounded-xl p-4 text-left transition"
+            >
+              <span className="text-xl leading-none">{card.icon}</span>
+              <p className="text-foreground mt-2 text-sm font-medium">{card.label}</p>
+              <p className="text-foreground-subtle mt-1 text-xs leading-relaxed">
+                {card.description}
+              </p>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

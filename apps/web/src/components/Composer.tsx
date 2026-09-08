@@ -50,6 +50,14 @@ interface Props {
    * same thing twice appends twice.
    */
   dictated?: { text: string; at: number } | null;
+  /**
+   * Set by a Home card (`Conversation`'s `EmptyState`): replaces whatever is
+   * in the box and focuses it, cursor at the end, so the person finishes the
+   * sentence themselves. Unlike `dictated`, this replaces rather than appends
+   * — a card click always starts from an empty composer, since Home only
+   * renders when there is nothing typed yet.
+   */
+  prefill?: { text: string; at: number } | null;
 }
 
 const MAX_HEIGHT = 160;
@@ -63,10 +71,12 @@ export function Composer({
   placeholder = 'Ask Atlas anything…',
   dictation,
   dictated,
+  prefill,
 }: Props) {
   const [value, setValue] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
   const lastDictation = useRef(0);
+  const lastPrefill = useRef(0);
 
   useEffect(() => {
     if (!dictated || dictated.at === lastDictation.current) return;
@@ -74,6 +84,20 @@ export function Composer({
     setValue((current) => (current.trim() ? `${current.trim()} ${dictated.text}` : dictated.text));
     ref.current?.focus();
   }, [dictated]);
+
+  useEffect(() => {
+    if (!prefill || prefill.at === lastPrefill.current) return;
+    lastPrefill.current = prefill.at;
+    setValue(prefill.text);
+    // The textarea's value updates on the next render; wait for it to land
+    // before moving the caret, or it snaps back to index 0.
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }, [prefill]);
 
   // Grow to fit, but stop before the transcript is squeezed off screen.
   useEffect(() => {

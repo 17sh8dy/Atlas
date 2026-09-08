@@ -1,152 +1,84 @@
 /**
- * The Home screen's suggestion table, held against the registry and the
- * grammar.
+ * The Home screen's category cards, held against the registry.
  *
- * Every chip on Home is `skill.examples[…]` looked up by id at render, and a
- * lookup that misses is skipped silently — the right behaviour on a platform
- * that lacks the skill, and a silent bug when the id is simply wrong.
- * `web.searchYouTube` (capital Y) was exactly that: it typechecked, it
- * rendered, and it quietly dropped a suggestion. The real id is
- * `web.searchYoutube`. Two more skills turned out to declare no examples at
- * all, so they would have contributed nothing.
- *
- * The last test is the one that matters most: it clicks every chip through
- * the real grammar and checks it lands on the skill the heading promised. A
- * suggestion that opens the wrong thing is worse than no suggestion.
+ * These cards are hand-written (see the doc comment on `CARDS` in
+ * `Conversation.tsx` for why), so there is no literal skill id or example
+ * text to check a chip against the way the old chip-grid tests did. What can
+ * still be checked mechanically: every domain a card claims to cover is a
+ * domain some skill in the registry actually declares, so a category can't
+ * quietly promise an ability every skill pack has dropped. A card whose
+ * `domains` all vanished from `declaredDomains()` is exactly that bug.
  */
 
 import { test, assert } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Grammar, WorkingMemory, createCoreGrammar, createExtraGrammar } from '@atlas/engine';
-import { SUGGESTED, chipFor as pickChip } from '../src/pages/Conversation';
-import { MAPPED_DOMAINS } from '../src/components/CapabilityBrowser';
+import { CARDS } from '../src/pages/Conversation';
 
-/**
- * Every skill a pack declares, with the examples it offers.
- *
- * Read from source rather than from a constructed registry: building the real
- * one needs a Platform and a Memory, and a stub that drifts would keep this
- * passing while Home broke.
- */
-function declaredSkills(): Map<string, string[]> {
+/** Every `domain:` tag any skill pack declares. */
+function declaredDomains(): Set<string> {
   const dir = fileURLToPath(new URL('../../../packages/engine/src/skills/', import.meta.url));
-  const found = new Map<string, string[]>();
+  const found = new Set<string>();
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
     const source = readFileSync(join(dir, file), 'utf8');
-    // Each skill literal runs from its id to the next id (or the end of file).
-    const ids = [...source.matchAll(/\bid:\s*'([\w.]+)'/g)];
-    ids.forEach((m, i) => {
-      const body = source.slice(m.index!, ids[i + 1]?.index ?? source.length);
-      const block = /examples:\s*\[([^\]]*)\]/.exec(body)?.[1] ?? '';
-      // Both quote styles — "what's running" cannot be single-quoted.
-      const examples = [...block.matchAll(/'([^']+)'|"([^"]+)"/g)].map((e) => e[1] ?? e[2]!);
-      found.set(m[1]!, examples);
-    });
+    for (const m of source.matchAll(/\bdomain:\s*'([\w-]+)'/g)) found.add(m[1]!);
   }
   return found;
 }
 
-const DECLARED = declaredSkills();
+const DOMAINS = declaredDomains();
 
-/**
- * What Home actually renders.
- *
- * Imported from the screen rather than reimplemented: a copy of the rule here
- * would drift, and then these tests would be checking a chip nobody sees.
- */
-function chipFor(id: string): string | undefined {
-  const examples = DECLARED.get(id);
-  if (!examples?.length) return undefined;
-  return pickChip(examples);
-}
-
-const SUGGESTED_IDS = SUGGESTED.flatMap((g) => g.skills);
-
-test('the scan finds the real catalog', () => {
-  assert.isAbove(DECLARED.size, 90);
-  assert.isTrue(DECLARED.has('files.find'));
-  assert.isTrue(DECLARED.has('web.searchYoutube'));
+test('the scan finds real domains', () => {
+  assert.isAbove(DOMAINS.size, 5);
+  assert.isTrue(DOMAINS.has('web'));
+  assert.isTrue(DOMAINS.has('files'));
 });
 
-test('every suggested skill actually exists', () => {
-  const missing = SUGGESTED_IDS.filter((id) => !DECLARED.has(id));
-  assert.deepEqual(
-    missing,
-    [],
-    `Home suggests skills no pack declares, so they are silently dropped: ${missing.join(', ')}`,
-  );
+test('there are exactly six cards', () => {
+  // The number the "six tiles read as a dashboard" lesson was learned from —
+  // more than this and Home is a dashboard again, just with paragraphs.
+  assert.equal(CARDS.length, 6);
 });
 
-test('every suggested skill has an example to show', () => {
-  // The chip label IS the example. A skill without one contributes nothing.
-  const exampleless = SUGGESTED_IDS.filter((id) => !DECLARED.get(id)?.length);
-  assert.deepEqual(exampleless, [], `no examples to render: ${exampleless.join(', ')}`);
+test('no two cards share a label or an icon', () => {
+  assert.equal(new Set(CARDS.map((c) => c.label)).size, CARDS.length);
+  assert.equal(new Set(CARDS.map((c) => c.icon)).size, CARDS.length);
 });
 
-test('no skill is suggested twice', () => {
-  assert.equal(new Set(SUGGESTED_IDS).size, SUGGESTED_IDS.length);
-});
-
-test('Home and the capability browser agree on the category names', () => {
-  // Both screens answer "what can this thing do?". Different headings on each
-  // would make them look like two different products.
-  const browserCategories = ['Files', 'System', 'Web', 'Text', 'Utilities', 'Notes'];
-  for (const { category } of SUGGESTED) {
-    assert.include(browserCategories, category);
+test('every card has a description', () => {
+  for (const card of CARDS) {
+    assert.isAbove(card.description.length, 0, `${card.label} has no description`);
   }
-  assert.isAbove(MAPPED_DOMAINS.length, 0);
 });
 
-test('the grid is denser than the six cards it replaced', () => {
-  // The whole point of the change. If this drops back to six, the screen has
-  // quietly become a dashboard again.
-  assert.isAtLeast(SUGGESTED_IDS.length, 15);
-});
-
-test('every chip on Home reaches the skill it advertises', () => {
-  const grammar = new Grammar();
-  grammar.addMany(createCoreGrammar(new WorkingMemory()));
-  grammar.addMany(createExtraGrammar());
-
-  const wrong: string[] = [];
-  for (const id of SUGGESTED_IDS) {
-    const chip = chipFor(id);
-    if (!chip) continue;
-    const planned = grammar.parse(chip)?.steps[0]?.skill;
-    if (planned !== id) wrong.push(`"${chip}" -> ${planned ?? 'no match'} (advertised ${id})`);
-  }
-  assert.deepEqual(wrong, [], `Home suggestions that mislead:\n${wrong.join('\n')}`);
-});
-
-test('no suggestion carries a filesystem path', () => {
-  // The bug this exists for: `files.list`'s shortest example was a path on the
-  // D: drive, so the Files chip errored with "That path is outside the folders
-  // Atlas can touch." It routed to the right skill — the grammar test passed —
-  // and still could not work, because `is_permitted` (platform.rs) allows only
-  // what sits under the user's home folder.
-  //
-  // Routing to the right skill is not the same as working. A suggestion naming
-  // any absolute path is either refused or specific to one machine, and both
-  // are worse than not suggesting it.
-  const withPaths: string[] = [];
-  for (const id of SUGGESTED_IDS) {
-    const chip = chipFor(id);
-    if (!chip) continue;
-    // A drive letter, a UNC share, or a POSIX absolute path.
-    if (/[a-zA-Z]:[\\/]|\\\\\S|(^|\s)~?\/\S/.test(chip)) {
-      withPaths.push(`${id}: "${chip}"`);
+test('every domain a card claims is one the registry actually declares', () => {
+  const dead: string[] = [];
+  for (const card of CARDS) {
+    for (const domain of card.domains) {
+      if (!DOMAINS.has(domain)) dead.push(`${card.label}: '${domain}'`);
     }
   }
-  assert.deepEqual(withPaths, [], `Home suggestions naming a path: ${withPaths.join(', ')}`);
+  assert.deepEqual(dead, [], `Cards claiming a domain nothing declares: ${dead.join(', ')}`);
 });
 
-test('the suggestions are things anyone could click', () => {
-  // Judgement, pinned as far as it can be: Home advertises general
-  // capabilities, so the personal-file domain has no business here even though
-  // every one of those skills still exists and still shows in the browser.
-  const categories = SUGGESTED.map((g) => g.category);
-  assert.notInclude(categories, 'Files');
-  assert.include(SUGGESTED_IDS, 'system.openTool', 'opening a system tool is the shape that works');
+test('a starter, when given, ends mid-sentence ready to keep typing', () => {
+  // "open" without the trailing space would land the cursor glued to the next
+  // word the person types. Cards without a natural single starter (see the
+  // CARDS doc comment) correctly have none at all — that's the empty-focus
+  // case, not a bug.
+  for (const card of CARDS) {
+    if (card.starter === undefined) continue;
+    assert.isAbove(card.starter.length, 0);
+    assert.equal(card.starter, card.starter.trimEnd() + ' ', `"${card.starter}" has no trailing space`);
+  }
+});
+
+test('no starter carries a filesystem path', () => {
+  // Same bug class the old chip grid hit: `files.list`'s example named a path
+  // on the D: drive, which only works on the machine it was written on.
+  for (const card of CARDS) {
+    if (!card.starter) continue;
+    assert.notMatch(card.starter, /[a-zA-Z]:[\\/]|\\\\\S|(^|\s)~?\/\S/, `${card.label}: "${card.starter}"`);
+  }
 });
