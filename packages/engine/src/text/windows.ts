@@ -40,6 +40,12 @@ function tidyQuery(raw: string): string {
  * settle it alone.
  */
 export function resolveWindow(windows: readonly WindowEntry[], query: string): WindowMatch {
+  // A disambiguation card's own action buttons re-invoke the skill with the
+  // exact `id` of the row that was clicked — never something a person would
+  // type themselves, so checking it first can't shadow a real title query.
+  const byId = windows.find((w) => w.id === query.trim());
+  if (byId) return { kind: 'one', entry: byId };
+
   const q = tidyQuery(query);
   if (!q) return { kind: 'none' };
 

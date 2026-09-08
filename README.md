@@ -97,13 +97,18 @@ reviewed in a diff.
 
 ## Where things stand
 
-**Version 0.5.0.** The engine kernel, the Tauri shell, memory, a hundred-plus
-skills, and voice (speaking and listening, both fully offline) are all built
-and working. Ordinary conversation is deliberately stiff until a local model
-lands behind Cortex — see [`docs/ROADMAP.md`](docs/ROADMAP.md) for exactly
-what's done, what's next (Phase 11 — the desktop assistant), and what's
-deliberately not built yet. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-explains why any of it is shaped the way it is.
+**Version 0.5.0.** The engine kernel, the Tauri shell, memory, 137 skills
+(including operating other windows, synthetic input, UI Automation and screen
+capture — Phase 12), and voice (speaking and listening, both fully offline)
+are all built and working. Do It mode now asks only about genuinely
+consequential actions, never about the mechanism used to perform them — a
+click, a keystroke and typed text run immediately; deleting, shutting down or
+closing something still confirms. Ordinary conversation is deliberately stiff
+until a local model lands behind Cortex — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for exactly what's done, what's next
+(Phase 11's remaining eight groups), and what's deliberately not built yet.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) explains why any of it is
+shaped the way it is.
 
 > Atlas was previously a wallpaper and personalization platform. That work is
 > preserved on the `archive/wallpaper-platform` branch.

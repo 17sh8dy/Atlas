@@ -335,11 +335,64 @@ section records the two decisions that were genuinely new.
 change something closing a window won't undo?" turns out to answer this whole
 surface without inventing a third tier: enumerating/inspecting windows,
 reading the UI tree, reading what's focused, moving the mouse and scrolling
-are `safe`; closing a window, ending a process, and every UI-Automation action
-or synthesized click/keypress/typed string are `confirm`. The one addition is
-that raw input is *uniformly* on the `confirm` side — there is no `safe`
-click, because a click can do anything the target application would let a
-human at the keyboard do, and there is no way to know in advance which.
+are `safe`; closing a window and ending a process are `confirm`.
+
+⚠️ **Revised 2026-09-07 — raw input and UI Automation are `safe` too, not
+uniformly `confirm`.** The original call here was that a click, a keypress or
+typed text could do anything the target application would let a human at the
+keyboard do, and there was no way to know in advance which — so every one of
+them asked. That reasoning is still true and still the reason Atlas cannot, in
+general, assess what a specific click or keystroke will do. What it got wrong
+is the conclusion: **input method is not consequence.** `input.click` and
+`window.focus` are both "operate something outside Atlas by a mechanism that
+could theoretically do anything" — the same shape of uncertainty already
+priced into `window.focus`, `window.move` and every other `safe` skill in this
+file — yet only the input pack answered it by asking every time. Two things
+followed from actually applying the codebase's own test:
+
+- The confirm card this produced was uninformative on its own terms. It can
+  only ever show a coordinate or a key name (`phrasing.confirmPrompt` reads
+  `skill.description` and the raw args — there is no semantic target to name),
+  so a person approving "click at 500, 300" knows exactly as much about the
+  consequence as Atlas does: nothing. It wasn't protecting against a bad
+  outcome; it was friction in front of "press enter" and "click Save" that
+  happened to also sit in front of the rare bad case, indistinguishably.
+- The actual protection against something destructive was never the input
+  layer's confirm card — it was always the *named* skill for that thing.
+  `window.close`, `files.delete`, `system.emptyRecycleBin`,
+  `system.endProcess` are unchanged by this revision and remain `confirm`;
+  they are what "delete", "empty the recycle bin", "shut down" and "end a
+  process that would lose work" actually route to, regardless of whether
+  Atlas reaches them through a Rust command or, one day, a UI Automation
+  click on the same button by hand.
+
+So `input.click`, `input.drag`, `input.pressKey`, `input.hotkey`,
+`input.typeText`, and every UI Automation action (`uia.invoke`, `expand`,
+`collapse`, `setValue`, `typeInto`) are now `safe` — mechanisms, not a
+consequence category of their own. The one case that needed a real answer
+rather than a blanket default: **Alt+F4 closes the foreground application**,
+the identical consequence `window.close` already gates, just reached by a
+keystroke instead of an API call. Making the whole `input.hotkey` skill ask
+again to cover one combination would reintroduce exactly the friction this
+revision removes, so instead `Skill.riskFor?(args): SkillRisk | undefined`
+(`packages/core/src/models/skill.ts`) lets a skill escalate risk for a
+*specific* call while staying `safe` in general — `input.hotkey`'s
+implementation normalizes case and modifier order and treats only that one
+combination as `confirm`. The executor checks `riskFor` ahead of the static
+`risk` at all three places risk is read (the per-step gate, and both of Plan
+First's checks — whether a plan needs an upfront card at all, and which of
+its steps that card marks with a warning), through one shared
+`effectiveRisk()` helper, so the three can never drift into disagreeing about
+which steps count.
+
+No general per-call risk engine follows from this: `riskFor` exists for a
+skill whose mechanism is usually safe but has one well-known, statically
+checkable equivalent of an already-gated named action — not for guessing at
+what an arbitrary UI Automation target or screen coordinate does, which
+remains genuinely impossible without a vision-capable provider Atlas does not
+have (see the OCR/`screen.describe` note below). That residual is accepted,
+consciously, the same way a human operator you hand a keyboard to is trusted
+not to need "are you sure?" before every keystroke.
 
 **An element is addressed as a path, never held as a live pointer.**
 `window.rs` already re-resolves a window handle by id on every call, checked
@@ -375,6 +428,8 @@ leaves deferred.
 | Rule | Where | Why |
 |---|---|---|
 | Risky steps ask, every time | `executor.ts` | One approval covers one step, never the session |
+| Risk is consequence, never input method | `Skill.risk`, `Skill.riskFor` | A click, a keypress and typed text are mechanisms; `input.*`/`uia.*` are `safe` like everything else that reaches outside Atlas without changing something closing a window won't undo |
+| Alt+F4 still confirms, however it's spelled | `input-skills.ts::isCloseAppHotkey` | Closes the foreground app — the same consequence `window.close` gates — reached by a keystroke instead of an API call |
 | A refusal ends the plan | `executor.ts` | Continuing after "no" is the most alarming thing an agent can do |
 | A failure stops what follows | `executor.ts` | Step two against nothing is worse than stopping |
 | Paths must sit under the user's home | `platform.rs` | The renderer is web content — the least trusted part of the app. A path from it is a claim, not a fact |

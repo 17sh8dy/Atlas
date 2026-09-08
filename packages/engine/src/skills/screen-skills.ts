@@ -96,8 +96,14 @@ export function createScreenSkills(platform: Platform): Skill[] {
       if (match.kind === 'none') return { ok: false, error: `I can't find a window called "${query}".` };
       if (match.kind === 'many') {
         ctx.showResults?.(
-          match.candidates.slice(0, 12).map((w) => ({ title: w.title, subtitle: w.processName, icon: '🪟', payload: w })),
-          { title: `${match.candidates.length} windows match "${query}"`, subtitle: 'Say which one.' },
+          match.candidates.slice(0, 12).map((w) => ({
+            title: w.title,
+            subtitle: w.processName,
+            icon: '🪟',
+            payload: w,
+            actions: [{ label: 'Capture', skill: 'screen.captureWindow', args: { window: w.id } }],
+          })),
+          { title: `${match.candidates.length} windows match "${query}"`, subtitle: 'Click one, or say which.' },
         );
         return { ok: true, spoken: true, message: '' };
       }

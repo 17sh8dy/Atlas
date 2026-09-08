@@ -25,6 +25,18 @@
  * powering off. Opening, showing and searching are `safe`, even though they
  * reach outside Atlas, because asking "are you sure you want to open Steam"
  * of someone who just said "open Steam" is asking the same question twice.
+ *
+ * **The test is about consequence, never about mechanism.** A click, a
+ * keypress and a typed string are *inputs* — how a skill happens to act —
+ * not a category of consequence of their own. `input.click` is `safe` for
+ * exactly the same reason `window.focus` is: most clicks, like most window
+ * switches, don't change anything closing a window won't undo. A specific
+ * call that *would* — Alt+F4, which closes the foreground application the
+ * same way `window.close` does — is still `confirm`, via `riskFor` below,
+ * not by making every click ask "are you sure" on the strength of the worst
+ * thing a click could theoretically do. See `docs/ARCHITECTURE.md` §6.6 for
+ * the full reasoning, including the input skills this replaced a blanket
+ * `confirm` on.
  */
 export type SkillRisk = 'safe' | 'confirm';
 
@@ -138,6 +150,25 @@ export interface Skill<T = unknown> {
    */
   needs?: readonly string[];
   risk?: SkillRisk;
+  /**
+   * Escalates `risk` for one specific call, when the skill's mechanism is
+   * usually safe but *this* invocation is a known equivalent of something
+   * this codebase already gates elsewhere. Exists for exactly that shape of
+   * case — see `input.hotkey`'s Alt+F4 check against `window.close` — not as
+   * a general per-call risk engine: most skills need no opinion beyond the
+   * static `risk` above, and most of the ones with an opinion could not form
+   * one anyway (a raw click has no idea what it will hit).
+   *
+   * Returning `undefined` defers to `risk`. Checked wherever `risk` is, by
+   * the executor alone — the same "one door" the content policy and `guard`
+   * already go through — so this can never be bypassed by a caller that
+   * only reads the static field.
+   *
+   * Synchronous and pure, for the same reason `guard` is: it sees only the
+   * arguments as given, and a version that queried the machine to decide
+   * would be a second, invisible execution path.
+   */
+  riskFor?(args: SkillArgs): SkillRisk | undefined;
   /**
    * May this skill's message be read aloud? Default yes.
    *

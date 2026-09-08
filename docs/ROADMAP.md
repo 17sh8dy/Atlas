@@ -4,40 +4,45 @@ Phases are completed one at a time, in full. A phase is done when it typechecks,
 lints, has tests where the logic is non-trivial, and actually runs — not when
 the code exists.
 
-## Where things stand (2026-08-23)
+## Where things stand (2026-09-07)
 
-**Done:** Phases 0, 1, 2, **8**, plus **6 and 7 delivered early** on 2026-08-17
-and an unnumbered interlude that took the catalog to **110 actions** and rebuilt
-the window chrome and app resolution.
+**Done:** Phases 0, 1, 2, 6, 7, 8, and **12** — operating other windows,
+synthetic input, UI Automation and screen capture, clicked through against
+the real built app the same day (see Phase 12 below). Phase 11 is still only
+**two of its original ten groups** built (network, services) — Phase 12
+covered three domains that phase's own list didn't anticipate and is complete
+on its own terms, which is why it's marked done while Phase 11 isn't.
 
 **Phase 4 was inverted, and has been corrected by subtraction (2026-08-23).**
-It shipped the cloud half and left local "Planned", which was backwards. Claude
-and ChatGPT are now deleted, along with Gemini/Local/Custom as advertised
-future rows — and with them the OpenAI-backed *online voice* path, which shared
-the ChatGPT key. **Cortex is the only provider Atlas will ever have**, it runs
-on loopback, and there is no API key anywhere in the product. Speaking and
-listening are Piper and whisper.cpp with no branch at all.
+Cortex is the only provider Atlas will ever have, it runs on loopback, and
+there is no API key anywhere in the product. Speaking and listening are Piper
+and whisper.cpp with no branch at all. (Cortex's own repo has since grown a
+real server and a `ConversationEngine` foundation — see that phase's note
+below; this file only tracks what's actually wired into Atlas.)
 
-**A polish pass landed the same day** (seven commits): deterministic small talk
-so "hi" is answered rather than explained away; the 110-action list rebuilt as a
-six-category capability browser; the Settings rail cut from ten pages to seven
-by deleting placeholders; Voice reduced to four controls and an Advanced
-disclosure (with a real volume control — the `GainNode` had been there since
-Phase 8 with nothing calling it); a denser Home screen built from the skills'
-own declared examples; and a light theme with a real surface ramp, which
-incidentally caught two WCAG AA misses in *dark*.
+**A polish pass landed 2026-09-07**, alongside Phase 12's revisions below:
+Home's suggestion list traded `uppercase "hello world"` and a clipboard
+transform — the two chips this session's own feedback called out as things
+"not many people care about" — for what Phase 11/12 actually built: a real
+screenshot, locking the PC, listing open windows; **Enhanced Effects now
+reaches the composer bar and its buttons**, not just `Button`/`Surface`,
+triggering on focus as well as hover since typing into a bar is not hovering
+it; **a rows-only reply now speaks a summary in both chat and voice** — window
+lists, "which one did you mean" cards and the like used to render a card and
+say nothing at all, which was silence in voice mode and looked answered-but-
+mute in chat; and **Settings remembers whether it was opened from the voice
+screen or the chat**, with a back arrow that returns to exactly that instead
+of always landing in chat.
 
-⚠️ **The open cost:** Cortex v0.1 has no server, so an open-ended question gets
-an honest "I can't answer that from what's on this machine" rather than an
-answer. The seam is built and tested; the model behind it is not.
-
-**Next:** **Phase 11 — the desktop assistant** (Brandon, 2026-08-21): cover
-what people use PowerShell for, as ~40–60 narrow validated skills, with AI
-demoted to the fallback tier. ⚠️ `exec(command)` stays refused — see that
-phase for why the distinction is the whole point. **Two of ten groups are
-built** — network (2026-08-21) and services (2026-08-22); the services pack is
-the template for every group that can change something, and the one open
-question it raised is elevation.
+**Next:** Phase 11's other eight groups (Storage, Audio, Display, Tasks,
+Users, Firewall, Environment, Windows) are still what's actually next for
+Atlas's own catalog — see that phase for the elevation question the services
+pack already raised. Separately, and not yet wired into Atlas at all:
+[Cortex](file:///D:/Dev/Cortex) grew a `ConversationEngine` on 2026-09-07 —
+session history, multi-turn context, a `Backend`-agnostic response seam — with
+`cortex/server.py`'s `/v1/ask` still single-shot and not yet calling it. That
+wiring is the natural next step for that thread whenever it's picked back up;
+see `cortex/conversation.py`'s own module doc for what it does and doesn't do.
 
 **Also outstanding:** Phase 3 — persistence. Conversation history still dies
 with the process, and `files.find` still walks the disk on every query.
@@ -53,10 +58,11 @@ designed, not a bug, so widening it is a decision to make deliberately (a
 user-managed allowed-folders list is the obvious shape) rather than a limit to
 quietly raise.
 
-**Baseline, verified 2026-09-02:** `pnpm typecheck` (7 packages), `pnpm lint`
-clean, `pnpm test` (root script, added 2026-09-02) — **318 tests** across
-`core`/`data`/`engine`/`tokens`/`web` — plus 30 Rust tests (4 more ignored
-because they touch the real machine or network: `cargo test -- --ignored`).
+**Baseline, verified 2026-09-07:** `pnpm -r typecheck` (9 packages), root
+`eslint .` clean, `pnpm test` (root script) — **397 tests** across
+`core`/`data`/`engine`/`tokens`/`web` — plus the existing Rust suite
+(`cargo test`, untouched today). Engine alone is 307 (up from 293 this
+morning: 2 for the window-disambiguation fix, 12 for the risk-model revision).
 
 **The window's middle caption button maximises** rather than filling the
 monitor, as of 2026-08-21. tao already trims a maximised borderless window to
@@ -681,8 +687,8 @@ See §6.6 of `ARCHITECTURE.md` for the two decisions that were genuinely new
 | Group | Skills | Risk | State |
 | --- | --- | --- | --- |
 | 🪟 Window control | `window.list/active/focus/minimize/maximize/restore/move/close`, `system.endProcess` | reads + move = safe; close/end = confirm, guarded against OS-critical processes | ✅ |
-| 🖱️⌨️ Input | `input.moveMouse/cursorPosition/scroll` (safe), `input.click/drag/pressKey/hotkey/typeText` (confirm) | uniformly `confirm` for anything that acts — see §6.6 | ✅ |
-| 🧩 UI Automation | `uia.tree/focusedElement` (safe), `uia.invoke/expand/collapse/setValue/typeInto` (confirm) | ✅ |
+| 🖱️⌨️ Input | `input.moveMouse/cursorPosition/scroll/click/drag/pressKey/hotkey/typeText` | all `safe` — a click/keypress/typed string is a mechanism, not a consequence; `input.hotkey` escalates to `confirm` only for Alt+F4, via `riskFor` — see §6.6 | ✅ (revised 2026-09-07) |
+| 🧩 UI Automation | `uia.tree/focusedElement/invoke/expand/collapse/setValue/typeInto` | all `safe`, for the same reason as Input — UIA is the *more* precise way to click/type, so it can't ask more than the raw-input fallback it's preferred over | ✅ (revised 2026-09-07) |
 | 🖥️ Screen | `screen.capture/captureWindow/listDisplays` | all safe (read-only) | ✅ |
 | ℹ️ Compatibility | `windows_compatibility` (Rust command, not a skill — informational, surfaced in About) | n/a | ✅ |
 
@@ -692,6 +698,29 @@ enumerated, a real UI Automation tree walked against whatever had focus, a
 real screenshot encoded to a real PNG, a real Windows build number read from
 the registry) and engine tests against the scripted-`Platform` double.
 `pnpm -r typecheck`, root `eslint .`, and `pnpm test` all clean.
+
+**Clicked through against the real built app, 2026-09-07** — the thing the
+original commit still owed. Rebuilt with this phase's code (the prior
+`atlas-desktop.exe` predated it by four days), summoned, and driven through
+the composer: "what windows do I have open" listed the real desktop,
+Settings → About showed a real registry read for the Windows build number,
+and — the two-window "Calculator" repro that also turned up the disambiguation
+bug fixed the same day (below) — a real `press enter` and a real
+`close the calculator window` each drew a real confirm card, were approved,
+and executed for real (the process actually exited). Nothing here was faked
+or assumed from tests alone.
+
+**Fixed the same day: a disambiguation card was speakable but not clickable.**
+When a name matched more than one window (two windows both titled
+"Calculator" — `CalculatorApp.exe` and its `ApplicationFrameHost.exe` shell —
+found live, not hypothetically), the "which one?" card rendered plain rows
+with no `actions`, so a person could only retype an exact name that didn't
+exist. `resolveWindow` (`text/windows.ts`) now also matches a candidate's own
+opaque `id` exactly, and every one of the four places that offers a
+disambiguation list (`window.*`, `uia.*`, `screen.captureWindow`) attaches a
+real click action addressed by that `id` rather than by the ambiguous name —
+which also makes "the second one" work by voice or text, since ordinal
+resolution (`WorkingMemory.resolveOrdinal`) reads the same `actions` field.
 
 **Grammar stayed deliberately narrow.** Only the one-shot phrasings people
 actually type in a single sentence got a rule — list/focus/minimize/maximize/
@@ -703,6 +732,25 @@ no one-liner grammar and is left to the AI-plan path, which is exactly the
 case that tier exists for — confirmed by the engine tests for those skills,
 which invoke the registry directly the same way `window.move`'s own test does
 rather than pretending a grammar rule exists.
+
+**Decision (Brandon, 2026-09-07): risk is consequence, never input method —
+raw input and UI Automation reclassified from uniform `confirm` to `safe`.**
+The original call — every click, keypress and typed string asks, because
+there's no way to know in advance what one will do — was real but led to the
+wrong conclusion for Do It mode: a click is a *mechanism*, the same way
+window-focusing is, not a consequence category of its own, and the resulting
+confirm card could only ever show a coordinate or a key name, never what was
+actually behind it. It protected nothing that the *named* skills for actually
+destructive things (`window.close`, `files.delete`,
+`system.emptyRecycleBin`, `system.endProcess` — all unchanged, still
+`confirm`) didn't already cover, and it made "press enter" and "click Save"
+ask "are you sure?" on the strength of the rare case they can't be told apart
+from. `input.click/drag/pressKey/hotkey/typeText` and every `uia.*` action are
+now `safe`. The one keystroke that is a *known* equivalent of an
+already-gated named action — Alt+F4, same consequence as `window.close` —
+still confirms, via a new `Skill.riskFor?(args)` escalation hook rather than
+by making the whole hotkey skill ask again; see §6.6 of `ARCHITECTURE.md` for
+the full reasoning and exactly what changed.
 
 ### Deferred, and why — not built as placeholders
 

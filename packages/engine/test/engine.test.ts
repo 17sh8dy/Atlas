@@ -15,6 +15,7 @@ import type {
   Memory,
   Platform,
   ResultRow,
+  SkillContext,
   WebPage,
   WebSearchResult,
 } from '@atlas/core';
@@ -1331,6 +1332,51 @@ test('mode: declining planFirst\'s approval cancels the whole plan, nothing runs
   assert.equal(outcome.ran, 0);
   assert.isTrue(outcome.aborted);
   assert.match(h.said.join(' '), /left alone/i);
+});
+
+test('mode: planFirst marks a step consequential via riskFor, not just static risk', async () => {
+  const h = harness(undefined, { mode: 'planFirst' });
+  const outcome = await h.engine.run(
+    {
+      source: 'direct',
+      intent: 'test',
+      confidence: 1,
+      steps: [
+        { skill: 'input.hotkey', args: { combo: 'ctrl+c' } },
+        { skill: 'input.hotkey', args: { combo: 'alt+f4' } },
+      ],
+    },
+    io(h),
+  );
+  // One approval for the whole plan, asked at all only because the second
+  // step's `riskFor` — its static `risk` is `safe`, same as the first step —
+  // makes it consequential.
+  assert.equal(h.confirmsAsked.length, 1);
+  const [detail] = h.confirmDetails;
+  assert.match(detail!, /1\. Press a key combination/);
+  assert.match(detail!, /2\. ⚠ Press a key combination/);
+  assert.isTrue(outcome.ok);
+  assert.deepEqual(h.journal.hotkeys, [
+    { modifiers: ['ctrl'], key: 'c' },
+    { modifiers: ['alt'], key: 'f4' },
+  ]);
+});
+
+test('mode: planFirst shows no card at all for a plan of ordinary input steps', async () => {
+  const h = harness(undefined, { mode: 'planFirst' });
+  await h.engine.run(
+    {
+      source: 'direct',
+      intent: 'test',
+      confidence: 1,
+      steps: [
+        { skill: 'input.hotkey', args: { combo: 'ctrl+c' } },
+        { skill: 'input.pressKey', args: { key: 'enter' } },
+      ],
+    },
+    io(h),
+  );
+  assert.deepEqual(h.confirmsAsked, []);
 });
 
 test('mode: planFirst still refuses a NEVER_STOP call outright, without ever drawing a plan card', async () => {
@@ -3426,6 +3472,51 @@ test('windows: resolution offers candidates rather than guessing between two', (
   assert.equal(match.kind, 'many');
 });
 
+test('windows: resolution matches a candidate by its own id, not just by title', () => {
+  const windows = [
+    { ...WINDOWS[0]!, id: 'calc-a', title: 'Calculator', processName: 'CalculatorApp.exe' },
+    { ...WINDOWS[0]!, id: 'calc-b', title: 'Calculator', processName: 'ApplicationFrameHost.exe' },
+  ];
+  const match = resolveWindow(windows, 'calc-b');
+  assert.deepEqual(match, { kind: 'one', entry: windows[1] });
+});
+
+test('windows: a disambiguation card is clickable, not just speakable — two windows share a title', async () => {
+  const candidates = [
+    { ...WINDOWS[0]!, id: 'calc-a', title: 'Calculator', processName: 'CalculatorApp.exe' },
+    { ...WINDOWS[0]!, id: 'calc-b', title: 'Calculator', processName: 'ApplicationFrameHost.exe' },
+  ];
+  const minimized: string[] = [];
+  const platform = {
+    capabilities: async () => ['window-control'],
+    listWindows: async () => candidates,
+    minimizeWindow: async (id: string) => {
+      minimized.push(id);
+      return true;
+    },
+  } as unknown as Platform;
+  const minimize = createWindowSkills(platform).find((s) => s.id === 'window.minimize')!;
+
+  const rows: ResultRow[] = [];
+  const ctx: SkillContext = { say: () => {}, confirm: async () => true, showResults: (items) => rows.push(...items) };
+  const offered = await minimize.run({ name: 'calculator' }, ctx);
+  assert.isTrue(offered.ok);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(
+    rows.map((r) => r.actions?.[0]),
+    [
+      { label: 'Minimize', skill: 'window.minimize', args: { name: 'calc-a' } },
+      { label: 'Minimize', skill: 'window.minimize', args: { name: 'calc-b' } },
+    ],
+  );
+
+  // What clicking the second row actually does: re-run the same skill with
+  // that exact id, landing on that window and not the other one.
+  const clicked = await minimize.run(rows[1]!.actions![0]!.args, ctx);
+  assert.isTrue(clicked.ok);
+  assert.deepEqual(minimized, ['calc-b']);
+});
+
 test('windows: "close" alone still dismisses Atlas, not a window', () => {
   const h = harness();
   const parsed = h.engine.grammar.parse('close');
@@ -3483,9 +3574,11 @@ test('process: declining the card leaves it running', async () => {
 
 // ---- synthetic input -------------------------------------------------------------
 //
-// Moving the cursor and scrolling are cosmetic and reversible, so they're
-// `safe`; a click, a drag, a key press or typed text can do anything the
-// target application would let a human do, so every one of those asks first.
+// A click, a key press, typed text — these are mechanisms, not consequences,
+// so all of them are `safe`, the same way `window.focus` is despite also
+// "operating a window". The one exception is a specific *hotkey* that is a
+// known equivalent of an already-`confirm` named action — see the Alt+F4
+// tests below.
 
 test('input: moving the mouse and reading its position ask nothing', async () => {
   // No one-shot grammar for coordinates — same scoping decision as
@@ -3505,52 +3598,77 @@ test('input: scrolling is safe and direction maps to sign', async () => {
   assert.deepEqual(h.confirmsAsked, []);
 });
 
-test('input: pressing a named key asks first', async () => {
+test('input: pressing a named key runs immediately, asking nothing', async () => {
   const h = harness();
-  h.confirmAnswer = true;
   await h.engine.ask('press enter', io(h));
-  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.confirmsAsked, []);
   assert.deepEqual(h.journal.keysPressed, ['enter']);
 });
 
-test('input: declining a key press sends nothing', async () => {
+test('input: a hotkey splits into modifiers and one key, asking nothing', async () => {
   const h = harness();
-  h.confirmAnswer = false;
-  await h.engine.ask('press escape', io(h));
-  assert.deepEqual(h.journal.keysPressed, []);
-});
-
-test('input: a hotkey splits into modifiers and one key', async () => {
-  const h = harness();
-  h.confirmAnswer = true;
   await h.engine.ask('press ctrl+shift+s', io(h));
+  assert.deepEqual(h.confirmsAsked, []);
   assert.deepEqual(h.journal.hotkeys, [{ modifiers: ['ctrl', 'shift'], key: 's' }]);
 });
 
-test('input: typed quoted text is sent verbatim, quotes stripped', async () => {
+test('input: alt+f4 still asks first — it closes the foreground app, same as window.close', async () => {
   const h = harness();
   h.confirmAnswer = true;
+  await h.engine.ask('press alt+f4', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.hotkeys, [{ modifiers: ['alt'], key: 'f4' }]);
+});
+
+test('input: alt+f4 is caught whatever the case or modifier order', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('press F4+ALT', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+});
+
+test('input: declining alt+f4 sends nothing', async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  await h.engine.ask('press alt+f4', io(h));
+  assert.deepEqual(h.journal.hotkeys, []);
+});
+
+test('input: typed quoted text is sent verbatim, quotes stripped, asking nothing', async () => {
+  const h = harness();
   await h.engine.ask('type "hello there"', io(h));
+  assert.deepEqual(h.confirmsAsked, []);
   assert.deepEqual(h.journal.typed, ['hello there']);
 });
 
-test('input: click and drag both ask first', async () => {
+test('input: click and drag both run immediately', async () => {
   const h = harness();
-  h.confirmAnswer = true;
   await h.engine.skills.invoke('input.click', { x: 10, y: 20 }, io(h));
   assert.deepEqual(h.journal.clicks, [{ x: 10, y: 20, button: 'left', double: false }]);
   await h.engine.skills.invoke('input.drag', { fromX: 0, fromY: 0, toX: 5, toY: 5 }, io(h));
   assert.deepEqual(h.journal.drags, [{ fromX: 0, fromY: 0, toX: 5, toY: 5, button: 'left' }]);
+  assert.deepEqual(h.confirmsAsked, []);
 });
 
 test('input: risk matches consequence, not input method', () => {
   const h = harness();
-  for (const id of ['input.moveMouse', 'input.cursorPosition', 'input.scroll']) {
+  for (const id of [
+    'input.moveMouse',
+    'input.cursorPosition',
+    'input.scroll',
+    'input.click',
+    'input.drag',
+    'input.pressKey',
+    'input.hotkey',
+    'input.typeText',
+  ]) {
     assert.equal(h.engine.skills.get(id)?.risk, 'safe', id);
   }
-  for (const id of ['input.click', 'input.drag', 'input.pressKey', 'input.hotkey', 'input.typeText']) {
-    assert.equal(h.engine.skills.get(id)?.risk, 'confirm', id);
-  }
+  // The static declaration is `safe` — it's `riskFor` that escalates the one
+  // combination that isn't.
+  const hotkey = h.engine.skills.get('input.hotkey');
+  assert.equal(hotkey?.riskFor?.({ combo: 'ctrl+c' }), undefined);
+  assert.equal(hotkey?.riskFor?.({ combo: 'alt+f4' }), 'confirm');
 });
 
 test('input: with no input capability the skills are hidden, not disabled', () => {
@@ -3572,9 +3690,11 @@ test('input: with no input capability the skills are hidden, not disabled', () =
 
 // ---- UI Automation ---------------------------------------------------------------
 //
-// Reading the tree, and what's focused, are `safe`; every action acts on
-// another application on your behalf and is `confirm` — the same test as
-// window.close and every input skill.
+// Reading the tree, and what's focused, are `safe` — and so, now, is every
+// action. UIA is the more precise way to click/type than a raw coordinate
+// is, so it would be backwards for it to ask more often than `input.*` does;
+// see that section's own comment for the mechanism-vs-consequence reasoning
+// this shares.
 
 test('uia: the tree resolves the window by name and lists its controls', async () => {
   const h = harness();
@@ -3608,7 +3728,6 @@ test('uia: invoking a control resolves the window and acts', async () => {
 
 test('uia: setValue is tried first, and reported as typing either way', async () => {
   const h = harness();
-  h.confirmAnswer = true;
   const outcome = await h.engine.skills.invoke(
     'uia.typeInto',
     { window: 'notepad', path: '0', text: 'hello' },
@@ -3623,7 +3742,6 @@ test('uia: setValue is tried first, and reported as typing either way', async ()
 
 test('uia: typeInto falls back to focus-plus-keystrokes when setValue fails', async () => {
   const h = harness();
-  h.confirmAnswer = true;
   const outcome = await h.engine.skills.invoke(
     'uia.typeInto',
     { window: 'notepad', path: '1', text: 'hello' },
@@ -3635,9 +3753,8 @@ test('uia: typeInto falls back to focus-plus-keystrokes when setValue fails', as
   assert.deepEqual(h.journal.typed, ['hello']);
 });
 
-test('uia: expand and collapse both resolve the window and ask first', async () => {
+test('uia: expand and collapse both resolve the window and act immediately', async () => {
   const h = harness();
-  h.confirmAnswer = true;
   await h.engine.skills.invoke('uia.expand', { window: 'notepad', path: '1' }, io(h));
   await h.engine.skills.invoke('uia.collapse', { window: 'notepad', path: '1' }, io(h));
   assert.deepEqual(h.journal.uiaExpands, [
@@ -3646,13 +3763,18 @@ test('uia: expand and collapse both resolve the window and ask first', async () 
   ]);
 });
 
-test('uia: risk matches consequence — reads are safe, every action confirms', () => {
+test('uia: risk matches consequence — reading and acting are both safe', () => {
   const h = harness();
-  for (const id of ['uia.tree', 'uia.focusedElement']) {
+  for (const id of [
+    'uia.tree',
+    'uia.focusedElement',
+    'uia.invoke',
+    'uia.expand',
+    'uia.collapse',
+    'uia.setValue',
+    'uia.typeInto',
+  ]) {
     assert.equal(h.engine.skills.get(id)?.risk, 'safe', id);
-  }
-  for (const id of ['uia.invoke', 'uia.expand', 'uia.collapse', 'uia.setValue', 'uia.typeInto']) {
-    assert.equal(h.engine.skills.get(id)?.risk, 'confirm', id);
   }
 });
 

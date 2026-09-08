@@ -19,7 +19,11 @@
  *
  * ── Execution mode ───────────────────────────────────────────────────────────
  * `ExecutionMode` (see `@atlas/core`) decides *when* a confirm step's question
- * is put to the user, never *whether* — that is still `Skill.risk` alone.
+ * is put to the user, never *whether* — that is still `Skill.risk` (and, for
+ * the rare skill whose consequence depends on which call it was, `riskFor`)
+ * alone. `effectiveRisk()` below is the one place that pair is read, so the
+ * plan-wide scan, the plan-approval labels and the per-step gate can never
+ * disagree about which steps count as consequential.
  *
  * `doIt` and `confirmActions` run the identical per-step loop: a safe step
  * runs, a confirm step asks right there, immediately before it runs. They are
@@ -34,7 +38,16 @@
  * matching every other mode, harmless things stay silent.
  */
 
-import type { ExecutionMode, Plan, PlanOutcome, SkillContext, StepOutcome } from '@atlas/core';
+import type {
+  ExecutionMode,
+  Plan,
+  PlanOutcome,
+  Skill,
+  SkillArgs,
+  SkillContext,
+  SkillRisk,
+  StepOutcome,
+} from '@atlas/core';
 import { DEFAULT_EXECUTION_MODE } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import { createPhrasing, type Phrasing } from '../phrasing';
@@ -45,6 +58,16 @@ export interface ExecutorOptions {
   stopOnError?: boolean;
   /** Defaults to `doIt` — today's behaviour, unchanged for callers who don't pass one. */
   mode?: ExecutionMode;
+}
+
+/**
+ * `skill.riskFor?.(args) ?? skill.risk` — the one place that ordering is
+ * written down, so every caller below (the plan-wide scan, the plan-approval
+ * labels, the per-step gate) agrees with each other by construction rather
+ * than by all three remembering the same two-line fallback separately.
+ */
+function effectiveRisk(skill: Skill | null | undefined, args: SkillArgs): SkillRisk | undefined {
+  return skill?.riskFor?.(args) ?? skill?.risk;
 }
 
 export class Executor {
@@ -93,7 +116,7 @@ export class Executor {
     // mode — this is what keeps harmless requests just as quiet under this
     // mode as under the other two.
     const hasConsequentialStep = plan.steps.some(
-      (s) => this.skills.get(s.skill)?.risk === 'confirm',
+      (s) => effectiveRisk(this.skills.get(s.skill), s.args) === 'confirm',
     );
     // Same reasoning as the per-step guard check below, applied to the whole
     // plan: a card must never appear in front of something that would then be
@@ -113,7 +136,7 @@ export class Executor {
           const skill = this.skills.get(s.skill);
           return {
             label: skill?.label ?? s.skill,
-            consequential: skill?.risk === 'confirm',
+            consequential: effectiveRisk(skill, s.args) === 'confirm',
           };
         }),
       );
@@ -174,7 +197,7 @@ export class Executor {
       // Plan First already put this exact step in front of the user as part
       // of the whole-plan approval above — asking again here would be the
       // "trip back to the keyboard" this mode exists to avoid.
-      if (skill.risk === 'confirm' && !usingPlanApproval) {
+      if (effectiveRisk(skill, step.args) === 'confirm' && !usingPlanApproval) {
         const argsDetail = Object.values(step.args)
           .filter((v) => v !== undefined && v !== null && v !== '')
           .map(String)

@@ -35,7 +35,7 @@ const NEVER_END = [
   'atlas-desktop.exe',
 ];
 
-function windowRow(w: WindowEntry): ResultRow {
+function windowRow(w: WindowEntry, actions?: ResultRow['actions']): ResultRow {
   return {
     title: w.title,
     subtitle: [w.processName, w.minimized ? 'minimized' : w.maximized ? 'maximized' : '', w.active ? 'active' : '']
@@ -43,19 +43,33 @@ function windowRow(w: WindowEntry): ResultRow {
       .join(' · '),
     icon: w.active ? '🟢' : '🪟',
     payload: w,
+    actions,
   };
 }
 
-/** "Did you mean one of these?", the same shape every resolver in this codebase offers. */
+/**
+ * "Did you mean one of these?", the same shape every resolver in this
+ * codebase offers — except two windows can share a title (two "Calculator"
+ * windows, one of them the actual app and one an `ApplicationFrameHost`
+ * shell), so the row's action can't re-run the skill with that title the way
+ * `app.open`'s "did you mean" does. It re-invokes with the window's own `id`
+ * instead, which `resolveWindow` now matches exactly — clicking a candidate
+ * (or `working.resolveOrdinal` picking "the second one") lands on that exact
+ * window, not whichever one a name match would have guessed.
+ */
 function offerWindows(
   candidates: WindowEntry[],
   query: string,
   ctx: { showResults?: (items: ResultRow[], meta?: { title?: string; subtitle?: string }) => void },
+  actionFor: (entry: WindowEntry) => ResultRow['actions'],
 ): { ok: true; spoken: true; message: '' } {
-  ctx.showResults?.(candidates.slice(0, 12).map(windowRow), {
-    title: `${candidates.length} windows match “${query}”`,
-    subtitle: 'Say which one.',
-  });
+  ctx.showResults?.(
+    candidates.slice(0, 12).map((w) => windowRow(w, actionFor(w))),
+    {
+      title: `${candidates.length} windows match “${query}”`,
+      subtitle: 'Click one, or say which.',
+    },
+  );
   return { ok: true, spoken: true, message: '' };
 }
 
@@ -74,7 +88,7 @@ export function createWindowSkills(platform: Platform): Skill[] {
     async run(_args, ctx) {
       const windows = await liveWindows(platform);
       if (!windows.length) return { ok: true, message: 'Nothing appears to be open.' };
-      ctx.showResults?.(windows.map(windowRow), {
+      ctx.showResults?.(windows.map((w) => windowRow(w)), {
         title: `${windows.length} open window${windows.length === 1 ? '' : 's'}`,
       });
       return { ok: true, spoken: true, message: '' };
@@ -101,12 +115,13 @@ export function createWindowSkills(platform: Platform): Skill[] {
   async function targetWindow(
     query: string,
     ctx: { showResults?: (items: ResultRow[], meta?: { title?: string; subtitle?: string }) => void },
+    actionFor: (entry: WindowEntry) => ResultRow['actions'],
   ): Promise<{ entry: WindowEntry } | { early: { ok: boolean; message?: string; error?: string; spoken?: true } }> {
     const match = resolveWindow(await liveWindows(platform), query);
     if (match.kind === 'none') {
       return { early: { ok: false, error: `I can't find a window called “${query}”.` } };
     }
-    if (match.kind === 'many') return { early: offerWindows(match.candidates, query, ctx) };
+    if (match.kind === 'many') return { early: offerWindows(match.candidates, query, ctx, actionFor) };
     return { entry: match.entry };
   }
 
@@ -131,7 +146,8 @@ export function createWindowSkills(platform: Platform): Skill[] {
     },
     async run(args, ctx) {
       const query = String(args.name ?? '');
-      const target = await targetWindow(query, ctx);
+      const buttonLabel = verb.charAt(0).toUpperCase() + verb.slice(1);
+      const target = await targetWindow(query, ctx, (entry) => [{ label: buttonLabel, skill: id, args: { name: entry.id } }]);
       if ('early' in target) return target.early;
 
       const ok = await act(target.entry.id);
@@ -199,14 +215,16 @@ export function createWindowSkills(platform: Platform): Skill[] {
     },
     async run(args, ctx) {
       const query = String(args.name ?? '');
-      const target = await targetWindow(query, ctx);
-      if ('early' in target) return target.early;
-
       const bounds: { x?: number; y?: number; width?: number; height?: number } = {};
       if (typeof args.x === 'number') bounds.x = args.x;
       if (typeof args.y === 'number') bounds.y = args.y;
       if (typeof args.width === 'number') bounds.width = args.width;
       if (typeof args.height === 'number') bounds.height = args.height;
+
+      const target = await targetWindow(query, ctx, (entry) => [
+        { label: 'Move here', skill: 'window.move', args: { name: entry.id, ...bounds } },
+      ]);
+      if ('early' in target) return target.early;
 
       const ok = await platform.setWindowBounds?.(target.entry.id, bounds);
       if (!ok) return { ok: false, error: `I couldn't move ${target.entry.title}.` };
@@ -230,7 +248,9 @@ export function createWindowSkills(platform: Platform): Skill[] {
     },
     async run(args, ctx) {
       const query = String(args.name ?? '');
-      const target = await targetWindow(query, ctx);
+      const target = await targetWindow(query, ctx, (entry) => [
+        { label: 'Close', skill: 'window.close', args: { name: entry.id } },
+      ]);
       if ('early' in target) return target.early;
 
       const ok = await platform.closeWindow?.(target.entry.id);
@@ -298,8 +318,9 @@ export function createWindowSkills(platform: Platform): Skill[] {
             subtitle: `pid ${p.pid}`,
             icon: '⛔',
             payload: p,
+            actions: [{ label: 'End', skill: 'system.endProcess', args: { process: String(p.pid) } }],
           })),
-          { title: `${match.candidates.length} processes match “${query}”`, subtitle: 'Say which one, by its pid.' },
+          { title: `${match.candidates.length} processes match “${query}”`, subtitle: 'Click one, or say its pid.' },
         );
         return { ok: true, spoken: true, message: '' };
       }
