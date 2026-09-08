@@ -80,14 +80,22 @@ html[data-effects='enhanced'] .atlas-enhance::before {
   transition: opacity var(--duration-fast) ease-out;
 }
 
+/*
+ * `:focus-within` alongside `:hover`/`:focus-visible` — a container like the
+ * composer bar is never itself the focused element (its textarea is), so
+ * without this its glow could only ever be triggered by the mouse, never by
+ * typing into it.
+ */
 html[data-effects='enhanced'] .atlas-enhance:hover,
-html[data-effects='enhanced'] .atlas-enhance:focus-visible {
+html[data-effects='enhanced'] .atlas-enhance:focus-visible,
+html[data-effects='enhanced'] .atlas-enhance:focus-within {
   transform: translateY(-1px);
   box-shadow: var(--shadow-glow);
 }
 
 html[data-effects='enhanced'] .atlas-enhance:hover::before,
-html[data-effects='enhanced'] .atlas-enhance:focus-visible::before {
+html[data-effects='enhanced'] .atlas-enhance:focus-visible::before,
+html[data-effects='enhanced'] .atlas-enhance:focus-within::before {
   opacity: 1;
 }
 

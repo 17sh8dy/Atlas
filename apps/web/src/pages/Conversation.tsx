@@ -163,11 +163,18 @@ export function Conversation({
 export const SUGGESTED: ReadonlyArray<{ category: string; skills: readonly string[] }> = [
   {
     category: 'System',
-    skills: ['system.info', 'system.processes', 'system.openTool', 'system.battery', 'net.ip'],
+    skills: [
+      'system.info',
+      'system.battery',
+      'system.openTool',
+      'screen.capture',
+      'system.lock',
+      'window.list',
+      'net.online',
+    ],
   },
   { category: 'Web', skills: ['web.openBrowser', 'web.search', 'web.searchYoutube'] },
-  { category: 'Utilities', skills: ['math.calculate', 'time.now', 'util.password', 'util.uuid'] },
-  { category: 'Text', skills: ['text.case', 'clipboard.transform'] },
+  { category: 'Utilities', skills: ['math.calculate', 'math.tip', 'time.now', 'util.password'] },
   { category: 'Notes', skills: ['notes.list', 'todo.list', 'memory.list'] },
 ];
 

@@ -150,6 +150,11 @@ export function Composer({
           className={cn(
             'border-border bg-surface relative flex items-end gap-2 rounded-[11px] border px-3 py-2',
             'duration-fast focus-within:border-border-strong transition',
+            // atlas-enhance: opt-in hook for the Enhanced Effects setting
+            // (styles/index.css) — inert unless it's on. Triggers on
+            // focus-within rather than hover alone, since typing into it is
+            // the whole point of this bar existing.
+            'atlas-enhance',
             // While the ring is turning the border would fight it, so the
             // input's own edge steps back and lets the ring be the edge.
             busy && 'border-transparent',
@@ -181,7 +186,7 @@ export function Composer({
               aria-pressed={dictation.active}
               title={dictation.active ? 'Stop dictating' : 'Dictate'}
               className={cn(
-                'relative mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
+                'atlas-enhance relative mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
                 'duration-fast transition',
                 dictation.active
                   ? 'bg-primary/15 text-primary'
@@ -204,7 +209,7 @@ export function Composer({
             disabled={!value.trim() || blocked}
             aria-label="Send"
             className={cn(
-              'mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
+              'atlas-enhance mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
               'accent-surface text-primary-foreground duration-fast transition',
               'hover:brightness-110 disabled:opacity-30 disabled:hover:brightness-100',
             )}
@@ -225,8 +230,8 @@ export function Composer({
         onClick={onCycleExecutionMode}
         title={EXECUTION_MODE_META[executionMode].description}
         className={cn(
-          'text-foreground-subtle hover:text-foreground duration-fast mt-2 flex items-center',
-          'gap-1.5 text-xs transition',
+          'atlas-enhance text-foreground-subtle hover:text-foreground duration-fast mt-2 flex items-center',
+          'gap-1.5 rounded-md px-1.5 py-1 text-xs transition',
         )}
       >
         <span aria-hidden="true" className="text-primary tracking-tighter">

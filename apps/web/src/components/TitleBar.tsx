@@ -22,9 +22,17 @@ interface Props {
   right?: React.ReactNode;
   /** Clicking the logo returns to the welcome screen, like a site's logo does. */
   onLogoClick?: () => void;
+  /**
+   * Set while a screen without its own way back (Settings) covers whatever
+   * was on screen before it. Overrides the logo's usual "clear and go home"
+   * with a plain, nothing-lost return to exactly that — a voice session
+   * mid-conversation, or a chat someone was in the middle of — which is what
+   * an arrow in this corner means everywhere else it appears.
+   */
+  back?: { label: string; onClick: () => void };
 }
 
-export function TitleBar({ right, onLogoClick }: Props) {
+export function TitleBar({ right, onLogoClick, back }: Props) {
   const native = isTauri();
 
   const [maximized, setMaximized] = useState(false);
@@ -109,13 +117,24 @@ export function TitleBar({ right, onLogoClick }: Props) {
       {/* The logo sits in its own button, outside the drag region — a click
           inside a drag region never reaches its own handler (see file doc
           comment), the same reason the window-control buttons sit outside it. */}
-      {onLogoClick ? (
+      {back ? (
+        <button
+          type="button"
+          onClick={back.onClick}
+          aria-label={back.label}
+          title={back.label}
+          className="atlas-enhance duration-fast hover:bg-surface flex select-none items-center gap-2 px-4 transition"
+        >
+          <Icons.ChevronLeft className="text-foreground-subtle h-4 w-4 shrink-0" aria-hidden="true" />
+          <Wordmark />
+        </button>
+      ) : onLogoClick ? (
         <button
           type="button"
           onClick={onLogoClick}
           aria-label="Back to Atlas"
           title="Back to Atlas"
-          className="duration-fast hover:bg-surface flex select-none items-center px-4 transition"
+          className="atlas-enhance duration-fast hover:bg-surface flex select-none items-center px-4 transition"
         >
           <Wordmark />
         </button>

@@ -168,6 +168,11 @@ function Ready({
   // through it, and the voice screen's visualiser reads its analyser.
   const voice = useSpeech(platform, speech.volume);
   const [screen, setScreen] = useState<Screen>('conversation');
+  // Settings has no conversation of its own, so opening it has to remember
+  // which one it is covering — a voice session and a chat are not the same
+  // "back", and before this existed Settings always returned to chat, quietly
+  // dropping whoever had opened it from the voice screen.
+  const [returnTo, setReturnTo] = useState<'conversation' | 'voice'>('conversation');
   const [homeFading, setHomeFading] = useState(false);
   const [heard, setHeard] = useState<string | null>(null);
   const [dictated, setDictated] = useState<{ text: string; at: number } | null>(null);
@@ -432,6 +437,15 @@ function Ready({
     atlas.clear();
   }, [voice, atlas]);
 
+  const openSettings = useCallback(() => {
+    setReturnTo(screen === 'voice' ? 'voice' : 'conversation');
+    setScreen('settings');
+  }, [screen]);
+
+  const closeSettings = useCallback(() => {
+    setScreen(returnTo);
+  }, [returnTo]);
+
   const goHome = useCallback(() => {
     if (screen === 'conversation' && atlas.entries.length === 0) return; // already home
     voice.stop();
@@ -460,6 +474,14 @@ function Ready({
     <div className="bg-background text-foreground flex h-full flex-col">
       <TitleBar
         onLogoClick={goHome}
+        back={
+          screen === 'settings'
+            ? {
+                label: returnTo === 'voice' ? 'Back to voice' : 'Back to your conversation',
+                onClick: closeSettings,
+              }
+            : undefined
+        }
         right={
           <>
             <ThemeToggle />
@@ -535,7 +557,7 @@ function Ready({
               label={screen === 'settings' ? 'Back to Atlas' : 'Settings'}
               active={screen === 'settings'}
               spin
-              onClick={() => setScreen(screen === 'settings' ? 'conversation' : 'settings')}
+              onClick={() => (screen === 'settings' ? closeSettings() : openSettings())}
             >
               <Icons.Settings className="h-3.5 w-3.5" />
             </ChromeButton>

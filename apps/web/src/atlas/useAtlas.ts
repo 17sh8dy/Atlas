@@ -71,6 +71,20 @@ export interface Entry {
 
 let nextId = 1;
 
+/**
+ * A rows-only result, read aloud. Deliberately not the whole list — the same
+ * reasoning `CapabilityBrowser`'s `teaser()` uses for the same shape of
+ * problem, just spoken rather than printed: a hundred-odd rows read as "a lot
+ * of things", not as a hundred-odd sentences.
+ */
+function summarizeForSpeech(rows: readonly ResultRow[], meta?: { title?: string }): string {
+  if (!rows.length) return meta?.title ?? '';
+  const names = rows.slice(0, 5).map((r) => r.title);
+  const rest = rows.length - names.length;
+  const listed = names.join(', ') + (rest > 0 ? `, and ${rest} more` : '');
+  return [meta?.title, listed].filter(Boolean).join(' — ');
+}
+
 export function useAtlas(
   platform: Platform,
   capabilities: readonly CapabilityName[],
@@ -193,7 +207,17 @@ export function useAtlas(
         // copyable, just not read out.
         if (options?.aloud !== false) speakIfEnabled(text);
       },
-      showResults: (rows, meta) => push({ kind: 'results', rows, meta }),
+      showResults: (rows, meta) => {
+        push({ kind: 'results', rows, meta });
+        // A rows-only answer carries no spoken message (see the executor's
+        // "quiet when the skill rendered its own output" rule) because a card
+        // on screen already answers the question — for whoever is looking at
+        // the screen right now. The voice screen has no card to look at at
+        // all, and even in chat a silent reply reads as broken rather than
+        // answered, so this is the one place both surfaces get a sentence for
+        // what would otherwise be nothing back.
+        speakIfEnabled(summarizeForSpeech(rows, meta));
+      },
       confirm: (question, detail) =>
         new Promise<boolean>((resolve) => {
           pendingConfirm.current = resolve;

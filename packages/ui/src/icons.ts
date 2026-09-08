@@ -51,6 +51,8 @@ export {
   RotateCcw,
   // the capability browser
   ChevronRight,
+  // navigating back to wherever Settings was opened from
+  ChevronLeft,
   StickyNote,
   Calculator,
   // listening
