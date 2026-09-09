@@ -140,9 +140,9 @@ export function Conversation({
  * drops a starter phrase into the composer and focuses it (`Conversation`'s
  * `prefill` state, read by `Composer`), cursor at the end, so the person
  * finishes the sentence in their own words. The broadest cards ("Control my
- * PC", "Work with my notes", "Do something for me") have no natural single
+ * PC", "Work with my notes", "Get something done") have no natural single
  * verb to start with, so those just focus an empty composer — identical to
- * clicking "Do something for me", which exists specifically to say out loud
+ * clicking "Get something done", which exists specifically to say out loud
  * that typing anything, unprompted, is the whole point of this screen.
  *
  * ── No "recent" row, deliberately ───────────────────────────────────────────
@@ -209,7 +209,7 @@ export const CARDS: readonly HomeCard[] = [
   },
   {
     icon: '🛠️',
-    label: 'Do something for me',
+    label: 'Get something done',
     description: 'Tell Atlas what you need, in your own words.',
     domains: ['core', 'atlas'],
   },
@@ -251,7 +251,7 @@ function EmptyState({
           </p>
         )}
         <p className="text-foreground-subtle mt-1 max-w-md text-center text-xs leading-relaxed">
-          {skills.available().length} actions, all on this machine. No account needed, no key.
+          {skills.available().length} capabilities · Local-first · No account required
         </p>
 
         <div className="mt-7 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
