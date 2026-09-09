@@ -22,6 +22,7 @@ export * from './models/voice';
 export * from './models/personalization';
 export * from './models/speech';
 export * from './models/segment';
+export * from './models/speech-text';
 export * from './models/listening';
 export * from './models/network';
 export * from './models/service';

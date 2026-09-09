@@ -55,6 +55,35 @@ type Listener = (state: SpeechState) => void;
 const LEAD_SECONDS = 0.04;
 
 /**
+ * ── Considered: a fixed gap between pieces, and measured out of the design ──
+ *
+ * Zero gap between one piece ending and the next starting looks, on paper,
+ * like exactly the kind of "overly uniform timing" a natural-sounding voice
+ * should avoid — the obvious fix being a fixed pause inserted here, after
+ * each piece, so consecutive sentences never run flush into one another.
+ *
+ * It was tried and measured rather than shipped on that reasoning alone.
+ * `kokoro.rs`'s `reports_the_models_own_trailing_silence` synthesises
+ * "Everything is running normally." and walks back from the end of the WAV
+ * to the last sample above the noise floor: the model's own tail after that
+ * full stop is **~540ms** on its own, with nothing added. Piper's is a known
+ * quantity rather than a measured one — `--sentence_silence` defaults to
+ * 200ms and Atlas never overrides it, so every piece piper synthesises
+ * already ends with exactly that much silence baked into the audio itself.
+ *
+ * Both engines, in other words, already treat a full stop as worth a real
+ * pause before this file gets involved at all — because `segmentForSpeech`
+ * only ever cuts at genuine sentence boundaries, so *every* piece ends on
+ * one, with or without a piece after it. A fixed addition on top does not
+ * create the natural rhythm that was missing; there was no gap missing to
+ * begin with, and stacking one on Kokoro's ~540ms reads as a stall, not a
+ * breath. So: no constant here. If a future change makes pieces end on
+ * something other than terminal punctuation, this is the place to revisit —
+ * and `reports_the_models_own_trailing_silence` is the check that would
+ * catch it drifting back into a problem worth solving this way.
+ */
+
+/**
  * A single spoken reply, delivered in pieces.
  *
  * Handed out by `SpeechPlayer.begin()`. The caller pushes audio as it is

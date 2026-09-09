@@ -47,6 +47,16 @@ see `cortex/conversation.py`'s own module doc for what it does and doesn't do.
 **Also outstanding:** Phase 3 — persistence. Conversation history still dies
 with the process, and `files.find` still walks the disk on every query.
 
+**2026-09-08:** a voice-naturalness pass shipped (`prepareForSpeech` in
+`@atlas/core`, plus two small skill-message fixes and two new Rust tests
+measuring the model's own trailing silence — see that commit for the full
+before/after). The same conversation raised five bigger directions —
+generalizing `attemptGoal()` beyond `app.open`, cross-turn context, a spoken
+reply that differs from the screen one, instant acknowledgement before a
+skill runs, and auditing the risk model further — recorded under "Ideas from
+product feedback" near the end of this file rather than started; each needs
+its own decision first.
+
 **Version:** **`0.5.0`**, taken on 2026-08-21 when Phase 8 completed — the
 trigger the [Versioning](#versioning) section names.
 
@@ -772,6 +782,126 @@ the full reasoning and exactly what changed.
   doing the looking) — and wasn't part of what this phase built.
   `attemptGoal()` (`planner/attempts.ts`, built for `app.open`) is a
   same-skill retry ladder and doesn't generalize to it.
+
+---
+
+## Ideas from product feedback (Brandon, 2026-09-08) — not yet phased
+
+Five directions raised together in one conversation, ranging from "partly
+built already" to "a real architectural decision nobody's made yet." None of
+this was acted on the day it was raised — each is substantial enough to
+deserve its own decision before code starts, the same way every other
+"Decision (Brandon, …)" in this file was made before its phase began. Recorded
+here so the reasoning survives to whichever session picks one up, numbered as
+they were raised (there was no "4").
+
+### 1. Goal understanding — generalizing what already exists
+
+The request: "Open Fortnite" should mean *get Fortnite running*, tried through
+several relevant approaches in order, rather than either a single fixed
+strategy or an unbounded search. That is not a proposal for new
+architecture — it is `attemptGoal()` (`planner/attempts.ts`), built for
+`app.open` already: a small, ordered, skill-declared strategy list, each entry
+relevant to that skill's own purpose by construction, that stops the instant
+one *commits* (takes a real action) rather than trying the rest. It is
+explicitly not a general retry loop or "let Atlas improvise" — see that
+file's own module doc, which draws exactly the "check known locations, try
+the launcher, try the shortcut" vs. "randomly search the PC, try unrelated
+things" line this feedback draws independently.
+
+What's real and undecided is generalizing it *beyond* `app.open` — the exact
+gap this file already named while Phase 12 was being written (see "Deferred,
+and why" just above). The design question isn't "should other skills get
+this," it's *which ones*, and what their strategy ladders would actually be:
+`files.find` failing an exact match could fall back to a fuzzy one; a web
+skill failing a direct fetch could fall back to a search. Each ladder has to
+be written deliberately by the skill that owns it, the same way `app.open`'s
+was — this is not a mechanism that generalizes itself.
+
+### 2. Context and memory across turns
+
+Two different things are bundled under "memory" here, and they're at very
+different distances from done:
+
+- **Referring to what was just shown.** "Open the second one," "the last
+  one," bare "it" against a result list — this is `WorkingMemory` and
+  `resolveOrdinal`, built in Phase 2 and extended in Phase 12 so a window
+  disambiguation card's rows carry the same `actions` an ordinal resolves
+  against. If "Find my Atlas project… Open it" doesn't already work, it's
+  because `files.find`'s result isn't wired into that same mechanism, not
+  because the mechanism doesn't exist — worth checking before assuming this
+  needs new infrastructure.
+- **Carrying an implicit target forward.** "Open Chrome," then "search for
+  Fortnite tournaments" — nothing here refers back to a shown result; it's
+  reusing the *subject of a previous command* as a default argument for one
+  that's missing it. That's genuinely new: it needs something that remembers
+  "the last thing I opened/acted on," separate from `WorkingMemory`'s
+  last-shown-list, and a grammar rule willing to consult it only when the
+  sentence is otherwise incomplete — never overriding an explicit target.
+  Cortex's own repo grew session history and a `ConversationEngine` on
+  2026-09-07 (see "Where things stand" above), which is a plausible
+  foundation, but it's LLM-context-window memory, not the deterministic kind
+  the rest of Atlas's grammar tier relies on — reconciling those two is
+  itself a design question.
+
+### 3. A spoken response is not a screen response, read aloud
+
+This is the direct sequel to today's speech-naturalness pass. `prepareForSpeech`
+(`@atlas/core`) cleans up *how* the existing message is pronounced — strips
+icons, naturalises a path, turns a `·` into a pause — but it is still the same
+words, in the same order, that the transcript shows. What's being asked for
+here is a different message: "I found 3 matching files in your Downloads
+folder." on screen, "Yep, I found three matching files. They're in your
+Downloads folder." out loud. That means a skill result would need to carry a
+spoken variant, or `Phrasing` would need to generate one — a materially bigger
+change than cleanup, because it's rewriting content and length, not
+symbols.
+
+The rest of that list sorts into what already exists and what doesn't:
+
+- **Interruption ("stop talking")** partly exists — barge-in
+  (`useListening.ts`, `Voice.tsx`'s "Talking over Atlas stops him") already
+  stops speech the instant the microphone hears you start talking, while
+  listening is on. A typed "stop" while Atlas is mid-sentence and the mic is
+  off is a different, smaller, and currently unbuilt path.
+- **Faster response start** is already a designed property of the speech
+  pipeline specifically — `segmentForSpeech` ships the first sentence the
+  moment it's ready rather than waiting on the whole reply, and Kokoro's
+  engine stays warm for exactly this reason (see `kokoro.rs`'s module doc).
+  What is *not* fast yet is the reply text itself when a request needs
+  Cortex — that's item 5, below.
+- **Natural response lengths, better follow-ups, context awareness** overlap
+  heavily with item 2 and with whatever "spoken variant" ends up meaning —
+  worth deciding together rather than separately.
+- **Natural silence** wasn't concrete enough here to scope; worth a real
+  example the next time this comes up.
+
+### 5. Response tiers — acknowledge, then work
+
+"Sure." → does the thing → "Discord's open." The instant/working/finished/
+needs-clarification/needs-confirmation split described here is a good
+description of states the executor and `ExecutionMode` already model
+internally (a plan is safe, consequential, or blocked; a step is running or
+done) — what doesn't exist is surfacing an *early*, separate acknowledgement
+before a skill's `run()` resolves, rather than one message after it. Today
+`io.say` fires once, synchronously, with the result. An instant "Sure." would
+mean the executor speaking *before* invoking a skill, for requests where doing
+so is honest — never for one where "sure" would be a promise the subsequent
+attempt might not keep. That "never" is the real design work: which requests
+get a pre-ack, and how that interacts with Plan First's up-front approval,
+which already shows the whole plan before anything runs specifically so
+approval is never split across two moments.
+
+### 6. Invisible safety — already the direction; no new decision needed today
+
+This one isn't a request for new work so much as an endorsement of a decision
+already made and dated in this file: "risk is consequence, never input
+method" (2026-09-07, above; §6.6 of `ARCHITECTURE.md`), and the same day's fix
+making a disambiguation card check the guard before it ever renders one. The
+concrete next step in this direction, whenever it's picked up, is auditing
+whether any of the skills still marked `confirm` are actually gated by
+*mechanism* rather than *consequence* the way raw input used to be — not a big
+lift, but a real one, and worth doing deliberately rather than by hunting.
 
 ---
 

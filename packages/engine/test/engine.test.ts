@@ -240,10 +240,26 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       if (!page) throw new Error('Page not found.');
       return page;
     },
-    searchFiles: async (query) =>
-      query.includes('tax')
-        ? [{ path: 'D:\\Docs\\tax-2025.pdf', name: 'tax-2025.pdf', ext: 'pdf', isDirectory: false }]
-        : [],
+    // A tiny fake index, matched the same way `search_files` (`platform.rs`)
+    // matches a real one: a case-insensitive substring against the whole file
+    // name, nothing cleverer. `Japan_Vacation_2024.jpg` exists specifically so
+    // a query like "japan vacation" — two real words, joined by an underscore
+    // rather than the space the query has — fails this exact check and has to
+    // fall through to `files.find`'s word-by-word strategy to be found at all.
+    searchFiles: async (query, opts) => {
+      const needle = query.trim().toLowerCase();
+      if (!needle) return [];
+      const all = [
+        { path: 'D:\\Docs\\tax-2025.pdf', name: 'tax-2025.pdf', ext: 'pdf', isDirectory: false },
+        {
+          path: 'D:\\Photos\\Japan_Vacation_2024.jpg',
+          name: 'Japan_Vacation_2024.jpg',
+          ext: 'jpg',
+          isDirectory: false,
+        },
+      ];
+      return all.filter((f) => f.name.toLowerCase().includes(needle)).slice(0, opts?.limit ?? 40);
+    },
     openPath: async (p) => {
       journal.opened.push(p);
       return true;
@@ -1743,6 +1759,30 @@ test('files.find renders actionable rows', async () => {
   assert.equal(h.rows[0].actions?.[0].skill, 'files.open');
 });
 
+test('files.find falls back to matching every word once the exact phrase fails', async () => {
+  // "Japan_Vacation_2024.jpg" is real, but nothing in the fake index has the
+  // literal substring "japan vacation" — the underscore is in the way. The
+  // phrase search (`attemptGoal`'s first, more precise strategy) has to
+  // decline before the word-by-word one (its fallback) ever runs.
+  const h = harness();
+  await h.engine.ask('find my japan vacation photos', io(h));
+  assert.equal(h.rows.length, 1);
+  assert.equal(h.rows[0].title, 'Japan_Vacation_2024.jpg');
+});
+
+test('files.find never tries the word-by-word fallback for a single-word query', async () => {
+  // One word is exactly what the phrase search already tried — running it
+  // again as its own "fallback" would just be the same search twice.
+  const h = harness();
+  const single = await h.engine.skills.invoke('files.find', { query: 'tax' }, io(h));
+  assert.equal((single.data as unknown[]).length, 1);
+
+  // A query where not even one word matches anything must still say so
+  // plainly, not silently claim success with nothing found.
+  const nothing = await h.engine.skills.invoke('files.find', { query: 'nonexistent words' }, io(h));
+  assert.equal(nothing.message, 'Nothing named like “nonexistent words”.');
+});
+
 test('files.find says so plainly when there is nothing', async () => {
   const h = harness();
   await h.engine.ask('find my holiday photos', io(h));
@@ -2464,6 +2504,34 @@ test('dates: ages, gaps, weekdays and timestamps', async () => {
   assert.isAtLeast(Math.abs((diff.data as { hours: number }).hours), 8);
 });
 
+test('dates: ages and gaps are written out, not left in numeric-slash form', async () => {
+  // "1/1/2000" read aloud comes out as a fraction, not a date — see
+  // `spokenDate` in calc-skills.ts. Both skills used the bare
+  // `toLocaleDateString()` default until this was caught.
+  const h = harness();
+  const run = (id: string, args: Record<string, unknown>) =>
+    h.engine.skills.invoke(id, args, io(h));
+
+  const age = await run('time.age', { date: '2000-01-01' });
+  assert.match(age.message!, /January 1, 2000/);
+  assert.notMatch(age.message!, /\d{1,2}\/\d{1,2}\/\d{4}/);
+
+  const between = await run('time.between', { from: '2026-01-01', to: '2026-01-31' });
+  assert.match(between.message!, /January 1, 2026/);
+  assert.match(between.message!, /January 31, 2026/);
+  assert.notMatch(between.message!, /\d{1,2}\/\d{1,2}\/\d{4}/);
+});
+
+test('aloud: a unix timestamp is shown but never spoken', async () => {
+  // Same family as the password and the walls of data above: a raw
+  // timestamp and an ISO string are for the eyes, and a phonemiser renders
+  // the ISO form as noise rather than words.
+  const h = harness();
+  await h.engine.ask('timestamp 1767225600', io(h));
+  assert.isNotEmpty(h.said);
+  assert.deepEqual(h.spokenAloud, []);
+});
+
 // ---- notes and to-dos -----------------------------------------------------------
 
 test('notes: written down, read back, cleared', async () => {
@@ -2535,6 +2603,10 @@ test('files: inspecting, listing, peeking and appending', async () => {
   const info = await run('files.info', { path: 'D:\\Dev\\notes.txt' });
   assert.include(info.message!, 'notes.txt');
   assert.include(info.message!, '2.0 KB');
+  // Written out ("changed November 14, 2023 at 3:33 PM"), not left as
+  // `toLocaleString()`'s bare "11/14/2023, 3:33:20 PM" — a numeric date read
+  // aloud comes out as a fraction, not a day.
+  assert.match(info.message!, /changed [A-Z][a-z]+ \d{1,2}, \d{4} at \d{1,2}:\d{2}/);
 
   await run('files.list', { path: 'D:\\Dev' });
   assert.equal(h.rows[0]!.title, 'src');

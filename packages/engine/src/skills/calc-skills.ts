@@ -22,6 +22,17 @@ function money(value: number): string {
   return value.toFixed(2);
 }
 
+/**
+ * A date, written the way `time.weekday` already writes one — "March 5,
+ * 1994" — rather than `Date.prototype.toLocaleDateString()`'s bare default,
+ * "3/5/1994". The numeric form is fine to read on screen and a genuinely bad
+ * thing to have spoken: a phonemiser has no way to know it is a date rather
+ * than a fraction, and reads the slashes as nothing at all.
+ */
+function spokenDate(date: Date): string {
+  return date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
 /** Greatest common divisor, for reducing fractions and aspect ratios. */
 function gcd(a: number, b: number): number {
   let x = Math.abs(a);
@@ -391,7 +402,7 @@ export function createCalcSkills(): Skill[] {
       const days = Math.floor((startOfDay(now).getTime() - startOfDay(born).getTime()) / DAY_MS);
       return {
         ok: true,
-        message: `🎂 ${years} years old — ${days.toLocaleString()} days since ${born.toLocaleDateString()}.`,
+        message: `🎂 ${years} years old — ${days.toLocaleString()} days since ${spokenDate(born)}.`,
         data: { years, days },
       };
     },
@@ -420,7 +431,7 @@ export function createCalcSkills(): Skill[] {
       const direction = days < 0 ? 'before' : 'after';
       return {
         ok: true,
-        message: `📆 ${Math.abs(days).toLocaleString()} days (${weeks} weeks) — ${to.toLocaleDateString()} is ${direction} ${from.toLocaleDateString()}.`,
+        message: `📆 ${Math.abs(days).toLocaleString()} days (${weeks} weeks) — ${spokenDate(to)} is ${direction} ${spokenDate(from)}.`,
         data: { days },
       };
     },
@@ -457,6 +468,11 @@ export function createCalcSkills(): Skill[] {
     domain: 'time',
     description: 'Convert a unix timestamp to a date, or a date to a timestamp.',
     risk: 'safe',
+    // For the eyes, not the ear — see SkillResult.aloud. Both directions
+    // answer with a precise machine-readable number (an ISO timestamp, a raw
+    // second count) that is exactly the kind of thing nobody asks Atlas to
+    // read aloud, and that a phonemiser renders as noise rather than words.
+    aloud: false,
     examples: ['timestamp 1767225600', 'unix time for 2026-01-01'],
     params: { value: { type: 'string', required: true, description: 'a timestamp or a date' } },
     run(args) {

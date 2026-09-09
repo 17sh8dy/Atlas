@@ -1316,6 +1316,102 @@ mod tests {
         assert_ne!(george, lewis, "two voices produced identical audio");
     }
 
+    /// ⚠️ Runs the real model.
+    ///
+    /// Every voice this build ships, given a sentence built the way
+    /// `prepareForSpeech` (`@atlas/core`) leaves one — a naturalised path, a
+    /// symbol turned into a word, a middle dot turned into a full stop — to
+    /// confirm none of that JS-side cleanup produces a phoneme sequence this
+    /// engine chokes on. Every voice, not just the default: this is the
+    /// "test every existing voice" half of the naturalness pass, since the
+    /// four refined voices share one phonemiser and one vocabulary table and
+    /// a bug in either would silence all four identically, which a check
+    /// against George alone would never catch.
+    #[test]
+    #[ignore = "loads the real model"]
+    fn every_voice_speaks_the_cleaned_up_shape_of_a_real_reply() {
+        let Some((_guard, mut engine)) = dev_engine() else {
+            eprintln!("skipped: run `pnpm --filter @atlas/desktop speech` first");
+            return;
+        };
+
+        // What `prepareForSpeech` turns "🗺️ D:\\Dev\\Atlas — 1920×1080, 50 →
+        // 75 · nothing pinned." into. No emoji, no raw path, no bare symbols.
+        let line = "D drive, Dev, Atlas — 1920 times 1080, 50 to 75. nothing pinned.";
+
+        for id in ["kokoro-george", "kokoro-fable", "kokoro-daniel", "kokoro-lewis"] {
+            let wav = engine
+                .speak(line, Some(id), None)
+                .unwrap_or_else(|e| panic!("{id} failed on the cleaned-up line: {e}"));
+            let samples = (wav.len() - 44) / 2;
+            let seconds = samples as f32 / SAMPLE_RATE as f32;
+            assert!(
+                (2.0..15.0).contains(&seconds),
+                "{id}: expected several seconds of speech for that line, got {seconds:.2}s"
+            );
+
+            let peak = wav[44..]
+                .chunks_exact(2)
+                .map(|b| i16::from_le_bytes([b[0], b[1]]).unsigned_abs())
+                .max()
+                .unwrap_or(0);
+            assert!(peak > 2000, "{id}: audio is near-silent (peak {peak})");
+        }
+    }
+
+    /// ⚠️ Runs the real model.
+    ///
+    /// How much near-silence the model itself leaves at the tail of a
+    /// period-terminated sentence, measured rather than assumed. This is the
+    /// evidence behind a decision recorded in `player.ts`: a fixed gap
+    /// between synthesised pieces was drafted on the reasoning that nothing
+    /// otherwise pauses between them, measured against this test, and
+    /// dropped — the model's tail here came back at ~540ms, which is already
+    /// a full stop's worth of pause with nothing added.
+    ///
+    /// The bound below is deliberately wide and one-sided: this does not
+    /// pin the model to a specific number, only to "still long enough that
+    /// player.ts's zero-gap design remains the right call." If a model or
+    /// export change ever brought this near zero, the run-on risk that
+    /// investigation ruled out would be back, and this is what would catch
+    /// it before a person did.
+    #[test]
+    #[ignore = "loads the real model"]
+    fn the_models_own_trailing_silence_is_why_player_ts_adds_no_gap() {
+        let Some((_guard, mut engine)) = dev_engine() else {
+            eprintln!("skipped: run `pnpm --filter @atlas/desktop speech` first");
+            return;
+        };
+
+        let wav = engine
+            .speak("Everything is running normally.", None, None)
+            .expect("synthesis");
+        let samples: Vec<i16> = wav[44..]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+
+        // Walk back from the end to the last sample past a low noise floor.
+        // Anything quieter than this is silence for a human listener even if
+        // it is not exactly zero.
+        const FLOOR: i16 = 250;
+        let last_loud = samples.iter().rposition(|&s| s.unsigned_abs() > FLOOR as u16);
+        let tail_samples = match last_loud {
+            Some(i) => samples.len() - 1 - i,
+            None => samples.len(),
+        };
+        let tail_ms = tail_samples as f32 / SAMPLE_RATE as f32 * 1000.0;
+
+        eprintln!("  Kokoro's own trailing silence after a full stop: {tail_ms:.0}ms");
+
+        assert!(
+            tail_ms > 150.0,
+            "the model's own tail shrank to {tail_ms:.0}ms — player.ts's zero-gap design \
+             assumes a real pause is already there, and this is short enough that a fixed \
+             gap between pieces may be worth adding back"
+        );
+    }
+
     /// ⚠️ Runs the real model. See above.
     ///
     /// The inversion this checks has been got wrong once already in this

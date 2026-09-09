@@ -6,7 +6,10 @@
  * display. Two players would mean two Atlases able to talk at once.
  *
  * ── `speak()` is a pipeline, not a call ─────────────────────────────────────
- * A reply is cut into sentences, and each one is synthesised, handed to the
+ * Text goes through `prepareForSpeech` first — the same reply that shows an
+ * icon and a raw path in the transcript loses both before a phonemiser ever
+ * sees them; see that function's doc comment for the whole list. What comes
+ * out is then cut into sentences, and each one is synthesised, handed to the
  * player, and left to play while the next is being made. So the silence before
  * Atlas starts talking is the time to synthesise *one sentence*, not the whole
  * answer — and because synthesis runs comfortably faster than speech, the
@@ -25,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { segmentForSpeech, type Platform, type SpeechOptions } from '@atlas/core';
+import { prepareForSpeech, segmentForSpeech, type Platform, type SpeechOptions } from '@atlas/core';
 import { SpeechPlayer, type SpeechState } from './player';
 
 export interface Speech {
@@ -96,7 +99,7 @@ export function useSpeech(platform: Platform, volume = 1): Speech {
         return;
       }
 
-      const pieces = segmentForSpeech(text);
+      const pieces = segmentForSpeech(prepareForSpeech(text));
       if (pieces.length === 0) return;
 
       const synthesize = (piece: string): Promise<ArrayBuffer> =>

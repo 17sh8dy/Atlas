@@ -28,7 +28,7 @@
  * only the "are you sure" in front of the ones it should allow that has gone.
  */
 
-import type { AppEntry, KnownFolder, Memory, Platform, ResultRow, Skill } from '@atlas/core';
+import type { AppEntry, FileEntry, KnownFolder, Memory, Platform, ResultRow, Skill } from '@atlas/core';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { rankMatches, nearMatches, RANK } from '../text/fuzzy';
 import { resolveSite, exactSiteName } from '../text/sites';
@@ -410,6 +410,56 @@ export function createCoreSkills(
 
   // ---- files ---------------------------------------------------------------
 
+  /**
+   * The words of a query, matched independently and combined — the second,
+   * looser reading `files.find` falls back to when the phrase exactly as
+   * typed finds nothing.
+   *
+   * `search_files` (`platform.rs`) matches one literal substring against a
+   * file's whole name, which is right and precise whenever the words in the
+   * request actually sit next to each other in that order — but a real file
+   * name routinely doesn't: "find my japan vacation photos" (the file-noun
+   * "photos" already stripped by the grammar, leaving the query "japan
+   * vacation") never matches `Japan_Vacation_2024.jpg`, because there is an
+   * underscore where the query has a space. The words are all there; the
+   * phrase just isn't contiguous.
+   *
+   * So this searches once per word and keeps only the files every search
+   * agreed on — every word present, in any order, wherever it sits in the
+   * name. Still a name search, never a content search, and still bounded to
+   * the same indexed roots and the same per-call cap as the phrase search;
+   * it only widens *which* names count as a match, not *where* Atlas looks.
+   */
+  async function searchWordsIndependently(
+    query: string,
+    opts: { kind?: string; limit: number },
+  ): Promise<FileEntry[]> {
+    const words = query.split(/\s+/).filter((w) => w.length > 1);
+    // One word is exactly the phrase search that already ran — nothing new
+    // to try, and running it twice would just double the work for the same
+    // answer.
+    if (words.length < 2) return [];
+
+    // A wider per-word cap than the final limit: a common word narrows a lot
+    // once every other word's set is intersected against it, so capping each
+    // individual search at the *answer's* size risks losing the very file
+    // being looked for to whatever else that one word happens to match.
+    const perWordLimit = Math.max(opts.limit * 4, 80);
+    const perWord = await Promise.all(
+      words.map((word) => platform.searchFiles!(word, { kind: opts.kind, limit: perWordLimit })),
+    );
+
+    const [first, ...rest] = perWord;
+    const survivors = new Map(first!.map((f) => [f.path, f]));
+    for (const set of rest) {
+      const paths = new Set(set.map((f) => f.path));
+      for (const path of survivors.keys()) {
+        if (!paths.has(path)) survivors.delete(path);
+      }
+    }
+    return [...survivors.values()].slice(0, opts.limit);
+  }
+
   skills.push({
     id: 'files.find',
     label: 'Find files',
@@ -429,13 +479,38 @@ export function createCoreSkills(
       limit: { type: 'number', default: 20, description: 'how many to show' },
     },
     async run(args, ctx) {
-      const files = await platform.searchFiles!(String(args.query), {
-        kind: args.kind ? String(args.kind) : undefined,
-        limit: Number(args.limit ?? 20),
-      });
+      const query = String(args.query);
+      const kind = args.kind ? String(args.kind) : undefined;
+      const limit = Number(args.limit ?? 20);
 
+      // Two relevant, ordered readings of "find <query>" — the phrase exactly
+      // as typed, and only once that comes back empty, its words matched
+      // independently. See `searchWordsIndependently` above for why the
+      // second one exists and why it is never tried first: the tighter
+      // search is the more precise answer whenever it works, and trying the
+      // loose one only after the tight one has genuinely failed is what
+      // keeps this a fallback rather than a replacement. See
+      // `planner/attempts.ts` for the ladder itself.
+      const { result } = await attemptGoal<FileEntry[]>([
+        {
+          id: 'exact-phrase',
+          async run() {
+            const found = await platform.searchFiles!(query, { kind, limit });
+            return { result: { ok: found.length > 0, error: 'no match', data: found } };
+          },
+        },
+        {
+          id: 'words-any-order',
+          async run() {
+            const found = await searchWordsIndependently(query, { kind, limit });
+            return { result: { ok: found.length > 0, error: 'no match', data: found } };
+          },
+        },
+      ]);
+
+      const files = result.data ?? [];
       if (!files.length) {
-        return { ok: true, message: `Nothing named like “${String(args.query)}”.` };
+        return { ok: true, message: `Nothing named like “${query}”.` };
       }
 
       const rows: ResultRow[] = files.map((f) => ({
@@ -450,7 +525,7 @@ export function createCoreSkills(
       }));
 
       ctx.showResults?.(rows, {
-        title: `Files matching “${String(args.query)}”`,
+        title: `Files matching “${query}”`,
         subtitle: `${files.length} found`,
       });
       return { ok: true, spoken: true, message: '', data: files };
@@ -682,7 +757,21 @@ export function createCoreSkills(
     params: { path: { type: 'string', required: true, description: 'full path' } },
     async run(args) {
       const info = await platform.pathInfo!(String(args.path));
-      const changed = info.modifiedAt ? new Date(info.modifiedAt).toLocaleString() : 'unknown';
+      // Written out ("September 8, 2026 at 4:19 PM") rather than
+      // `toLocaleString()`'s bare default ("9/8/2026, 4:19:16 PM"): fine to
+      // read, and a numeric date read aloud is heard as a fraction, not a
+      // day — see `prepareForSpeech`'s doc comment for the rest of this kind
+      // of bug.
+      const changed = info.modifiedAt
+        ? `${new Date(info.modifiedAt).toLocaleDateString(undefined, {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+          })} at ${new Date(info.modifiedAt).toLocaleTimeString(undefined, {
+            hour: 'numeric',
+            minute: '2-digit',
+          })}`
+        : 'unknown';
       const size = info.isDirectory
         ? `${info.entryCount ?? 0} item${info.entryCount === 1 ? '' : 's'}`
         : formatBytes(info.sizeBytes);
