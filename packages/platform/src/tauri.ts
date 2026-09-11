@@ -20,6 +20,8 @@ import type {
   ServiceDetail,
   ServiceEntry,
   ServiceOutcome,
+  EnvironmentScope,
+  EnvVar,
   SpeechVoice,
   Transcript,
   WebPage,
@@ -159,6 +161,12 @@ export function createTauriPlatform(): Platform {
     listServices: () => invoke<ServiceEntry[]>('list_services'),
     serviceDetail: (name) => invoke<ServiceDetail>('service_detail', { name }),
     serviceControl: (name, action) => invoke<ServiceOutcome>('service_control', { name, action }),
+
+    listEnvironmentVariables: () => invoke<EnvVar[]>('list_environment_variables'),
+    setEnvironmentVariable: (name, value, scope) =>
+      invoke<boolean>('set_environment_variable', { name, value, scope }),
+    deleteEnvironmentVariable: (name, scope: EnvironmentScope) =>
+      invoke<boolean>('delete_environment_variable', { name, scope }),
 
     listWindows: () => invoke<WindowEntry[]>('list_windows'),
     activeWindow: () => invoke<WindowEntry | null>('active_window'),

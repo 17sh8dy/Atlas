@@ -649,7 +649,24 @@ sitting.
 | --- | --- | --- |
 | 🌐 Network | `net.adapters`, `net.ip`, `net.wifi`, `net.savedNetworks`, `net.online` | ✅ 2026-08-21 (`0cb6f5a`) |
 | 🖥️ System — services | `service.list`, `service.status`, `service.start`, `service.stop`, `service.restart` | ✅ 2026-08-22 |
-| 💾 Storage · 🔊 Audio · 🖼️ Display · 📅 Tasks · 👤 Users · 🔥 Firewall · ⚙️ Environment · 🪟 Windows | — | not started |
+| ⚙️ Environment | `environment.list`, `environment.get`, `environment.set`, `environment.setSystem`, `environment.delete`, `environment.deleteSystem` | ✅ 2026-09-10 |
+| 💾 Storage · 🔊 Audio · 🖼️ Display · 📅 Tasks · 👤 Users · 🔥 Firewall · 🪟 Windows | — | not started |
+
+**The environment pack is the template for a group whose risk tier depends on
+an argument rather than the verb.** `environment.rs` has exactly two scopes —
+the user's own registry key, which needs nothing, and the machine's, which
+needs administrator rights the same way `services.rs` earns them (ordinary
+call first, `reg.exe` re-run elevated via `ShellExecuteEx` only once Windows
+has refused) — and rather than one skill with a badge that changes per call,
+each scope gets its own skill id (`environment.set` vs `environment.setSystem`)
+so `Skill.risk`, which is checked before anything runs, stays a fact rather
+than a guess. Also the first pack to trip the grammar's path guard on
+purpose: an environment variable's *value* is routinely a path (`PATH` is the
+extreme case), and every rule in the block declares `pathSafe: true` because
+without it a value like `C:\Program Files\Java` would silently reroute the
+whole request to the AI-plan path instead of the skill that was actually
+named — caught by a real test failure, not by inspection, which is why it's
+worth knowing about before writing the next pack's grammar.
 
 **The network pack is the template** for a read-only group: reads are `safe`,
 the answer is a sentence rather than a table dump, and absence is an answer.

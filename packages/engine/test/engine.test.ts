@@ -34,6 +34,7 @@ import { createNotesSkills } from '../src/skills/notes-skills';
 import { createOsSkills } from '../src/skills/os-skills';
 import { createNetworkSkills } from '../src/skills/network-skills';
 import { createServiceSkills, resolveService } from '../src/skills/service-skills';
+import { createEnvironmentSkills } from '../src/skills/environment-skills';
 import { createWindowSkills } from '../src/skills/window-skills';
 import { createInputSkills } from '../src/skills/input-skills';
 import { createUiaSkills } from '../src/skills/uia-skills';
@@ -69,6 +70,8 @@ interface Journal {
   appended: Array<{ path: string; content: string }>;
   os: string[];
   services: Array<{ name: string; action: string }>;
+  environmentSets: Array<{ name: string; value: string; scope: string }>;
+  environmentDeletes: Array<{ name: string; scope: string }>;
   windowActions: Array<{ id: string; action: string }>;
   windowBounds: Array<{ id: string; bounds: Record<string, number> }>;
   endedProcesses: number[];
@@ -151,6 +154,17 @@ const SERVICES = [
     running: false,
     protected: false,
   },
+];
+
+/**
+ * A handful of environment variables, chosen for the case resolution has to
+ * get right: `PATH` exists in both scopes with different values, and nothing
+ * else does.
+ */
+const ENV_VARS = [
+  { name: 'PATH', value: 'C:\\Users\\test\\bin', scope: 'user' as const },
+  { name: 'PATH', value: 'C:\\Windows\\System32', scope: 'system' as const },
+  { name: 'JAVA_HOME', value: 'C:\\Java\\jdk-21', scope: 'user' as const },
 ];
 
 /** The Notepad window's UI Automation tree: a text field, then a button. */
@@ -580,6 +594,16 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       journal.os.push('recycle-bin');
       return true;
     },
+
+    listEnvironmentVariables: async () => ENV_VARS.map((v) => ({ ...v })),
+    setEnvironmentVariable: async (name, value, scope) => {
+      journal.environmentSets.push({ name, value, scope });
+      return true;
+    },
+    deleteEnvironmentVariable: async (name, scope) => {
+      journal.environmentDeletes.push({ name, scope });
+      return true;
+    },
   };
 }
 
@@ -679,6 +703,7 @@ function harness(
     'screen',
     'network',
     'services',
+    'environment',
   ],
   options: { provider?: IntelligenceProvider | null; mode?: ExecutionMode } = {},
 ): Harness {
@@ -700,6 +725,8 @@ function harness(
     appended: [],
     os: [],
     services: [],
+    environmentSets: [],
+    environmentDeletes: [],
     windowActions: [],
     windowBounds: [],
     endedProcesses: [],
@@ -732,6 +759,7 @@ function harness(
   skills.registerMany(createOsSkills(platform));
   skills.registerMany(createNetworkSkills(platform));
   skills.registerMany(createServiceSkills(platform));
+  skills.registerMany(createEnvironmentSkills(platform));
   skills.registerMany(createWindowSkills(platform));
   skills.registerMany(createInputSkills(platform));
   skills.registerMany(createUiaSkills(platform));
@@ -3468,6 +3496,107 @@ test('services: with no services capability the skills are not merely disabled',
   const ids = h.engine.skills.available().map((s) => s.id);
   assert.notInclude(ids, 'service.list');
   assert.notInclude(ids, 'service.stop');
+});
+
+// ---- environment (the third Phase 11 pack) -------------------------------------
+//
+// The first pack where the same verb splits into two skills by risk tier
+// rather than one skill with a dynamic badge — `environment.set` (your own,
+// safe) and `environment.setSystem` (every account, confirm) — because
+// `Skill.risk` is checked before anything runs and cannot vary per call.
+
+test('environment: "list my environment variables" means the user scope only', async () => {
+  const h = harness();
+  await h.engine.ask('list my environment variables', io(h));
+  // PATH and JAVA_HOME are both in the user scope; PATH's system entry isn't.
+  assert.equal(h.rows.length, 2);
+});
+
+test('environment: listing all shows every scope, PATH twice included', async () => {
+  const h = harness();
+  await h.engine.ask('list all environment variables', io(h));
+  assert.equal(h.rows.length, 3);
+});
+
+test('environment: a variable defined in both scopes reports both values', async () => {
+  const h = harness();
+  await h.engine.ask('what is the PATH environment variable', io(h));
+  assert.match(h.said.join(' '), /user:.*C:\\Users\\test\\bin/);
+  assert.match(h.said.join(' '), /system:.*C:\\Windows\\System32/);
+});
+
+test('environment: a variable in one scope only reports just that one', async () => {
+  const h = harness();
+  await h.engine.ask('what is the JAVA_HOME environment variable', io(h));
+  assert.match(h.said.join(' '), /user.*C:\\Java\\jdk-21/);
+});
+
+test('environment: an unknown name is an answer, not a crash', async () => {
+  const h = harness();
+  const outcome = await h.engine.ask('what is the NONESUCH environment variable', io(h));
+  assert.isFalse(outcome.ok);
+});
+
+test('environment: setting your own variable asks nothing', async () => {
+  const h = harness();
+  await h.engine.ask('set the environment variable FOO to bar', io(h));
+  assert.deepEqual(h.confirmsAsked, []);
+  assert.deepEqual(h.journal.environmentSets, [{ name: 'FOO', value: 'bar', scope: 'user' }]);
+});
+
+test('environment: a value with spaces and punctuation survives to the platform call', async () => {
+  const h = harness();
+  await h.engine.ask('set the environment variable FOO to C:\\Program Files\\Java;%PATH%', io(h));
+  assert.deepEqual(h.journal.environmentSets, [
+    { name: 'FOO', value: 'C:\\Program Files\\Java;%PATH%', scope: 'user' },
+  ]);
+});
+
+test('environment: setting a system variable asks first', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('set the system environment variable FOO to bar', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.environmentSets, [{ name: 'FOO', value: 'bar', scope: 'system' }]);
+});
+
+test('environment: declining the card leaves the machine alone', async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  await h.engine.ask('set the system environment variable FOO to bar', io(h));
+  assert.deepEqual(h.journal.environmentSets, []);
+});
+
+test('environment: removing your own variable asks nothing', async () => {
+  const h = harness();
+  await h.engine.ask('remove the environment variable FOO', io(h));
+  assert.deepEqual(h.confirmsAsked, []);
+  assert.deepEqual(h.journal.environmentDeletes, [{ name: 'FOO', scope: 'user' }]);
+});
+
+test('environment: removing a system variable asks first', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('remove the system environment variable FOO', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.environmentDeletes, [{ name: 'FOO', scope: 'system' }]);
+});
+
+test('environment: reading is safe, and only the system-wide verbs confirm', () => {
+  const h = harness();
+  assert.equal(h.engine.skills.get('environment.list')?.risk, 'safe');
+  assert.equal(h.engine.skills.get('environment.get')?.risk, 'safe');
+  assert.equal(h.engine.skills.get('environment.set')?.risk, 'safe');
+  assert.equal(h.engine.skills.get('environment.delete')?.risk, 'safe');
+  assert.equal(h.engine.skills.get('environment.setSystem')?.risk, 'confirm');
+  assert.equal(h.engine.skills.get('environment.deleteSystem')?.risk, 'confirm');
+});
+
+test('environment: with no environment capability the skills are not merely disabled', () => {
+  const h = harness(['files', 'fs', 'apps', 'system', 'processes', 'os', 'windows', 'network']);
+  const ids = h.engine.skills.available().map((s) => s.id);
+  assert.notInclude(ids, 'environment.list');
+  assert.notInclude(ids, 'environment.set');
 });
 
 // ---- windows (the first pack past Phase 11's original ten) --------------------

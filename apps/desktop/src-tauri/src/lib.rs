@@ -11,6 +11,8 @@
 //! hide-on-blur behaviour below are for.
 
 mod diagnostics;
+#[cfg(windows)]
+mod environment;
 mod intelligence;
 #[cfg(windows)]
 mod net;
@@ -114,6 +116,7 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
         "screen",
         "network",
         "services",
+        "environment",
     ];
     if speech::available(&app) {
         names.push("speech");
@@ -195,6 +198,9 @@ pub fn run() {
             services::list_services,
             services::service_detail,
             services::service_control,
+            environment::list_environment_variables,
+            environment::set_environment_variable,
+            environment::delete_environment_variable,
             window::list_windows,
             window::active_window,
             window::focus_window,

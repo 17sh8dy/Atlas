@@ -31,6 +31,7 @@ export * from './models/input';
 export * from './models/uia';
 export * from './models/screen';
 export * from './models/compat';
+export * from './models/environment';
 export * from './ports/platform';
 export * from './ports/intelligence';
 export * from './ports/storage';

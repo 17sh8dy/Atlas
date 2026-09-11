@@ -902,6 +902,113 @@ export function createExtraGrammar(): GrammarRule[] {
       },
     },
 
+    // ---- environment --------------------------------------------------------
+    //
+    // Every rule below requires the literal word "environment" (or, for
+    // delete/get, "variable") — the same tell-them-apart trick the services
+    // block above uses with "service", and for the same reason: a bare name
+    // ("what is PATH") is not obviously a command at all.
+
+    {
+      name: 'environmentReadouts',
+      order: -6.89,
+      // A variable's *name* never looks like a path, but its value can (see
+      // `environmentSet`'s comment) — set on every rule in this block so a
+      // path-shaped value never silently reroutes any of the four verbs to
+      // the AI-plan path instead of the skill that was actually asked for.
+      pathSafe: true,
+      questionSafe: ['environment-list', 'environment-get'],
+      test(_lower, raw) {
+        if (/\b(?:list|show)\s+(?:me\s+)?(?:all\s+)?(?:the\s+)?system\s+environment\s+variables?\b/i.test(raw)) {
+          return plan(step('environment.list', { scope: 'system' }), 'environment-list');
+        }
+        if (
+          /\b(?:list|show)\s+(?:me\s+)?(?:all\s+)?(?:the\s+)?my\s+environment\s+variables?\b/i.test(
+            raw,
+          )
+        ) {
+          return plan(step('environment.list', { scope: 'user' }), 'environment-list');
+        }
+        if (
+          /\b(?:list|show)\s+(?:me\s+)?(?:all\s+)?(?:the\s+)?environment\s+variables?\b/i.test(
+            raw,
+          ) ||
+          /\bwhat\s+environment\s+variables?\s+(?:are\s+)?(?:set|there)\b/i.test(raw)
+        ) {
+          return plan(step('environment.list', { scope: 'all' }), 'environment-list');
+        }
+
+        // "what is the PATH environment variable", "the JAVA_HOME environment variable"
+        const named = raw.match(
+          /^\s*(?:what(?:'s|\s+is)\s+(?:the\s+)?)?([A-Za-z0-9_.()%-]+)\s+environment\s+variable\s*[?.!]*$/i,
+        );
+        if (named?.[1]) return plan(step('environment.get', { name: named[1] }), 'environment-get');
+
+        // "get the environment variable FOO", "what is the environment variable FOO"
+        const get = raw.match(
+          /^\s*(?:get|what(?:'s|\s+is))\s+(?:the\s+)?environment\s+variable\s+([A-Za-z0-9_.()%-]+)\s*[?.!]*$/i,
+        );
+        if (get?.[1]) return plan(step('environment.get', { name: get[1] }), 'environment-get');
+
+        return null;
+      },
+    },
+
+    {
+      name: 'environmentSet',
+      order: -6.88,
+      // ⚠️ Environment variable values are routinely paths — `PATH` itself is
+      // the extreme case — and without this the guard built for "open C:\…"
+      // would silently swallow every one of them, sending "set PATH to
+      // C:\tools" to the AI-plan path instead of the skill actually named.
+      pathSafe: true,
+      test(_lower, raw) {
+        const system = raw.match(
+          /^\s*set\s+(?:the\s+)?system\s+environment\s+variable\s+([A-Za-z0-9_.()%-]+)\s+to\s+(.+?)\s*[?.!]*$/i,
+        );
+        if (system?.[1] && system[2] !== undefined) {
+          return plan(
+            step('environment.setSystem', { name: system[1], value: system[2] }),
+            'environment-set-system',
+          );
+        }
+
+        const user = raw.match(
+          /^\s*set\s+(?:the\s+|my\s+)?environment\s+variable\s+([A-Za-z0-9_.()%-]+)\s+to\s+(.+?)\s*[?.!]*$/i,
+        );
+        if (user?.[1] && user[2] !== undefined) {
+          return plan(step('environment.set', { name: user[1], value: user[2] }), 'environment-set');
+        }
+
+        return null;
+      },
+    },
+
+    {
+      name: 'environmentDelete',
+      order: -6.87,
+      pathSafe: true,
+      test(_lower, raw) {
+        const system = raw.match(
+          /^\s*(?:remove|delete)\s+(?:the\s+)?system\s+environment\s+variable\s+([A-Za-z0-9_.()%-]+)\s*[?.!]*$/i,
+        );
+        if (system?.[1]) {
+          return plan(step('environment.deleteSystem', { name: system[1] }), 'environment-delete-system');
+        }
+
+        const user =
+          raw.match(
+            /^\s*(?:remove|delete)\s+(?:the\s+|my\s+)?environment\s+variable\s+([A-Za-z0-9_.()%-]+)\s*[?.!]*$/i,
+          ) ??
+          raw.match(/^\s*(?:remove|delete)\s+(?:the\s+|my\s+)?([A-Za-z0-9_.()%-]+)\s+variable\s*[?.!]*$/i);
+        if (user?.[1]) {
+          return plan(step('environment.delete', { name: user[1] }), 'environment-delete');
+        }
+
+        return null;
+      },
+    },
+
     // ---- windows ----------------------------------------------------------
     //
     // Every rule below requires the literal word "window", the same way the

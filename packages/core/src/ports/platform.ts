@@ -26,6 +26,7 @@ import type { SpeechOptions, SpeechVoice } from '../models/speech';
 import type { Transcript } from '../models/listening';
 import type { NetworkAdapter, WifiStatus } from '../models/network';
 import type { ServiceAction, ServiceDetail, ServiceEntry, ServiceOutcome } from '../models/service';
+import type { EnvironmentScope, EnvVar } from '../models/environment';
 import type { WindowEntry } from '../models/window';
 import type { CursorPosition, MouseButton } from '../models/input';
 import type { UiaNode } from '../models/uia';
@@ -49,6 +50,7 @@ export type CapabilityName =
   | 'screen' // capture what's on screen, and read display information
   | 'network' // search the web, fetch a page
   | 'services' // Windows services: list, inspect, start/stop
+  | 'environment' // environment variables: list, set, delete
   | 'speech' // say things out loud, locally
   | 'listening' // transcribe what you say, locally
   | 'ai'; // an intelligence provider is connected
@@ -253,6 +255,20 @@ export interface Platform {
   listServices?(): Promise<ServiceEntry[]>;
   serviceDetail?(name: string): Promise<ServiceDetail>;
   serviceControl?(name: string, action: ServiceAction): Promise<ServiceOutcome>;
+
+  /**
+   * Environment variables, gated by `environment`.
+   *
+   * `listEnvironmentVariables` reads both persisted scopes — the user's own
+   * and the machine's — and tags each entry with which one it came from,
+   * because the same name can exist in both with different values. Setting or
+   * deleting a `system`-scoped variable needs administrator rights; see
+   * `environment.rs`'s module doc for the elevation story and why a value set
+   * here is never visible to a process that was already running.
+   */
+  listEnvironmentVariables?(): Promise<EnvVar[]>;
+  setEnvironmentVariable?(name: string, value: string, scope: EnvironmentScope): Promise<boolean>;
+  deleteEnvironmentVariable?(name: string, scope: EnvironmentScope): Promise<boolean>;
 
   /**
    * Windows other than Atlas's own, gated by `window-control`.

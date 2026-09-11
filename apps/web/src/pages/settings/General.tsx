@@ -63,6 +63,7 @@ const CAPABILITY_LABELS: Record<CapabilityName, string> = {
   notifications: 'Notifications',
   network: 'Web',
   services: 'Services',
+  environment: 'Environment variables',
   speech: 'Speech',
   listening: 'Listening',
   ai: 'AI',

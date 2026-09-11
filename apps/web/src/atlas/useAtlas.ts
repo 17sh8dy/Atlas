@@ -41,6 +41,7 @@ import {
   createOsSkills,
   createNetworkSkills,
   createServiceSkills,
+  createEnvironmentSkills,
   createWindowSkills,
   createInputSkills,
   createUiaSkills,
@@ -138,6 +139,7 @@ export function useAtlas(
     skills.registerMany(createOsSkills(platform));
     skills.registerMany(createNetworkSkills(platform));
     skills.registerMany(createServiceSkills(platform));
+    skills.registerMany(createEnvironmentSkills(platform));
     skills.registerMany(createWindowSkills(platform));
     skills.registerMany(createInputSkills(platform));
     skills.registerMany(createUiaSkills(platform));
