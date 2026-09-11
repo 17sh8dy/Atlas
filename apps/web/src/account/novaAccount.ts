@@ -28,9 +28,19 @@
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE CSP NAMES ONE HOST.
  *
- * `tauri.conf.json` adds exactly `https://nova.help` to `connect-src`, and nothing else. That
+ * `tauri.conf.json` adds exactly one Nova.Help origin to `connect-src`, and nothing else. That
  * is the "every capability is declared" rule applied to the network: the set of hosts this
  * app may reach is a short, readable list in one file rather than a policy of "anywhere".
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THE ORIGIN IS A WORKERS.DEV URL, NOT nova.help.
+ *
+ * `nova.help` was added to Cloudflare as a zone on 2026-09-03 but was never actually bought at
+ * a registrar — its zone has sat "pending" (`activation_failure_reason: "unresolvable"`) ever
+ * since, and the domain does not resolve. Brandon isn't buying a domain for this right now, so
+ * Nova.Help is deployed on Cloudflare's free workers.dev subdomain instead — a real, working
+ * address rather than a placeholder for one. Update this the day a domain is bought and pointed
+ * at Cloudflare (update the CSP in both tauri.conf.json and tauri.dev.conf.json to match).
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -52,7 +62,8 @@ import type { Platform, Storage } from '@atlas/core';
  * CSP override, which only ever reaches `tauri dev`, never `tauri build`).
  */
 export const NOVA_ORIGIN: string =
-  (import.meta.env.DEV && import.meta.env.VITE_NOVA_DEV_ORIGIN) || 'https://nova.help';
+  (import.meta.env.DEV && import.meta.env.VITE_NOVA_DEV_ORIGIN) ||
+  'https://nova-help.17sh8dy.workers.dev';
 
 /** Atlas's section of the support portal. A real page today. */
 export const NOVA_HELP_URL = `${NOVA_ORIGIN}/help/atlas`;
