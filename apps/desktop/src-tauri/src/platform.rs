@@ -67,17 +67,37 @@ pub struct ProcessEntry {
 
 /// Folders Atlas will look inside.
 ///
-/// The user's own documents, and nothing else. Not the whole disk, not other
-/// users, not the OS. A file index that quietly grew to cover `C:\` would be a
-/// different product with a different privacy story.
+/// Every folder on the allowed-folders list (`allowed_folders.rs`) is
+/// indexed — the same list every other file command is gated by, so search
+/// coverage and file-command coverage never disagree about what Atlas may
+/// look at. The home folder is the one exception, kept exactly as narrow as
+/// it always was: indexing Desktop/Documents/Downloads/Pictures/Videos/Music
+/// specifically rather than the whole home tree, because a home directory
+/// also holds `.config`-style dotfolders and app data that were never meant
+/// to be searchable. A folder added *beyond* the default (`D:\Dev`, say) has
+/// no such distinguished subset — the whole thing is indexed directly.
 fn indexed_roots() -> Vec<PathBuf> {
+    expand_roots(crate::allowed_folders::roots(), dirs_home())
+}
+
+/// Turn the allowed-folders list into what actually gets walked.
+///
+/// Split from `indexed_roots` so this — the part with a real decision in
+/// it — can be tested without the global `allowed_folders` state, the same
+/// way `net.rs` and `services.rs` split parsing from the I/O that produces
+/// the text they parse.
+fn expand_roots(allowed: Vec<PathBuf>, home: Option<PathBuf>) -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    if let Some(home) = dirs_home() {
-        for sub in ["Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music"] {
-            let p = home.join(sub);
-            if p.is_dir() {
-                roots.push(p);
+    for root in allowed {
+        if Some(&root) == home.as_ref() {
+            for sub in ["Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music"] {
+                let p = root.join(sub);
+                if p.is_dir() {
+                    roots.push(p);
+                }
             }
+        } else {
+            roots.push(root);
         }
     }
     roots
@@ -87,6 +107,7 @@ fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
+        .and_then(|h| h.canonicalize().ok())
 }
 
 /// Directories that are never worth indexing and are enormous.
@@ -97,27 +118,18 @@ fn is_noise(name: &str) -> bool {
     )
 }
 
-/// A path is acceptable only if it sits inside one of the indexed roots.
+/// A path is acceptable only if it sits inside one of the allowed folders.
 ///
 /// Checked on every path-taking command rather than trusting the caller. The
 /// renderer is the least trusted part of this application — it runs web content
 /// — so a path arriving from it is treated as a claim, not a fact.
 ///
-/// `pub(crate)` rather than private: `disk_usage.rs` needs the same boundary
-/// for `folder_size`/`largest_files` and re-implementing it there would be the
-/// one place this rule could quietly drift out of agreement with itself.
-pub(crate) fn is_permitted(path: &Path) -> bool {
-    let Ok(canonical) = path.canonicalize() else {
-        return false;
-    };
-    let Some(home) = dirs_home() else {
-        return false;
-    };
-    let Ok(home) = home.canonicalize() else {
-        return false;
-    };
-    canonical.starts_with(home)
-}
+/// A re-export, not a definition: the real check and the list it checks
+/// against both live in `allowed_folders.rs` now, behind a user-editable
+/// list rather than a hard-coded `%USERPROFILE%`. Kept under this name so
+/// every one of the ~20 call sites across this file and `disk_usage.rs`
+/// needed no change at all.
+pub(crate) use crate::allowed_folders::is_permitted;
 
 #[tauri::command]
 pub fn search_files(query: String, kind: Option<String>, limit: Option<usize>) -> Vec<FileEntry> {
@@ -827,4 +839,47 @@ pub fn open_system_tool(id: String) -> Result<bool, String> {
         _ => return Err(format!("No system tool with id “{id}”.")),
     };
     opener_open(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The home folder expands to its six well-known subfolders — the exact
+    /// set this always indexed, so a fresh install's search coverage doesn't
+    /// change just because the allowed-folders list now exists.
+    #[test]
+    fn the_home_folder_expands_to_its_named_subfolders() {
+        let home = std::env::temp_dir().join(format!("atlas-test-home-{}", std::process::id()));
+        std::fs::create_dir_all(home.join("Documents")).unwrap();
+        std::fs::create_dir_all(home.join("Downloads")).unwrap();
+        // Pictures/Desktop/Videos/Music deliberately don't exist here — a
+        // machine's own home folder doesn't always have all six either, and
+        // a missing one should be left out rather than produce a bad path.
+
+        let roots = expand_roots(vec![home.clone()], Some(home.clone()));
+        assert_eq!(roots, vec![home.join("Documents"), home.join("Downloads")]);
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A folder that *isn't* the home folder — `D:\Dev`, the case this whole
+    /// module exists for — is walked directly, not expanded into subfolders
+    /// it has no reason to have.
+    #[test]
+    fn a_non_home_folder_is_used_directly() {
+        let dev = PathBuf::from("D:\\Dev");
+        let home = PathBuf::from("C:\\Users\\someone");
+        assert_eq!(expand_roots(vec![dev.clone()], Some(home)), vec![dev]);
+    }
+
+    /// With no resolvable home at all (a machine with neither `USERPROFILE`
+    /// nor `HOME` set), every allowed folder is still walked directly rather
+    /// than the whole list silently vanishing.
+    #[test]
+    fn every_allowed_folder_survives_when_there_is_no_home() {
+        let a = PathBuf::from("D:\\Dev");
+        let b = PathBuf::from("E:\\Projects");
+        assert_eq!(expand_roots(vec![a.clone(), b.clone()], None), vec![a, b]);
+    }
 }

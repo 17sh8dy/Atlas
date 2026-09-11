@@ -174,6 +174,10 @@ export function createTauriPlatform(): Platform {
     largestFiles: (path, limit) =>
       invoke<LargestFiles>('largest_files', { path, limit: limit ?? null }),
 
+    allowedFolders: () => invoke<string[]>('allowed_folders'),
+    addAllowedFolder: (path) => invoke<string[]>('add_allowed_folder', { path }),
+    removeAllowedFolder: (path) => invoke<string[]>('remove_allowed_folder', { path }),
+
     listWindows: () => invoke<WindowEntry[]>('list_windows'),
     activeWindow: () => invoke<WindowEntry | null>('active_window'),
     focusWindow: (id) => invoke<boolean>('focus_window', { id }),

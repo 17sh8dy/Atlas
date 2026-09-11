@@ -10,6 +10,7 @@
 //! were doing, is an assistant. That is what the global shortcut and the
 //! hide-on-blur behaviour below are for.
 
+mod allowed_folders;
 mod diagnostics;
 mod disk_usage;
 #[cfg(windows)]
@@ -241,10 +242,34 @@ pub fn run() {
             storage::storage_get,
             storage::storage_set,
             storage::storage_remove,
+            allowed_folders::allowed_folders,
+            allowed_folders::add_allowed_folder,
+            allowed_folders::remove_allowed_folder,
         ])
         .manage(StorageState(std::sync::Mutex::new(())))
         .setup(move |app| {
             app.global_shortcut().register(summon_shortcut)?;
+
+            // Seed the allowed-folders list from whatever was saved last time
+            // — before any file command can run, since every one of them
+            // checks it. A fresh install has nothing saved yet and keeps the
+            // built-in default (%USERPROFILE% alone, today's exact reach).
+            let handle = app.handle().clone();
+            let saved: Option<Vec<String>> = storage::storage_get(
+                handle.clone(),
+                handle.state::<StorageState>(),
+                "atlas.allowedFolders".to_string(),
+            )
+            .ok()
+            .flatten()
+            .and_then(|v| serde_json::from_value(v).ok());
+            let dropped = allowed_folders::init(saved);
+            if !dropped.is_empty() {
+                diagnostics::log_diagnostic(
+                    "allowed_folders".to_string(),
+                    format!("dropped at startup (no longer resolve to a real folder): {dropped:?}"),
+                );
+            }
 
             // A tray icon, because an assistant that only exists while its
             // window is open isn't resident — it's just an app you closed.

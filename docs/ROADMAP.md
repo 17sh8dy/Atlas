@@ -67,13 +67,13 @@ its own decision first.
 **Version:** **`0.5.0`**, taken on 2026-08-21 when Phase 8 completed — the
 trigger the [Versioning](#versioning) section names.
 
-**Open question blocking nothing yet, but real:** every file command is limited
-to `%USERPROFILE%` (`is_permitted` in `platform.rs`), and the index only covers
-Desktop/Documents/Downloads/Pictures/Videos/Music. So `D:\Dev` — where all the
-user's actual projects live — is refused. This is the security model working as
-designed, not a bug, so widening it is a decision to make deliberately (a
-user-managed allowed-folders list is the obvious shape) rather than a limit to
-quietly raise.
+**Resolved (Brandon, 2026-09-10): widen it, with a user-managed allowed-folders
+list.** Every file command used to be limited to `%USERPROFILE%`
+(`is_permitted` in `platform.rs`), and the index only covered
+Desktop/Documents/Downloads/Pictures/Videos/Music — so `D:\Dev`, where the
+user's actual projects live, was refused. See Phase 3 below for what shipped:
+`allowed_folders.rs`, defaulting to today's exact reach, editable in
+Settings → General.
 
 **Baseline, verified 2026-09-07:** `pnpm -r typecheck` (9 packages), root
 `eslint .` clean, `pnpm test` (root script) — **397 tests** across
@@ -294,15 +294,30 @@ of bug can only be verified by a human looking at the screen).
 
 ## Phase 3 — Persistence
 
-- Conversation history across restarts, using the `Storage` port Phase 1
-  already built.
+- ✅ **Conversation history across restarts (2026-09-10)**, using the
+  `Storage` port Phase 1 already built. `useAtlas.ts` loads the transcript on
+  mount and writes it back debounced (500ms — a whole turn lands as one write,
+  not three) and capped at 200 entries, the same cap `MemoryStore` already
+  uses for the episodic log. `Entry` needed no serialiser of its own: it was
+  already a plain, JSON-safe shape, since a captured screenshot rides in a
+  `SkillResult`'s own `data` field as a data: URL string, never as binary in
+  an `Entry`. The one real hazard was a race — a slow first read losing to an
+  early write of `[]` and silently erasing a real transcript — closed by a
+  `loaded` ref gating the write effect until the read actually lands.
+- ✅ **The allowed-folders question, settled (2026-09-10): widen it.**
+  `is_permitted` (`platform.rs`) is no longer a hard-coded `%USERPROFILE%` —
+  `allowed_folders.rs` is a user-editable list, defaulting to exactly what was
+  already allowed so nobody's reach changes until they add to it, surfaced in
+  Settings → General. `indexed_roots()` (what `files.find` actually walks)
+  now follows the same list: the home folder still expands to its six named
+  subfolders exactly as before, and anything added beyond it — `D:\Dev`, the
+  motivating case — is walked directly. See that module's doc comment for why
+  this is a process-wide `RwLock` rather than an `AppHandle` threaded through
+  the ~20 call sites that check it.
 - Command history — small, now that Storage exists.
-- A real background file index, so `files.find` stops walking the disk per
-  query. Names and paths only — the privacy line does not move.
-- **Settle the allowed-folders question first** (see "Where things stand"):
-  building an index is the natural moment to decide *what it is allowed to
-  index*, and shipping one scoped to the six home folders would bake the
-  current `%USERPROFILE%` limit in deeper.
+- Still open: `files.find` still walks the disk fresh on every query — the
+  allowed-folders decision above was the blocker for *what* to index; a real
+  background index over that same list is the remaining work.
 
 ## Phase 4 — Intelligence: Cortex, and only Cortex 🟡 seam built, model missing
 

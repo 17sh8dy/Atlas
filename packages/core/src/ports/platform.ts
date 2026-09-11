@@ -286,6 +286,20 @@ export interface Platform {
   largestFiles?(path: string, limit?: number): Promise<LargestFiles>;
 
   /**
+   * The allowed-folders list — not gated by a `CapabilityName`, because it
+   * governs several of them at once (`fs`, `files`, `storage`) rather than
+   * being a capability itself. Every path-taking command on this port is
+   * refused outside these folders; `%USERPROFILE%` alone is the default,
+   * preserving today's reach until a person explicitly widens it. See
+   * `allowed_folders.rs`'s module doc for the whole design.
+   */
+  allowedFolders?(): Promise<string[]>;
+  /** Add a folder. Rejects a path that doesn't exist or isn't a folder. */
+  addAllowedFolder?(path: string): Promise<string[]>;
+  /** Remove a folder. Refuses to empty the list entirely. */
+  removeAllowedFolder?(path: string): Promise<string[]>;
+
+  /**
    * Windows other than Atlas's own, gated by `window-control`.
    *
    * `listWindows` returns the same set Alt+Tab roughly shows — visible,

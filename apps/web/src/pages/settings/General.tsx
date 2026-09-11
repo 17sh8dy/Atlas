@@ -24,10 +24,11 @@
  * app would choose.
  */
 
+import { useEffect, useState } from 'react';
 import type { SkillRegistry } from '@atlas/engine';
 import type { CapabilityName, ExecutionMode, Platform } from '@atlas/core';
 import { EXECUTION_MODES, EXECUTION_MODE_META } from '@atlas/core';
-import { SegmentedControl } from '@atlas/ui';
+import { Button, Icons, Input, SegmentedControl } from '@atlas/ui';
 
 interface Props {
   platform: Platform;
@@ -167,7 +168,125 @@ export function General({
           broken — which is why the browser lists fewer actions than the desktop app.
         </p>
       </section>
+
+      <AllowedFolders platform={platform} />
     </div>
+  );
+}
+
+/**
+ * The one setting that decides what every file command may touch.
+ *
+ * `%USERPROFILE%` is here by default, preserving exactly what Atlas could
+ * already reach — this is a way to widen that reach deliberately (a projects
+ * drive living outside the home folder, say), not a permission anyone has to
+ * grant for Atlas to work at all. Absent entirely in the browser build, which
+ * has no filesystem access to gate in the first place.
+ */
+function AllowedFolders({ platform }: { platform: Platform }) {
+  const [folders, setFolders] = useState<string[] | null>(null);
+  const [input, setInput] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    platform
+      .allowedFolders?.()
+      .then((list) => {
+        if (alive) setFolders(list);
+      })
+      .catch(() => {
+        if (alive) setFolders([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [platform]);
+
+  if (!platform.allowedFolders) return null;
+
+  const add = async () => {
+    const path = input.trim();
+    if (!path) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setFolders(await platform.addAllowedFolder!(path));
+      setInput('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't add that folder.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (path: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setFolders(await platform.removeAllowedFolder!(path));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't remove that folder.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="mt-8">
+      <h2 className="text-foreground mb-3 text-sm font-medium">Allowed folders</h2>
+      <p className="text-foreground-muted mb-3 text-xs leading-relaxed">
+        Atlas can only open, read, or change something inside one of these folders — everywhere
+        else is refused, the same way running an arbitrary command is. Your home folder is here by
+        default; add another one (a projects drive, say) to let Atlas reach it too.
+      </p>
+
+      {folders === null ? (
+        <p className="text-foreground-subtle text-xs">Loading…</p>
+      ) : (
+        <ul className="border-border overflow-hidden rounded-xl border text-sm">
+          {folders.map((path) => (
+            <li
+              key={path}
+              className="border-border flex items-center justify-between gap-4 border-b px-4 py-2.5 last:border-b-0"
+            >
+              <span className="text-foreground truncate text-xs" title={path}>
+                {path}
+              </span>
+              <button
+                type="button"
+                onClick={() => remove(path)}
+                disabled={busy || folders.length <= 1}
+                className="text-foreground-subtle hover:text-foreground shrink-0 disabled:opacity-30"
+                aria-label={`Remove ${path}`}
+                title={folders.length <= 1 ? 'At least one folder has to stay on the list.' : 'Remove'}
+              >
+                <Icons.Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="D:\Dev"
+          disabled={busy}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') add();
+          }}
+          className="flex-1"
+        />
+        <Button variant="secondary" size="sm" onClick={add} disabled={busy || !input.trim()}>
+          <Icons.Plus className="h-3.5 w-3.5" />
+          Add
+        </Button>
+      </div>
+      {error && <p className="text-warning mt-2 text-xs">{error}</p>}
+    </section>
   );
 }
 
