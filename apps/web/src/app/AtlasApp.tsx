@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CapabilityName,
+  CloudProviderConfig,
   ExecutionMode,
   ListeningPreferences,
   Platform,
@@ -26,6 +27,7 @@ import type {
 import { DEFAULT_EXECUTION_MODE, DEFAULT_LISTENING, DEFAULT_SPEECH, nextExecutionMode } from '@atlas/core';
 import {
   readActiveProvider,
+  readCloudProviders,
   readCortexSettings,
   readExecutionMode,
   readListeningPreferences,
@@ -53,6 +55,7 @@ interface Loaded {
   voiceProfile: VoiceProfile;
   cortex: CortexSettings;
   activeProviderId: string | null;
+  cloudProviders: CloudProviderConfig[];
   speech: SpeechPreferences;
   speechVoices: SpeechVoice[];
   listening: ListeningPreferences;
@@ -71,6 +74,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       readVoiceProfile(storage).catch(() => ({}) as VoiceProfile),
       readCortexSettings(storage).catch(() => ({ enabled: false, baseUrl: '' })),
       readActiveProvider(storage).catch(() => undefined),
+      readCloudProviders(storage).catch(() => [] as CloudProviderConfig[]),
       readSpeechPreferences(storage).catch(() => DEFAULT_SPEECH),
       // An empty list is the honest answer for a build without the engine;
       // the Voice tab renders that case rather than pretending otherwise.
@@ -83,6 +87,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
         voiceProfile,
         cortex,
         activeProviderId,
+        cloudProviders,
         speech,
         speechVoices,
         listening,
@@ -94,6 +99,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
             voiceProfile,
             cortex,
             activeProviderId: activeProviderId ?? null,
+            cloudProviders,
             speech,
             speechVoices,
             listening,
@@ -124,6 +130,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       voiceProfile={loaded.voiceProfile}
       cortex={loaded.cortex}
       activeProviderId={loaded.activeProviderId}
+      cloudProviders={loaded.cloudProviders}
       speech={loaded.speech}
       speechVoices={loaded.speechVoices}
       listening={loaded.listening}
@@ -142,6 +149,7 @@ function Ready({
   voiceProfile,
   cortex,
   activeProviderId,
+  cloudProviders,
   speech,
   speechVoices,
   listening: listeningPrefs,
@@ -156,6 +164,7 @@ function Ready({
   voiceProfile: VoiceProfile;
   cortex: CortexSettings;
   activeProviderId: string | null;
+  cloudProviders: CloudProviderConfig[];
   speech: SpeechPreferences;
   speechVoices: SpeechVoice[];
   listening: ListeningPreferences;
@@ -199,6 +208,7 @@ function Ready({
     voiceProfile,
     cortex,
     activeProviderId,
+    cloudProviders,
     speechForScreen,
     voice.speak,
     executionMode,
@@ -622,6 +632,7 @@ function Ready({
             onVoiceProfileChange={onVoiceProfileChange}
             cortex={cortex}
             activeProviderId={activeProviderId}
+            cloudProviders={cloudProviders}
             onProviderChange={onProviderChange}
             speech={speech}
             speechVoices={speechVoices}

@@ -11,7 +11,11 @@
 //! hide-on-blur behaviour below are for.
 
 mod allowed_folders;
+#[cfg(windows)]
+mod cloud_intelligence;
 mod diagnostics;
+#[cfg(windows)]
+mod devtools;
 mod disk_usage;
 #[cfg(windows)]
 mod environment;
@@ -23,6 +27,8 @@ mod listen;
 #[cfg(windows)]
 mod os;
 mod platform;
+#[cfg(windows)]
+mod secrets;
 #[cfg(windows)]
 mod services;
 #[cfg(windows)]
@@ -120,6 +126,7 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
         "services",
         "environment",
         "storage",
+        "devtools",
     ];
     if speech::available(&app) {
         names.push("speech");
@@ -238,6 +245,7 @@ pub fn run() {
             web::web_search,
             web::fetch_page,
             intelligence::ask_cortex,
+            intelligence::ask_cortex_stream,
             intelligence::cortex_reachable,
             storage::storage_get,
             storage::storage_set,
@@ -245,6 +253,22 @@ pub fn run() {
             allowed_folders::allowed_folders,
             allowed_folders::add_allowed_folder,
             allowed_folders::remove_allowed_folder,
+            devtools::detect_project,
+            devtools::dir_tree,
+            devtools::code_search,
+            devtools::git_status,
+            devtools::git_diff,
+            devtools::git_log,
+            devtools::git_add,
+            devtools::git_commit,
+            devtools::run_devtool,
+            devtools::write_text_file,
+            devtools::patch_text_file,
+            secrets::save_secret,
+            secrets::has_secret,
+            secrets::delete_secret,
+            cloud_intelligence::ask_cloud_provider,
+            cloud_intelligence::test_cloud_provider,
         ])
         .manage(StorageState(std::sync::Mutex::new(())))
         .setup(move |app| {

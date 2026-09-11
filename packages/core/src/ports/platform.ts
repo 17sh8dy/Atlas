@@ -33,6 +33,15 @@ import type { CursorPosition, MouseButton } from '../models/input';
 import type { UiaNode } from '../models/uia';
 import type { DisplayInfo } from '../models/screen';
 import type { WindowsCompatibility } from '../models/compat';
+import type {
+  DevTool,
+  GitLogEntry,
+  GitStatus,
+  ProjectInfo,
+  SearchMatch,
+  ToolResult,
+  TreeEntry,
+} from '../models/devtools';
 
 /** Names the engine checks before offering a skill. */
 export type CapabilityName =
@@ -53,6 +62,7 @@ export type CapabilityName =
   | 'services' // Windows services: list, inspect, start/stop
   | 'environment' // environment variables: list, set, delete
   | 'storage' // what's using space inside a folder: size, largest files
+  | 'devtools' // inspect a software project, search its text, drive its build/test tooling
   | 'speech' // say things out loud, locally
   | 'listening' // transcribe what you say, locally
   | 'ai'; // an intelligence provider is connected
@@ -284,6 +294,63 @@ export interface Platform {
   folderSize?(path: string): Promise<FolderSize>;
   /** The largest files under a folder, most-bytes first. */
   largestFiles?(path: string, limit?: number): Promise<LargestFiles>;
+
+  /**
+   * A software project's own tooling, gated by `devtools`.
+   *
+   * The same rule as everywhere else on this port applies here at its
+   * sharpest: `runDevTool` never takes a command string, only a closed
+   * `DevTool` naming a fixed executable and subcommand, plus one validated
+   * argument slot (a target, a script name, a test filter). A reader can
+   * enumerate the complete set of programs this method will ever run by
+   * reading `DevTool`'s definition — the same test `net.rs`'s module doc
+   * applies to `ipconfig`/`netsh`.
+   *
+   * Every path here is scoped by the same allowed-folders list as the rest of
+   * the `fs` group; `detectProject`/`dirTree`/`codeSearch`/`git*` all refuse a
+   * `cwd` outside it, the same "a path is a claim, not a fact" rule.
+   */
+  detectProject?(cwd: string): Promise<ProjectInfo>;
+  /** A bounded recursive listing — `listDir` is one folder deep; this isn't. */
+  dirTree?(cwd: string, maxDepth?: number, maxEntries?: number): Promise<TreeEntry[]>;
+  /**
+   * Search file *contents*, not just names — the dedicated, capability-gated
+   * exception to "the index reads names, never contents" (see
+   * `docs/ARCHITECTURE.md` §7 and the five binding decisions in Phase 12's
+   * roadmap notes): a door this port always left open, never a quiet widening
+   * of `searchFiles`.
+   */
+  codeSearch?(cwd: string, query: string, glob?: string, limit?: number): Promise<SearchMatch[]>;
+  gitStatus?(cwd: string): Promise<GitStatus>;
+  /** Unstaged changes, or one path's, as unified diff text. */
+  gitDiff?(cwd: string, path?: string): Promise<string>;
+  gitLog?(cwd: string, limit?: number): Promise<GitLogEntry[]>;
+  gitAdd?(cwd: string, path: string): Promise<boolean>;
+  /** Returns the new commit's short hash. */
+  gitCommit?(cwd: string, message: string): Promise<string>;
+  runDevTool?(cwd: string, tool: DevTool, arg?: string): Promise<ToolResult>;
+  /**
+   * Overwrite a file that already exists — the inverse of `createFile`, which
+   * refuses when one does. Kept as a separate method rather than a flag on
+   * `createFile` because they answer different questions ("make this" vs.
+   * "this already exists, change it") and a caller should never be able to
+   * blur the two by mistake.
+   */
+  writeTextFile?(path: string, content: string): Promise<boolean>;
+  /**
+   * Replace an exact substring in a file — refuses when `find` isn't present,
+   * and refuses when it isn't unique unless `replaceAll` is set. The same
+   * discipline as a precise text editor: a whole-file overwrite from a model
+   * regenerating everything it just read is a much larger failure surface
+   * than one verified, exact replacement. Returns a short message naming how
+   * many replacements were made.
+   */
+  patchTextFile?(
+    path: string,
+    find: string,
+    replace: string,
+    replaceAll?: boolean,
+  ): Promise<string>;
 
   /**
    * The allowed-folders list — not gated by a `CapabilityName`, because it

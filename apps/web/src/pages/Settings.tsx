@@ -20,6 +20,7 @@
 import { Icons, Tabs, TabsContent, TabsList, TabsTrigger } from '@atlas/ui';
 import type {
   CapabilityName,
+  CloudProviderConfig,
   ExecutionMode,
   ListeningPreferences,
   Platform,
@@ -50,6 +51,7 @@ interface Props {
   onVoiceProfileChange(): void;
   cortex: CortexSettings;
   activeProviderId: string | null;
+  cloudProviders: CloudProviderConfig[];
   onProviderChange(): void;
   speechVoices: SpeechVoice[];
   speech: SpeechPreferences;
@@ -98,6 +100,7 @@ export function Settings({
   onVoiceProfileChange,
   cortex,
   activeProviderId,
+  cloudProviders,
   onProviderChange,
   speechVoices,
   speech,
@@ -168,6 +171,7 @@ export function Settings({
                 storage={storage}
                 cortex={cortex}
                 activeProviderId={activeProviderId}
+                cloudProviders={cloudProviders}
                 onProviderChange={onProviderChange}
               />
             </TabsContent>

@@ -36,6 +36,13 @@ import type {
   UiaNode,
   DisplayInfo,
   WindowsCompatibility,
+  DevTool,
+  GitLogEntry,
+  GitStatus,
+  ProjectInfo,
+  SearchMatch,
+  ToolResult,
+  TreeEntry,
 } from '@atlas/core';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -174,6 +181,31 @@ export function createTauriPlatform(): Platform {
     largestFiles: (path, limit) =>
       invoke<LargestFiles>('largest_files', { path, limit: limit ?? null }),
 
+    detectProject: (cwd) => invoke<ProjectInfo>('detect_project', { cwd }),
+    dirTree: (cwd, maxDepth, maxEntries) =>
+      invoke<TreeEntry[]>('dir_tree', {
+        cwd,
+        maxDepth: maxDepth ?? null,
+        maxEntries: maxEntries ?? null,
+      }),
+    codeSearch: (cwd, query, glob, limit) =>
+      invoke<SearchMatch[]>('code_search', {
+        cwd,
+        query,
+        glob: glob ?? null,
+        limit: limit ?? null,
+      }),
+    gitStatus: (cwd) => invoke<GitStatus>('git_status', { cwd }),
+    gitDiff: (cwd, path) => invoke<string>('git_diff', { cwd, path: path ?? null }),
+    gitLog: (cwd, limit) => invoke<GitLogEntry[]>('git_log', { cwd, limit: limit ?? null }),
+    gitAdd: (cwd, path) => invoke<boolean>('git_add', { cwd, path }),
+    gitCommit: (cwd, message) => invoke<string>('git_commit', { cwd, message }),
+    runDevTool: (cwd, tool: DevTool, arg) =>
+      invoke<ToolResult>('run_devtool', { cwd, tool, arg: arg ?? null }),
+    writeTextFile: (path, content) => invoke<boolean>('write_text_file', { path, content }),
+    patchTextFile: (path, find, replace, replaceAll) =>
+      invoke<string>('patch_text_file', { path, find, replace, replaceAll: replaceAll ?? null }),
+
     allowedFolders: () => invoke<string[]>('allowed_folders'),
     addAllowedFolder: (path) => invoke<string[]>('add_allowed_folder', { path }),
     removeAllowedFolder: (path) => invoke<string[]>('remove_allowed_folder', { path }),
@@ -225,7 +257,8 @@ export function createTauriPlatform(): Platform {
     // Same shape as `synthesizeSpeech`: the command returns a
     // `tauri::ipc::Response`, so the bytes need the same transport-agnostic
     // conversion — see `toArrayBuffer`'s doc comment.
-    captureWindow: async (windowId) => toArrayBuffer(await invoke<unknown>('capture_window', { windowId })),
+    captureWindow: async (windowId) =>
+      toArrayBuffer(await invoke<unknown>('capture_window', { windowId })),
     captureScreen: async () => toArrayBuffer(await invoke<unknown>('capture_screen')),
     listDisplays: () => invoke<DisplayInfo[]>('list_displays'),
     windowsCompatibility: () => invoke<WindowsCompatibility>('windows_compatibility'),

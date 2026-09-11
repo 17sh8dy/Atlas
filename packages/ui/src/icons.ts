@@ -76,5 +76,7 @@ export {
   Gamepad2,
   // Nova switcher's "View all" row, and the close button on the full-screen view it opens
   ArrowRight,
+  // the capability browser's Developer section (project/git/code/build/test)
+  Terminal,
   type LucideIcon,
 } from 'lucide-react';

@@ -66,6 +66,7 @@ const CAPABILITY_LABELS: Record<CapabilityName, string> = {
   services: 'Services',
   environment: 'Environment variables',
   storage: 'Folder sizes',
+  devtools: 'Developer tools',
   speech: 'Speech',
   listening: 'Listening',
   ai: 'AI',
@@ -95,6 +96,7 @@ const CAPABILITY_ORDER: readonly CapabilityName[] = [
   'notifications',
   'network',
   'services',
+  'devtools',
   'speech',
   'listening',
   'ai',
@@ -133,7 +135,10 @@ export function General({
           three modes are also reachable from the composer (Shift+Tab cycles them).
         </p>
         <SegmentedControl
-          options={EXECUTION_MODES.map((mode) => ({ value: mode, label: EXECUTION_MODE_META[mode].label }))}
+          options={EXECUTION_MODES.map((mode) => ({
+            value: mode,
+            label: EXECUTION_MODE_META[mode].label,
+          }))}
           value={executionMode}
           onChange={onExecutionModeChange}
         />
@@ -237,8 +242,8 @@ function AllowedFolders({ platform }: { platform: Platform }) {
     <section className="mt-8">
       <h2 className="text-foreground mb-3 text-sm font-medium">Allowed folders</h2>
       <p className="text-foreground-muted mb-3 text-xs leading-relaxed">
-        Atlas can only open, read, or change something inside one of these folders — everywhere
-        else is refused, the same way running an arbitrary command is. Your home folder is here by
+        Atlas can only open, read, or change something inside one of these folders — everywhere else
+        is refused, the same way running an arbitrary command is. Your home folder is here by
         default; add another one (a projects drive, say) to let Atlas reach it too.
       </p>
 
@@ -260,7 +265,9 @@ function AllowedFolders({ platform }: { platform: Platform }) {
                 disabled={busy || folders.length <= 1}
                 className="text-foreground-subtle hover:text-foreground shrink-0 disabled:opacity-30"
                 aria-label={`Remove ${path}`}
-                title={folders.length <= 1 ? 'At least one folder has to stay on the list.' : 'Remove'}
+                title={
+                  folders.length <= 1 ? 'At least one folder has to stay on the list.' : 'Remove'
+                }
               >
                 <Icons.Trash2 className="h-3.5 w-3.5" />
               </button>

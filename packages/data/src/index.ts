@@ -28,6 +28,7 @@ export {
   writeActiveProvider,
 } from './cortex-settings';
 export type { CortexSettings } from './cortex-settings';
+export { readCloudProviders, writeCloudProviders } from './cloud-provider-settings';
 
 /** The storage implementation for the given platform. */
 export function detectStorage(platformId: Platform['id']): Storage {

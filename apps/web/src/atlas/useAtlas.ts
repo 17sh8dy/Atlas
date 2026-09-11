@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  CloudProviderConfig,
   ExecutionMode,
   Platform,
   ResultRow,
@@ -26,7 +27,7 @@ import type {
 import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH } from '@atlas/core';
 import { MemoryStore } from '@atlas/data';
 import type { CortexSettings } from '@atlas/data';
-import { createCortexProvider } from '@atlas/platform';
+import { createCortexProvider, createCloudProvider } from '@atlas/platform';
 import {
   Engine,
   Grammar,
@@ -43,6 +44,8 @@ import {
   createServiceSkills,
   createEnvironmentSkills,
   createStorageSkills,
+  createDevToolsSkills,
+  createDevAgentSkill,
   createWindowSkills,
   createInputSkills,
   createUiaSkills,
@@ -101,6 +104,8 @@ export function useAtlas(
   voiceProfile: VoiceProfile = {},
   cortex: CortexSettings = { enabled: false, baseUrl: '' },
   activeProviderId: string | null = null,
+  /** Zero or more opt-in cloud providers — see `docs/ARCHITECTURE.md` §6.3. Never required. */
+  cloudProviders: readonly CloudProviderConfig[] = [],
   /** How Atlas should speak. `VoiceProfile` above is a different thing entirely. */
   speech: SpeechPreferences = DEFAULT_SPEECH,
   /**
@@ -200,6 +205,7 @@ export function useAtlas(
     skills.registerMany(createServiceSkills(platform));
     skills.registerMany(createEnvironmentSkills(platform));
     skills.registerMany(createStorageSkills(platform));
+    skills.registerMany(createDevToolsSkills(platform));
     skills.registerMany(createWindowSkills(platform));
     skills.registerMany(createInputSkills(platform));
     skills.registerMany(createUiaSkills(platform));
@@ -221,7 +227,26 @@ export function useAtlas(
     // works completely when it is off.
     const intelligence = new SimpleIntelligenceRegistry();
     intelligence.register(createCortexProvider(cortex));
+    // Zero or more, entirely by the user's own hand — nothing here enables
+    // one, `config.enabled` still gates `isConfigured()` per provider, the
+    // same as Cortex's own switch. See providers.ts's module doc.
+    for (const config of cloudProviders) {
+      intelligence.register(createCloudProvider(config));
+    }
     intelligence.setActive(activeProviderId);
+
+    // The developer agent needs `intelligence` (to call Cortex itself) and
+    // `skills` (to validate/run each step it proposes) both already built,
+    // which is why this registration sits after them rather than beside the
+    // other `createXSkills(platform)` calls above.
+    skills.register(
+      createDevAgentSkill({
+        skills,
+        intelligence,
+        phrasing,
+        getExecutionMode: () => executionModeRef.current,
+      }),
+    );
 
     return new Engine({
       skills,
@@ -231,7 +256,17 @@ export function useAtlas(
       intelligence,
       getExecutionMode: () => executionModeRef.current,
     });
-  }, [platform, capabilities, memory, phrasing, voiceProfile, working, cortex, activeProviderId]);
+  }, [
+    platform,
+    capabilities,
+    memory,
+    phrasing,
+    voiceProfile,
+    working,
+    cortex,
+    activeProviderId,
+    cloudProviders,
+  ]);
 
   // Episodic memory doesn't touch the ask/io path at all — it just listens.
   useEffect(() => recordEpisodes(engine.bus, memory, engine.skills), [engine, memory]);

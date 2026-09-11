@@ -39,11 +39,12 @@ interface Category {
 }
 
 /**
- * The six sections, in the order they are shown.
+ * The seven sections, in the order they are shown.
  *
  * Ordered by how often someone wants them, not alphabetically and not by
  * size: Files and System are what a desktop assistant is *for*, so they lead
- * even though Utilities is the largest bucket.
+ * even though Utilities is the largest bucket. Developer is last — real, but
+ * not what most people open this list to find.
  */
 const CATEGORIES: readonly Category[] = [
   { label: 'Files', icon: Icons.Folder, domains: ['files'] },
@@ -56,6 +57,11 @@ const CATEGORIES: readonly Category[] = [
   { label: 'Text', icon: Icons.FileText, domains: ['text', 'clipboard'] },
   { label: 'Utilities', icon: Icons.Calculator, domains: ['utility', 'math', 'time'] },
   { label: 'Notes', icon: Icons.StickyNote, domains: ['notes', 'memory'] },
+  {
+    label: 'Developer',
+    icon: Icons.Terminal,
+    domains: ['project', 'git', 'code', 'build', 'test', 'devagent'],
+  },
 ];
 
 /** Every domain the table claims, for the test that nothing falls through. */

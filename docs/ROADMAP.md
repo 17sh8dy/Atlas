@@ -4,9 +4,27 @@ Phases are completed one at a time, in full. A phase is done when it typechecks,
 lints, has tests where the logic is non-trivial, and actually runs — not when
 the code exists.
 
-## Where things stand (2026-09-07)
+## Where things stand (2026-09-11)
 
-**Done:** Phases 0, 1, 2, 6, 7, 8, and **12** — operating other windows,
+**2026-09-11: Phase 14 — cloud model providers + conversation streaming —
+built.** Cortex streams for real now (Ollama's NDJSON → SSE →
+`atlas://intelligence` events), and Atlas can optionally reach
+OpenAI-compatible/Anthropic/Gemini providers a person configures themselves,
+keys held in Windows Credential Manager, never in `storage.json`. This is a
+deliberate, Brandon-directed reversal of Phase 4's "Cortex is the only cloud
+AI" — see that phase's own section for the full reasoning and what's still
+deferred (cloud streaming, a model upgrade, clicking it through in the built
+app).
+
+**2026-09-11: Phase 13 — the developer agent — built.** Project detection,
+content search, git reads/writes, a build/test dispatch across seven
+ecosystems, and a bounded observe-and-replan loop (`devagent.run`) that
+reuses the existing executor/risk/confirm/content-policy pipeline rather than
+adding a second one. See that phase's own section, below "Ideas from product
+feedback," for what shipped and what's deliberately still deferred (MSBuild,
+streaming build output, clicking it through against a real build).
+
+**Done:** Phases 0, 1, 2, 6, 7, 8, **12**, **13**, and **14** — operating other windows,
 synthetic input, UI Automation and screen capture, clicked through against
 the real built app the same day (see Phase 12 below). Phase 11 is still only
 **two of its original ten groups** built (network, services) — Phase 12
@@ -832,6 +850,253 @@ the full reasoning and exactly what changed.
   doing the looking) — and wasn't part of what this phase built.
   `attemptGoal()` (`planner/attempts.ts`, built for `app.open`) is a
   same-skill retry ladder and doesn't generalize to it.
+
+---
+
+## Phase 13 — The developer agent (2026-09-11)
+
+**Brandon's brief:** evolve Atlas toward a Claude-Code-like capability — tell
+it to inspect a project, find a build error, fix it, rebuild, run the tests,
+and explain what changed — while staying Atlas: deterministic tools first, a
+model for reasoning only, every action still declared, risk-rated and
+confirmable. Explicitly **not** a request to bolt on a raw shell or a second
+execution path; the brief itself named the same constraints §6 of
+`ARCHITECTURE.md` already holds to.
+
+This is the "autonomous observe-and-replan loop" Phase 12 named and deferred,
+and item 7's third gap from "Ideas from product feedback" below — but scoped
+down to something tractable, the same way that section's own note anticipated:
+the loop only ever observes *text* (a build's stdout, a git diff, a search
+result), never a UI Automation tree or a screen coordinate. That is what makes
+an iteration budget something you can actually reason about.
+
+**Built:**
+
+1. **A devtools surface** (`apps/desktop/src-tauri/src/devtools.rs`, new
+   `devtools` capability): project detection (which of cmake/cargo/npm/
+   pnpm/dotnet/make/pytest a folder actually has, from its marker files —
+   never a guess), a bounded recursive directory tree, content search
+   (ripgrep if it's on PATH, a scoped fallback walk if not), git reads
+   (status/diff/log) and two git writes (add/commit), and one dispatch point
+   for build/test tooling — `run_devtool(cwd, tool, arg)`, where `tool` is a
+   **closed enum naming one fixed executable and subcommand shape** (the same
+   `net.rs`/`services.rs` discipline: "a reader can enumerate every program
+   this file will ever run"), and `arg` is the one validated slot (a target,
+   an npm script checked against `package.json`'s real keys, a test filter) —
+   never a command string. Plus `writeTextFile` (overwrite an existing file)
+   and `patchTextFile` (exact-substring replace, refusing an ambiguous match
+   unless `replaceAll` is set — the same discipline a precise editor uses,
+   not a whole-file regenerate). See `devtools.rs`'s module doc for the one
+   real exception (npm/pnpm route through `cmd.exe /C` on Windows because
+   they ship as `.cmd`, not `.exe` — CreateProcess can't launch those
+   directly — and why the script name is validated twice over because of it).
+2. **Thirteen new skills** (`packages/engine/src/skills/devtools-skills.ts`):
+   `project.detect`, `project.tree`, `code.search`, `git.status`, `git.diff`,
+   `git.log` (all `safe` — reads), and `git.add`, `git.commit`,
+   `build.configure`, `build.run`, `test.run`, `code.write`, `code.edit` (all
+   `confirm`). Build/test execution is the closest thing this catalog has run
+   to arbitrary developer-authored code — an npm script or a CMake rule can do
+   anything — so it starts conservative rather than reasoning its way to
+   `safe` the way `app.open` eventually did; a candidate for the same audit
+   Phase 12's "invisible safety" note already flags, once it has real use
+   behind it.
+3. **The loop itself** (`packages/engine/src/devagent/loop.ts` +
+   `skills/devagent-skill.ts`, one new skill: `devagent.run`). Understand →
+   inspect → act → observe → verify → continue/finish, bounded at
+   **`MAX_DEV_ITERATIONS = 12`** (the same shape as `attemptGoal`'s
+   `MAX_ATTEMPTS`, just sized for a real multi-step task rather than one
+   skill's strategy ladder). Every iteration: build a prompt from the goal,
+   the project folder, a catalog filtered to **only** the
+   `project`/`git`/`build`/`test`/`code`/`files` domains, and a compact log of
+   what already happened; ask Cortex for exactly one next action as strict
+   JSON; validate it against the registry; run it as a one-step `Plan` through
+   the **same `Executor.run`** every other plan in this engine uses — so
+   guard, confirm, risk and the content policy all apply unchanged, and this
+   loop adds no second door to action. Stops and says why on: the goal
+   reported done, the step budget running out, Cortex not being connected, two
+   malformed replies in a row, the exact same failed call being proposed
+   again (never retried — the "avoid repeating identical failures" requirement
+   this phase asked for), or the user declining a confirm-tier step (ends the
+   whole task immediately, matching `Executor.run`'s own rule for declining
+   within a plan).
+4. **A `ctest` tool** was added to the dispatch enum specifically because
+   CMake projects test via `ctest`, not `cmake --build --target test` — Nova
+   Engine (this phase's own worked example) already uses it, per
+   [[nova-engine]].
+
+**Reused, not rebuilt:** the skill registry, `Executor` (a second instance,
+same `skills`, same risk/guard/confirm/content-policy pipeline — not a
+competing one), the `Plan`/`SkillContext` shapes, the allowed-folders list
+(every devtools path check goes through `allowed_folders::is_permitted`, so
+`D:\Dev` — widened in Phase 3 — is what makes this phase's own worked example
+reachable at all), and the exact promise-wrapping `Engine.planWithAI` already
+used for a one-shot AI plan, extended here to run in a loop instead of once.
+
+**Verified:** `pnpm -r typecheck` (9 packages), root `eslint .` clean, `cargo
+clippy --lib --no-deps` clean on the new file, **506 TS tests** (17 new: 14 in
+`devtools-skills.test.ts` against a scripted `Platform`, plus `devagent.test.ts`
+exercising the loop's real contract — a step actually reaches the real
+executor, a repeated failure is refused without re-running, a skill outside
+the allowed domains is never invoked even when proposed, a decline ends the
+task, the budget is never exceeded — against a real `SkillRegistry` and
+`Executor`, not a mocked one), **92 Rust tests** (15 new — git porcelain
+parsing including a path containing a colon, ripgrep line parsing, project
+detection against a real temp folder including the pnpm-over-npm preference,
+the dependency-folder skip list, and the shell-metacharacter rejection the
+npm/pnpm `cmd.exe` path depends on).
+
+⚠️ **Not built, and not a placeholder — deferred honestly:**
+
+- **MSBuild/`vswhere`.** Visual Studio's build tooling needs locating the
+  install via `vswhere.exe` before it can be invoked at all, which is a real
+  extra module, not a line in the dispatch table. cmake/cargo/npm/pnpm/
+  dotnet/make/ctest/pytest cover this phase's own worked example (Nova
+  Engine, CMake) and a wide swath of ordinary projects; MSBuild is next if a
+  `.sln`-only project actually comes up.
+- **A real background project index / streaming build output.** `run_devtool`
+  is request/response — it waits for the whole build or test run to finish
+  and returns the captured (size-capped) stdout/stderr, the same shape every
+  other Rust command on this port already has. A long build blocks that one
+  call; nothing here streams partial output the way Phase 4's provider
+  streaming does for a chat reply. Worth revisiting if a real build turns out
+  to run long enough for that to matter in practice.
+- **`cargo build --bin`/`--target`, `dotnet build` project selection, `make`
+  without a `Makefile` at the exact root.** The dispatch table covers the
+  ordinary case of each tool; multi-binary or multi-project layouts need a
+  richer argument shape than one validated string slot, deliberately not
+  guessed at here.
+- **Clicked through in the real app.** Verified by type checking, linting,
+  and both test suites — not by building the bundle and watching
+  `devagent.run` actually fix a real build error end to end. See
+  [[verify-in-the-real-app]]: this is real-test-verified, not
+  human-verified, same caveat Phase 12 carried at first. The npm/pnpm
+  `cmd.exe /C` path in particular has never run against a real npm project on
+  this machine — it follows documented Windows `CreateProcess` behavior
+  (`.cmd` files need `cmd.exe` as their interpreter) but hasn't been watched
+  build something real.
+
+---
+
+## Phase 14 — Cloud model providers + conversation streaming (2026-09-11)
+
+**Brandon's brief:** upgrade voice/chat conversation quality — better context,
+streaming, error handling — and add *optional* cloud model support
+(OpenAI-compatible/Anthropic/Gemini, "Custom Provider" required) behind
+proper secret storage and a clear Nova/Atlas disclosure. Explicitly not
+required, and explicitly not allowed to touch Atlas's coding tools, desktop
+skills, or permissions — conversation and execution stay separate, the same
+line Decision 4 (`docs/ATLAS_INTEGRATION.md`, Cortex's repo) already drew.
+
+**This reverses a binding decision, deliberately, on Brandon's own
+instruction.** Phase 4 (2026-08-23) deleted Claude/ChatGPT and built
+`no-other-cloud-ai.test.ts` specifically to keep a second cloud provider from
+coming back "in good faith by someone who did not know the rule." That rule
+was never wrong for what it was guarding against then; it is superseded now
+because the person who set it is the one asking for the opposite, explicitly,
+with the same safeguards this file names moved into the new design instead of
+dropped. The guard test is not deleted — it's rewritten
+(`cloud-providers-stay-opt-in.test.ts`) to check the new invariants: Cortex
+still registers unconditionally, a cloud provider exists only because a
+person configured one, and an API key can never reach `storage.json`.
+
+**Built:**
+
+1. **Cortex now streams** (`D:\Dev\Cortex`: `backends.py`, `conversation.py`,
+   `server.py`). `OllamaBackend.ask_stream` reads Ollama's own NDJSON stream
+   token-by-token; `ThinkingFilter` strips a `<think>` block that arrives
+   split across chunks (with a `flush()` for the trailing text `feed` alone
+   would otherwise hold back forever — a real bug, caught by its own test);
+   `ConversationEngine.process_message_stream` yields `StreamChunk`s then one
+   final `ConversationResponse`, degrading to a single chunk for a backend
+   that can't stream; `POST /v1/ask/stream` on the server is Server-Sent
+   Events, additive alongside the unchanged `/v1/ask`. **Verified against the
+   real running stack** — `curl` against a live Cortex + Ollama + qwen3.5:9b
+   produced real token-by-token deltas ending in a `done` event carrying the
+   complete, correctly-assembled answer.
+2. **Atlas consumes it for real** (`intelligence.rs::ask_cortex_stream` +
+   `consume_cortex_sse`, `providers.ts::streamCortex`). A new Tauri command
+   opens the SSE response, forwards each delta as an
+   `atlas://intelligence/{streamId}` event, and resolves with the complete
+   text once Cortex's own `done` event says so — the same "the promise stays
+   the source of truth" shape the old (deleted) Claude/OpenAI streaming code
+   used, rebuilt here for Cortex. `createCortexProvider`'s `ask()` now always
+   takes this path.
+3. **A secure secret store that didn't exist before**
+   (`apps/desktop/src-tauri/src/secrets.rs`): Windows Credential Manager
+   (`CredWriteW`/`CredReadW`/`CredDeleteW`), zero new dependencies — the
+   `windows` crate already in this project. `read_secret` is deliberately
+   **not** a `#[tauri::command]`; the only caller is `cloud_intelligence.rs`,
+   and there is no path back to the renderer at all, not even transiently.
+4. **Three real cloud backends, one abstraction**
+   (`apps/desktop/src-tauri/src/cloud_intelligence.rs`): `OpenaiCompatible`
+   (covers OpenAI, Kimi/Moonshot, and "Custom Provider" — one wire format,
+   distinguished only by `baseUrl`), `Anthropic`, `Gemini`. Non-streaming,
+   deliberately — see the module's own doc for why this pass stops at
+   "correct and foundational" rather than also streaming three providers at
+   once. Every error path is built from the *response*, never the request, so
+   a key can never appear in a message shown to the user.
+5. **Settings → Intelligence → Cloud Models**
+   (`apps/web/src/pages/settings/intelligence/CloudProviders.tsx`): add a
+   provider (five presets, all resolving to the three real kinds), enable/
+   disable, test connection, choose which one is "in use," remove — and the
+   required disclosure, shown before anyone has even added a provider:
+   *"Nova does not provide, pay for, include, or maintain subscriptions or
+   API access for these cloud AI providers…"* Config (kind/label/model/
+   `baseUrl`/`enabled`) goes through the existing plain-JSON `Storage` port,
+   the same `MemoryStore`-backed pattern `cortex-settings.ts` already used;
+   the key never does.
+6. **`IntelligenceRegistry` needed no changes at all** — it already supported
+   multiple `.register()` calls and `setActive(id)`; only `useAtlas.ts`
+   gained a loop over a new `cloudProviders` prop, registered *after* Cortex,
+   never instead of it.
+
+**Reused, not rebuilt:** `IntelligenceProvider`/`ProviderStreamHandlers`
+(cloud providers are non-streaming today, so `ask()` just never calls
+`onDelta` — `Engine.converseWithProvider` already degrades cleanly, unchanged
+since the day it was written for exactly this reason), `SimpleIntelligenceRegistry`,
+the `MemoryStore`/`Fact` settings pattern, and the `windows` crate already
+vendored for every other native surface in this crate.
+
+**Verified:** Python — 60 new/updated tests across `test_streaming.py` (19),
+`test_server.py` (+4), all passing, plus the full existing Cortex suite (102
+total) green; a real end-to-end `curl` against live Ollama. Rust — `cargo
+check`/`clippy` clean, **99 tests** (22 new: 3 `secrets.rs`, 12
+`cloud_intelligence.rs`, 6 `intelligence.rs` streaming/parsing, 1 `ctest`
+serialization). TypeScript — `pnpm -r typecheck`/`lint` clean, **412 tests**
+(10 new in `cloud-providers-stay-opt-in.test.ts`, replacing the 4 the old
+guard had).
+
+⚠️ **A real, unrelated bug found and fixed along the way, worth recording
+because it's exactly what Brandon asked about**: Ollama's own Windows app had
+`D:\Ollama Models` (missing a backslash) saved as its models path — not an
+Atlas or `OLLAMA_MODELS` env-var problem, a typo in Ollama's own settings
+database (`%LOCALAPPDATA%\Ollama\db.sqlite`, `settings.models` column) — so
+it was silently falling back to `C:\Users\Brandon\.ollama\models` and had
+already put 6.6 GB — the same `qwen3.5:9b` already correctly sitting under
+`D:\Ollama\Models` — half-duplicated there as 3.5 GB. Fixed by editing that
+one field directly (Ollama was stopped first) and confirmed by relaunch: no
+more "models path not accessible" warning, `ollama list` reads from `D:`.
+**The stray 3.5 GB on `C:` was deliberately left alone** — not this session's
+call to delete. Also confirmed while investigating: this machine's RX 7800 XT
+is already doing real GPU inference for Ollama (ROCm 7.1, all 34/34 layers of
+qwen3.5:9b offloaded) — no WSL2, nothing further needed.
+
+⚠️ **Deferred, not built as a placeholder:**
+
+- **Cloud provider streaming.** `ask()` calls `onDone` once; see
+  `cloud_intelligence.rs`'s module doc. Adding it is a change to that file
+  alone — the abstraction and the TS-side degrade-cleanly path are both
+  already in place.
+- **A model upgrade.** Brandon chose to keep `qwen3.5:9b` rather than also
+  pull `gpt-oss:20b` this pass, specifically to keep this phase's scope to
+  streaming + the provider foundation. The VRAM headroom for it is confirmed
+  real (16 GB card, ~4.9 GB used by qwen3.5:9b today).
+- **Clicked through in the real app.** Verified by the real Cortex+Ollama
+  stack directly (the Python/HTTP layer) and by type checking, linting and
+  both test suites on the Atlas side — not by building the bundle and
+  watching Settings → Intelligence → Cloud Models actually save a key, test a
+  real OpenAI/Anthropic/Gemini account, and hold a streamed Cortex
+  conversation inside the running app. See [[verify-in-the-real-app]].
 
 ---
 

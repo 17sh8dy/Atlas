@@ -32,8 +32,10 @@
 //! settings field that would let a request go anywhere — precisely the cloud
 //! fallback this file was rewritten to remove.
 
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tauri::Emitter;
 
 /// Local inference is not fast, and a first call may load a model from disk.
 /// Generous compared to a network call, because none of this is a network
@@ -162,6 +164,125 @@ fn cortex_error_message(status: u16, body: &str) -> String {
     }
 }
 
+/// One `data: {...}` event out of Cortex's SSE stream, decoded into what the
+/// caller below actually needs. `None` for a line that wasn't a `data:` line
+/// or wasn't valid JSON — a stream is read best-effort, not line-by-line
+/// asserted.
+enum CortexEvent {
+    Delta(String),
+    Done { ok: bool, text: String, error: Option<String> },
+}
+
+fn parse_cortex_event(data: &str) -> Option<CortexEvent> {
+    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+    if value.get("done").and_then(|d| d.as_bool()) == Some(true) {
+        return Some(CortexEvent::Done {
+            ok: value.get("ok").and_then(|o| o.as_bool()).unwrap_or(false),
+            text: value.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string(),
+            error: value.get("error").and_then(|e| e.as_str()).map(String::from),
+        });
+    }
+    let delta = value.get("delta").and_then(|d| d.as_str())?;
+    Some(CortexEvent::Delta(delta.to_string()))
+}
+
+/// Where one SSE event ends and the next begins, and how much of the buffer
+/// to drop once it's consumed. Checked in this order deliberately: searching
+/// for the bare `\n\n` first would also match the second half of a `\r\n\r\n`
+/// pair, corrupting the next event's leading byte.
+fn find_event_boundary(buf: &str) -> Option<(usize, usize)> {
+    if let Some(idx) = buf.find("\r\n\r\n") {
+        return Some((idx, idx + 4));
+    }
+    buf.find("\n\n").map(|idx| (idx, idx + 2))
+}
+
+/// Read Cortex's SSE body incrementally, forwarding each delta to
+/// `atlas://intelligence/{stream_id}` as it arrives, and resolve with the
+/// full answer once the stream's own `"done"` event says so. The event
+/// carries the complete text itself (not just the accumulated deltas) —
+/// see `_handle_ask_stream`'s doc comment on the Cortex side — so a delta
+/// this function fails to forward for any reason still doesn't cost the
+/// final answer's correctness.
+async fn consume_cortex_sse(
+    app: &tauri::AppHandle,
+    stream_id: &str,
+    response: reqwest::Response,
+) -> Result<String, String> {
+    let channel = format!("atlas://intelligence/{stream_id}");
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut resolution: Option<Result<String, String>> = None;
+
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| format!("Cortex's stream was interrupted: {e}"))?;
+        buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+        while let Some((end, next_start)) = find_event_boundary(&buffer) {
+            let event_text = buffer[..end].to_string();
+            buffer.drain(..next_start);
+
+            for line in event_text.lines() {
+                let Some(data) = line.strip_prefix("data:") else { continue };
+                match parse_cortex_event(data.trim()) {
+                    Some(CortexEvent::Delta(delta)) => {
+                        let _ = app.emit(&channel, &delta);
+                    }
+                    Some(CortexEvent::Done { ok, text, error }) => {
+                        resolution = Some(if ok {
+                            Ok(text)
+                        } else {
+                            Err(error.unwrap_or_else(|| "Cortex couldn't answer.".to_string()))
+                        });
+                    }
+                    None => {}
+                }
+            }
+        }
+
+        if resolution.is_some() {
+            break;
+        }
+    }
+
+    resolution.unwrap_or_else(|| {
+        Err("Cortex's stream ended before it finished answering.".to_string())
+    })
+}
+
+/// The streaming twin of `ask_cortex` — same validation, same loopback-only
+/// endpoint check, a different path on the wire (`/v1/ask/stream`). Deltas
+/// arrive as `atlas://intelligence/{stream_id}` events while this call is in
+/// flight; the call itself still resolves with the complete answer, so a
+/// caller that never subscribed to the channel still gets the right text —
+/// exactly the degrade-cleanly contract `providers.ts` already relies on.
+#[tauri::command]
+pub async fn ask_cortex_stream(
+    app: tauri::AppHandle,
+    base_url: String,
+    prompt: String,
+    stream_id: String,
+) -> Result<String, String> {
+    validate_prompt(&prompt)?;
+    let base = validate_base_url(&base_url)?;
+    let client = http_client()?;
+
+    let resp = client
+        .post(format!("{base}/v1/ask/stream"))
+        .json(&CortexRequest { prompt: &prompt })
+        .send()
+        .await
+        .map_err(|_| "offline".to_string())?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(cortex_error_message(status.as_u16(), &text));
+    }
+
+    consume_cortex_sse(&app, &stream_id, resp).await
+}
+
 /// Is Cortex up? Lets Settings show a live state rather than a guess.
 #[tauri::command]
 pub async fn cortex_reachable(base_url: String) -> Result<bool, String> {
@@ -257,6 +378,66 @@ mod tests {
     fn an_empty_answer_is_an_error_not_an_empty_reply() {
         let parsed: CortexResponse = serde_json::from_str(r#"{"text": "   "}"#).unwrap();
         assert!(extract_cortex_text(&parsed).is_err());
+    }
+
+    #[test]
+    fn event_boundary_prefers_crlf_over_the_bare_lf_pair_inside_it() {
+        // Searching for "\n\n" first would match the second half of this
+        // "\r\n\r\n" and corrupt the next event's leading byte.
+        let buf = "data: {}\r\n\r\ndata: {}\r\n\r\n";
+        let (end, next_start) = find_event_boundary(buf).unwrap();
+        assert_eq!(&buf[..end], "data: {}");
+        assert_eq!(next_start, end + 4);
+    }
+
+    #[test]
+    fn event_boundary_falls_back_to_a_bare_double_newline() {
+        let buf = "data: {}\n\nrest";
+        let (end, next_start) = find_event_boundary(buf).unwrap();
+        assert_eq!(&buf[..end], "data: {}");
+        assert_eq!(next_start, end + 2);
+    }
+
+    #[test]
+    fn event_boundary_is_none_for_an_incomplete_event() {
+        assert!(find_event_boundary("data: {\"delta\":").is_none());
+    }
+
+    #[test]
+    fn a_delta_event_parses() {
+        match parse_cortex_event(r#"{"delta": "Hel"}"#) {
+            Some(CortexEvent::Delta(d)) => assert_eq!(d, "Hel"),
+            other => panic!("expected a delta, got a different shape or none: {}", other.is_some()),
+        }
+    }
+
+    #[test]
+    fn a_done_event_parses_every_field() {
+        match parse_cortex_event(r#"{"done": true, "ok": true, "text": "Hello.", "error": null}"#) {
+            Some(CortexEvent::Done { ok, text, error }) => {
+                assert!(ok);
+                assert_eq!(text, "Hello.");
+                assert_eq!(error, None);
+            }
+            _ => panic!("expected a done event"),
+        }
+    }
+
+    #[test]
+    fn a_failed_done_event_carries_its_error() {
+        match parse_cortex_event(r#"{"done": true, "ok": false, "text": "", "error": "no model loaded"}"#) {
+            Some(CortexEvent::Done { ok, error, .. }) => {
+                assert!(!ok);
+                assert_eq!(error.as_deref(), Some("no model loaded"));
+            }
+            _ => panic!("expected a done event"),
+        }
+    }
+
+    #[test]
+    fn a_malformed_event_parses_to_nothing_rather_than_panicking() {
+        assert!(parse_cortex_event("not json").is_none());
+        assert!(parse_cortex_event(r#"{"unrelated": true}"#).is_none());
     }
 
     #[test]

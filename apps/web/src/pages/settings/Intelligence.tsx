@@ -21,19 +21,27 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Icons, Button, Input, Surface, Switch, cn } from '@atlas/ui';
-import type { Storage } from '@atlas/core';
+import type { CloudProviderConfig, Storage } from '@atlas/core';
 import type { CortexSettings } from '@atlas/data';
 import { writeCortexBaseUrl, writeCortexEnabled, writeActiveProvider } from '@atlas/data';
 import { CORTEX_DEFAULT_BASE_URL, isCortexReachable } from '@atlas/platform';
+import { CloudProviders } from './intelligence/CloudProviders';
 
 interface Props {
   storage: Storage;
   cortex: CortexSettings;
   activeProviderId: string | null;
+  cloudProviders: CloudProviderConfig[];
   onProviderChange(): void;
 }
 
-export function Intelligence({ storage, cortex, activeProviderId, onProviderChange }: Props) {
+export function Intelligence({
+  storage,
+  cortex,
+  activeProviderId,
+  cloudProviders,
+  onProviderChange,
+}: Props) {
   const [saving, setSaving] = useState(false);
   const [endpoint, setEndpoint] = useState(cortex.baseUrl);
   /** null while unknown — the probe hasn't answered yet. */
@@ -154,9 +162,16 @@ export function Intelligence({ storage, cortex, activeProviderId, onProviderChan
         </section>
       )}
 
+      <CloudProviders
+        storage={storage}
+        providers={cloudProviders}
+        activeProviderId={activeProviderId}
+        onChange={onProviderChange}
+      />
+
       <p className="text-foreground-subtle text-xs leading-relaxed">
-        Atlas connects to no other model. There is no cloud provider, no fallback, and nothing to
-        opt out of.
+        Nothing above is required. Atlas answers, acts and searches the same way whether Cortex
+        and every cloud provider are off, on, or never set up at all.
       </p>
     </div>
   );

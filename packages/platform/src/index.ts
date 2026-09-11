@@ -14,6 +14,13 @@ export { createTauriPlatform, isTauri } from './tauri';
 export { createWebPlatform } from './web';
 export { createCortexProvider, isCortexReachable, CORTEX_DEFAULT_BASE_URL } from './providers';
 export type { CortexOptions } from './providers';
+export {
+  createCloudProvider,
+  saveProviderSecret,
+  hasProviderSecret,
+  deleteProviderSecret,
+  testCloudProviderConnection,
+} from './providers';
 
 /** The platform for the current runtime. */
 export function detectPlatform(): Platform {

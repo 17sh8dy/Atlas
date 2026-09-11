@@ -30,11 +30,18 @@ open = "5"
 # files.delete sends to the OS recycle bin rather than calling fs::remove_*
 # directly — meaningfully safer for a confirm-gated destructive action.
 trash = "3"
-# web_search / fetch_page (web.rs), ask_claude / ask_openai (intelligence.rs).
+# web_search / fetch_page (web.rs), ask_cortex / cloud_intelligence.rs.
 # Network calls happen here, in Rust, never as a webview `fetch()` — so
 # they're outside the CSP entirely and go through the same narrow-validated
 # -command shape as everything else in this file.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "multipart"] }
+# `stream` — Cortex's SSE stream (intelligence.rs) is read incrementally via
+# `bytes_stream()` rather than buffered whole, so the first token can reach
+# the renderer before the model has finished the answer.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "multipart", "stream"] }
+# The `Stream` trait `bytes_stream()` returns, plus the buffering combinators
+# `consume_sse` (intelligence.rs) uses to reassemble lines split across
+# network chunks.
+futures-util = "0.3"
 scraper = "0.20"
 # screen.rs: encodes the raw BGRA buffer GDI hands back into PNG. GDI capture
 # is real, bug-prone work the ecosystem already solved correctly; writing a
@@ -100,6 +107,9 @@ windows = { version = "0.58", features = [
   # GetDpiForMonitor, so a captured screen's pixel size matches its reported
   # bounds on a scaled display instead of silently disagreeing with them.
   "Win32_UI_HiDpi",
+  # secrets.rs: CredWriteW/CredReadW/CredDeleteW — cloud provider API keys
+  # live in Windows Credential Manager, never in storage.json.
+  "Win32_Security_Credentials",
 ] }
 
 [dev-dependencies]

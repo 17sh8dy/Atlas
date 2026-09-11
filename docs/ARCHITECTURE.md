@@ -213,44 +213,72 @@ planner, to search, and to help, with no other edit.
 Providers register, one may be active, and `active()` returning `null` is the
 normal supported state. The engine depends on this port but needs nothing from
 it — which is the architectural expression of "the engine is the brain, models
-are accessories".
+are accessories". Nothing about this section gates Atlas's skills, tools, or
+execution — `Engine.planWithAI`/`Executor` never ask which provider is
+active; they validate a plan against the registry the same way regardless of
+who proposed it. A provider is conversation-only, by construction.
 
-**There is exactly one implementation, and it runs on this machine:
-Cortex.** `platform/src/providers.ts` calls `ask_cortex` in
-`intelligence.rs`, registered through `SimpleIntelligenceRegistry`
-(`engine/src/intelligence-registry.ts`).
+**Cortex is always registered, unconditionally, and runs on this machine.**
+`platform/src/providers.ts` calls `ask_cortex_stream` in `intelligence.rs`,
+registered through `SimpleIntelligenceRegistry`
+(`engine/src/intelligence-registry.ts`). There is no key field for it,
+because there is nothing to authenticate to — the only stored settings are
+whether it's on and where it listens (`data/src/cortex-settings.ts`).
+**Cortex streams for real** (2026-09-11): `ask_cortex_stream` reads Cortex's
+own SSE endpoint (`/v1/ask/stream` — Cortex's `OllamaBackend.ask_stream`
+reads Ollama's NDJSON stream token-by-token) and forwards each delta as an
+`atlas://intelligence/{streamId}` event, resolving with the complete answer
+once Cortex's own `done` event says so.
 
-Until 2026-08-23 there were two — Claude and ChatGPT, posting to
-`api.anthropic.com` and `api.openai.com` with a user-supplied key — plus
-three more (Local Models, Gemini, Custom Provider) advertised as *Planned*
-that did nothing. All five are gone. The reason is the one that removed
-Supabase from this project: an assistant that reads your files, watches your
-processes and knows your habits should not also hold a credential for
-somebody else's datacentre and a habit of posting your questions to it. Every
-provider added is a privacy story that has to be defended forever; one local
-provider is a story that defends itself.
+**Zero or more cloud providers may additionally be registered — never
+instead of Cortex, never without a person configuring one.** Reversed on
+2026-09-11, deliberately, on Brandon's own instruction: from 2026-08-23 to
+then, Cortex really was the only one, Claude/ChatGPT having been deleted for
+being an unwanted, always-on privacy story (below). That reasoning wasn't
+wrong; it was superseded by the person who set it asking for the opposite —
+strong local-first defaults, one opt-in door for someone who wants a cloud
+model's quality badly enough to bring their own account. Four things keep the
+door narrow:
 
-There is no key field, because there is nothing to authenticate to. The only
-stored settings are whether Cortex is on and where it listens
-(`data/src/cortex-settings.ts`). `isConfigured()` reports whether the user
-switched it *on* — reachability is discovered at call time and reported
-through the port's existing `offline` reason, so a stopped service reads as
-stopped rather than as a feature nobody set up.
+1. **`CloudProviderKind` is a wire format, not a provider list.**
+   `apps/desktop/src-tauri/src/cloud_intelligence.rs` implements exactly
+   three request/response shapes — `openai-compatible` (also covers Kimi and
+   any "Custom Provider" endpoint; differs only by `baseUrl`), `anthropic`,
+   `gemini` — never a general HTTP client. Every error message is built from
+   the provider's *response*; none is built from the request, so a key can
+   never leak into something shown on screen.
+2. **The key never touches `storage.json`, and never comes back to the
+   renderer.** `secrets.rs` holds it in Windows Credential Manager
+   (`CredWriteW`/`CredReadW`/`CredDeleteW` — the `windows` crate already
+   vendored here, no new dependency). `read_secret` isn't a
+   `#[tauri::command]` at all; the only caller is `cloud_intelligence.rs`,
+   building one outbound request. `CloudProviderConfig` (`@atlas/core`) —
+   the shape that *does* go through the plain `Storage` port, alongside
+   Cortex's own settings — has no field that could hold one.
+   `cloud-providers-stay-opt-in.test.ts` (below) checks both halves of that
+   by reading the source, not by trusting the design.
+3. **A cloud provider's `isConfigured()` is that provider's own `enabled`
+   flag, the same shape Cortex's toggle already used** — adding one doesn't
+   activate it, and `SimpleIntelligenceRegistry.active()` already treats a
+   registered-but-unconfigured provider as nothing selected.
+4. **The required disclosure is shown before anyone has even added a
+   provider**, not after: Settings → Intelligence → Cloud Models leads with
+   the fact that Nova neither provides nor pays for any of this, and that a
+   provider may charge separately under its own terms.
 
-**The endpoint is loopback-only, enforced in Rust.** `validate_base_url`
-accepts `127.0.0.1`, `localhost` and `::1` and nothing else, parsing the host
-rather than substring-matching it (`localhost.evil.com` is refused). Without
-that check, "the Cortex endpoint" would be a settings field that let a
-request go anywhere — precisely the cloud fallback this was rewritten to
-remove. `no-other-cloud-ai.test.ts` scans every source file in the repo for
-cloud hostnames and for the removed symbols, so the guarantee is checked
-rather than asserted.
+Cloud providers are non-streaming for now (`ask()` calls `onDone` once) —
+`Engine.converseWithProvider` already degrades a non-streaming provider
+cleanly, the exact property that made Cortex's own streaming upgrade a
+config-only change rather than an engine rewrite; adding cloud streaming
+later is the same shape of change, confined to `cloud_intelligence.rs`.
 
-Cortex is non-streaming: one request, one complete answer, calling `onDone`
-directly and never `onDelta`. `Engine.converseWithProvider` was already
-written to degrade cleanly for a provider that never streams, so a real
-token-streaming version can replace the Rust side later without the engine
-changing.
+**The Cortex endpoint is loopback-only, enforced in Rust.**
+`validate_base_url` accepts `127.0.0.1`, `localhost` and `::1` and nothing
+else, parsing the host rather than substring-matching it
+(`localhost.evil.com` is refused) — cloud providers are, by contrast,
+*meant* to leave the machine, which is the whole reason they need the
+disclosure and the Credential Manager guarantee above rather than a loopback
+check.
 
 ### 6.4 Web search (`platform.rs::web`, `engine/skills/web-search-skills.ts`)
 
@@ -421,6 +449,45 @@ placeholder function this project refuses to ship; it waits for a real
 vision-capable provider to exist. See Phase 12 in `ROADMAP.md` for what that
 leaves deferred.
 
+### 6.7 The developer agent (`devtools.rs`, `devagent/loop.ts`)
+
+Phase 13 (`ROADMAP.md`) is what lets Atlas be asked to inspect a project, find
+a build error, fix it, rebuild, and run the tests — the same "execute →
+observe → replan" shape §6.6 named as deferred, deliberately narrowed to
+something an iteration budget can actually reason about: every observation
+here is *text* a build or a search produced, never a UI Automation tree or a
+screen coordinate.
+
+**`run_devtool` is the sharpest instance yet of the rule that opens this
+document's §6.1.** `tool` is a closed enum naming one fixed executable and
+subcommand shape; `arg` is the only variable part, and it is either checked
+against real project state (an npm script must be a key `package.json`
+already has) or restricted to an injection-inert character set. The one
+documented exception: npm and pnpm ship as `.cmd` files on Windows, which
+`CreateProcess` cannot launch directly, so those two alone route through
+`cmd.exe /C` — the reason the script-name slot is validated twice rather than
+once. See `devtools.rs`'s module doc for the full reasoning.
+
+**The agent loop adds no second door to action.** Each iteration asks Cortex
+for exactly one next step, validates it against the registry exactly like
+`planWithAI` does, and runs it through a second `Executor` instance built from
+the *same* `SkillRegistry` — so guard, confirm, risk and the content policy
+all apply to a dev-agent step exactly as they do to any other plan. What is
+genuinely new is bounding the *loop*, not the step: `MAX_DEV_ITERATIONS`
+(mirroring `attemptGoal`'s `MAX_ATTEMPTS`, sized for a real task rather than
+one skill's ladder), a fixed set of domains a step may touch
+(`project`/`git`/`build`/`code`/`test`/`files` — Cortex cannot steer it into
+`os.*` just because that domain exists elsewhere in the catalog), and a rule
+that the identical failed call is never retried — proposing it again ends the
+task with an explanation rather than spinning.
+
+Build and test execution starts at `confirm`, not `safe` — the one place this
+phase chose caution over the precedent `app.open` eventually set (§7's "risk
+is consequence, never mechanism" table), because an npm script or a CMake
+rule is the closest thing this catalog has ever run to arbitrary
+developer-authored code. Worth revisiting with real use behind it, the same
+way input's blanket `confirm` was.
+
 ---
 
 ## 7. Safety
@@ -441,9 +508,11 @@ leaves deferred.
 | Network calls happen in Rust, never as a webview `fetch()` | `web.rs` | Outside the CSP entirely; same narrow-command shape as everything else |
 | `fetch_page` refuses loopback/private/link-local targets | `web.rs::is_safe_fetch_target` | A manipulated search result shouldn't be able to make Atlas probe the user's own LAN |
 | Retrieved page content is framed as untrusted reference material, never instructions | `engine/research.ts` | The whole security boundary for what a search result or fetched page can make Atlas do: read it, never obey it |
-| The AI endpoint is loopback-only | `intelligence.rs::validate_base_url` | Host is parsed, not substring-matched, so `localhost.evil.com` is refused. Otherwise the endpoint setting is a route off the machine |
-| There is exactly one provider, and no key to store | `providers.ts`, `cortex-settings.ts` | A credential Atlas never holds is a credential that cannot leak |
-| No other cloud AI, checked by reading the source | `no-other-cloud-ai.test.ts` | A unit test of the registry would pass while a second provider sat in `platform/` waiting to be wired |
+| Cortex's endpoint is loopback-only | `intelligence.rs::validate_base_url` | Host is parsed, not substring-matched, so `localhost.evil.com` is refused. Otherwise the endpoint setting is a route off the machine |
+| Cortex needs no key; a cloud provider's key never reaches `storage.json` or the renderer | `providers.ts`, `cortex-settings.ts`, `secrets.rs` | A credential Atlas doesn't hold in the open is a credential that can't leak from there |
+| A cloud provider exists only because a person configured one, checked by reading the source | `cloud-providers-stay-opt-in.test.ts` | A unit test of the registry would pass while a hard-coded provider sat in `useAtlas.ts` waiting to be activated |
+| `run_devtool` takes a closed enum, never a command string | `devtools.rs::DevTool` | A reader can enumerate every program the developer agent will ever run |
+| A dev-agent step may only touch `project`/`git`/`build`/`code`/`test`/`files` | `devagent/loop.ts::DEV_AGENT_DOMAINS` | Cortex proposes each step; it cannot steer the loop into `os.*` or `service.*` just because they exist in the wider catalog |
 
 ---
 
@@ -479,13 +548,17 @@ Honest uncertainty, recorded rather than buried:
   word) versus what a model given real tool-calling could decide. Replacing it
   is Phase 4's job, once a provider exists that can request tool calls itself
   — see `research.ts`'s own doc comment for the exact seam.
-- **~~API keys are stored in the same plain local JSON file~~ — settled by
-  deleting the feature.** This entry used to worry about provider keys
+- **~~API keys are stored in the same plain local JSON file~~ — settled twice
+  now, differently each time.** This entry used to worry about provider keys
   sitting in the same unencrypted JSON as a theme preference, and proposed
-  OS-keychain integration. Removing cloud providers removed the only
-  genuinely sensitive value Atlas stored, which settles it better than
-  encrypting it would have. Nothing in the preferences file is now more
-  sensitive than the rest of it.
+  OS-keychain integration; deleting cloud providers entirely (2026-08-23)
+  settled it by removing the only sensitive value Atlas stored. Cloud
+  providers came back on 2026-09-11 with the keychain integration this entry
+  originally proposed actually built: Windows Credential Manager
+  (`secrets.rs`), not `storage.json` — see §6.3. Nothing in the preferences
+  file is more sensitive than the rest of it today for the same reason as
+  before; this time because the sensitive value lives somewhere else
+  entirely, not because it doesn't exist.
 - **Atlas has no working model until Cortex serves `/v1/ask`.** The seam is
   real and tested against a fake provider, and the deterministic tiers —
   grammar, planner, small talk, web search — cover everything they always
