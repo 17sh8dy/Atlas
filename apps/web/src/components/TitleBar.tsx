@@ -18,6 +18,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { AtlasMark, Icons, cn } from '@atlas/ui';
 import { isTauri } from '@atlas/platform';
 
+import { NovaSwitcher } from './NovaSwitcher';
+
 interface Props {
   right?: React.ReactNode;
   /** Clicking the logo returns to the welcome screen, like a site's logo does. */
@@ -143,6 +145,9 @@ export function TitleBar({ right, onLogoClick, back }: Props) {
           <Wordmark />
         </div>
       )}
+      <div className="flex items-center px-1">
+        <NovaSwitcher current="atlas" />
+      </div>
       <div data-tauri-drag-region className="flex-1" />
 
       {/* Two groups: app affordances keep their padding and rounded shape, the

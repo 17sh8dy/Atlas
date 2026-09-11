@@ -70,5 +70,11 @@ export {
   Bell,
   Lock,
   Info,
+  // Nova switcher — the other Nova-family products it links to
+  ChevronDown,
+  Scissors,
+  Gamepad2,
+  // Nova switcher's "View all" row, and the close button on the full-screen view it opens
+  ArrowRight,
   type LucideIcon,
 } from 'lucide-react';

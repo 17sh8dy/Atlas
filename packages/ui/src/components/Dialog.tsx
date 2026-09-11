@@ -10,6 +10,8 @@ export interface ModalProps {
   children: ReactNode;
   className?: string;
   position?: 'center' | 'top';
+  /** Extra classes merged onto the scrim — e.g. a heavier blur for a full-screen launcher. */
+  overlayClassName?: string;
 }
 
 /**
@@ -23,6 +25,7 @@ export function Modal({
   children,
   className,
   position = 'center',
+  overlayClassName,
 }: ModalProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -32,6 +35,7 @@ export function Modal({
             'fixed inset-0 z-50 bg-black/60 backdrop-blur-sm',
             'data-[state=open]:animate-in data-[state=open]:fade-in-0',
             'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
+            overlayClassName,
           )}
         />
         <DialogPrimitive.Content
