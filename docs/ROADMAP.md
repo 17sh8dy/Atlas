@@ -1033,6 +1033,15 @@ that says when and why the number changed.
 `Cargo.lock` moves too — it records the crate's own version, so it is part of
 the same commit rather than a stray diff in the next one.
 
+**2026-09-10: 0.85.0.** What it marks: three new Phase 11 skill packs
+(Environment, Storage — see that phase's own table), Phase 3's first two
+pieces (the conversation transcript surviving a restart, and the
+allowed-folders list widening past `%USERPROFILE%`), Cortex actually
+remembering a conversation across turns now that `/v1/ask` answers through
+its `ConversationEngine`, and the Nova product switcher finished and given a
+full-screen "View all" view. Same three files, same reasoning: a lot to feel
+in one sitting, not a quiet renumber.
+
 ---
 
 ## Deliberately not doing

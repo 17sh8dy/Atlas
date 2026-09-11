@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-desktop"
-version = "0.5.0"
+version = "0.85.0"
 dependencies = [
  "image",
  "libloading 0.8.9",
