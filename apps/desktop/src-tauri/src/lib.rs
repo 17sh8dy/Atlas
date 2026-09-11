@@ -11,6 +11,7 @@
 //! hide-on-blur behaviour below are for.
 
 mod diagnostics;
+mod disk_usage;
 #[cfg(windows)]
 mod environment;
 mod intelligence;
@@ -117,6 +118,7 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
         "network",
         "services",
         "environment",
+        "storage",
     ];
     if speech::available(&app) {
         names.push("speech");
@@ -201,6 +203,8 @@ pub fn run() {
             environment::list_environment_variables,
             environment::set_environment_variable,
             environment::delete_environment_variable,
+            disk_usage::folder_size,
+            disk_usage::largest_files,
             window::list_windows,
             window::active_window,
             window::focus_window,

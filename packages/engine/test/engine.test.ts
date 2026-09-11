@@ -35,6 +35,7 @@ import { createOsSkills } from '../src/skills/os-skills';
 import { createNetworkSkills } from '../src/skills/network-skills';
 import { createServiceSkills, resolveService } from '../src/skills/service-skills';
 import { createEnvironmentSkills } from '../src/skills/environment-skills';
+import { createStorageSkills } from '../src/skills/storage-skills';
 import { createWindowSkills } from '../src/skills/window-skills';
 import { createInputSkills } from '../src/skills/input-skills';
 import { createUiaSkills } from '../src/skills/uia-skills';
@@ -604,6 +605,25 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       journal.environmentDeletes.push({ name, scope });
       return true;
     },
+
+    // A folder that's mostly one very large file — the shape that makes
+    // "largest files" and "folder size" actually different questions.
+    // "C:\huge" scripts the one folder too big to fully walk, so the
+    // truncated-count message has something real to assert against.
+    folderSize: async (path) => ({
+      path,
+      totalBytes: 5_368_709_120, // 5 GiB
+      fileCount: 3,
+      folderCount: 1,
+      truncated: path === 'C:\\huge',
+    }),
+    largestFiles: async (path, limit) => ({
+      files: [
+        { path: `${path}\\video.mp4`, name: 'video.mp4', sizeBytes: 5_000_000_000 },
+        { path: `${path}\\notes.txt`, name: 'notes.txt', sizeBytes: 2_048 },
+      ].slice(0, limit ?? 10),
+      truncated: false,
+    }),
   };
 }
 
@@ -704,6 +724,7 @@ function harness(
     'network',
     'services',
     'environment',
+    'storage',
   ],
   options: { provider?: IntelligenceProvider | null; mode?: ExecutionMode } = {},
 ): Harness {
@@ -760,6 +781,7 @@ function harness(
   skills.registerMany(createNetworkSkills(platform));
   skills.registerMany(createServiceSkills(platform));
   skills.registerMany(createEnvironmentSkills(platform));
+  skills.registerMany(createStorageSkills(platform));
   skills.registerMany(createWindowSkills(platform));
   skills.registerMany(createInputSkills(platform));
   skills.registerMany(createUiaSkills(platform));
@@ -3597,6 +3619,66 @@ test('environment: with no environment capability the skills are not merely disa
   const ids = h.engine.skills.available().map((s) => s.id);
   assert.notInclude(ids, 'environment.list');
   assert.notInclude(ids, 'environment.set');
+});
+
+// ---- storage (the fourth Phase 11 pack) ----------------------------------------
+//
+// `system.disk` says how full a drive is; this pack answers what's using the
+// space inside one folder, and it's the first group where the destructive
+// verb (`emptyFolder`) needed no new platform method at all — just `listDir`
+// and `deletePath`, already on the port.
+
+test('storage: a known folder name resolves through knownFolder', async () => {
+  const h = harness();
+  await h.engine.ask('how big is my downloads folder', io(h));
+  assert.match(h.said.join(' '), /C:\\Users\\test\\downloads is using 5\.0 GB across 3 files/);
+  assert.deepEqual(h.confirmsAsked, []);
+});
+
+test('storage: a folder too big to fully walk says so rather than guessing', async () => {
+  const h = harness();
+  const result = await h.engine.skills.invoke('storage.folderSize', { path: 'C:\\huge' }, io(h));
+  assert.isTrue(result.ok);
+  assert.match(result.message ?? '', /too much there to fully measure/);
+});
+
+test('storage: largest files come back as rows, biggest first', async () => {
+  const h = harness();
+  await h.engine.ask('what are the largest files in my downloads folder', io(h));
+  assert.equal(h.rows.length, 2);
+  assert.equal(h.rows[0]!.title, 'video.mp4');
+});
+
+test('storage: emptying a folder deletes everything directly inside it', async () => {
+  const h = harness();
+  h.confirmAnswer = true;
+  await h.engine.ask('empty my downloads folder', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.deleted, [
+    'C:\\Users\\test\\downloads\\src',
+    'C:\\Users\\test\\downloads\\readme.md',
+  ]);
+});
+
+test('storage: declining the card leaves the folder alone', async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  await h.engine.ask('empty my downloads folder', io(h));
+  assert.deepEqual(h.journal.deleted, []);
+});
+
+test('storage: reading is safe, emptying confirms', () => {
+  const h = harness();
+  assert.equal(h.engine.skills.get('storage.folderSize')?.risk, 'safe');
+  assert.equal(h.engine.skills.get('storage.largestFiles')?.risk, 'safe');
+  assert.equal(h.engine.skills.get('storage.emptyFolder')?.risk, 'confirm');
+});
+
+test('storage: with no storage capability the skills are not merely disabled', () => {
+  const h = harness(['files', 'fs', 'apps', 'system', 'processes', 'os', 'windows', 'network']);
+  const ids = h.engine.skills.available().map((s) => s.id);
+  assert.notInclude(ids, 'storage.folderSize');
+  assert.notInclude(ids, 'storage.emptyFolder');
 });
 
 // ---- windows (the first pack past Phase 11's original ten) --------------------

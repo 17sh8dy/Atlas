@@ -35,6 +35,7 @@ export { createInputSkills } from './skills/input-skills';
 export { createUiaSkills } from './skills/uia-skills';
 export { createScreenSkills } from './skills/screen-skills';
 export { createEnvironmentSkills } from './skills/environment-skills';
+export { createStorageSkills } from './skills/storage-skills';
 export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
 

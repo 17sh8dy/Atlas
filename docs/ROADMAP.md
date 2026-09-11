@@ -650,7 +650,8 @@ sitting.
 | 🌐 Network | `net.adapters`, `net.ip`, `net.wifi`, `net.savedNetworks`, `net.online` | ✅ 2026-08-21 (`0cb6f5a`) |
 | 🖥️ System — services | `service.list`, `service.status`, `service.start`, `service.stop`, `service.restart` | ✅ 2026-08-22 |
 | ⚙️ Environment | `environment.list`, `environment.get`, `environment.set`, `environment.setSystem`, `environment.delete`, `environment.deleteSystem` | ✅ 2026-09-10 |
-| 💾 Storage · 🔊 Audio · 🖼️ Display · 📅 Tasks · 👤 Users · 🔥 Firewall · 🪟 Windows | — | not started |
+| 💾 Storage | `storage.folderSize`, `storage.largestFiles`, `storage.emptyFolder` | ✅ 2026-09-10 |
+| 🔊 Audio · 🖼️ Display · 📅 Tasks · 👤 Users · 🔥 Firewall · 🪟 Windows | — | not started |
 
 **The environment pack is the template for a group whose risk tier depends on
 an argument rather than the verb.** `environment.rs` has exactly two scopes —
@@ -667,6 +668,16 @@ without it a value like `C:\Program Files\Java` would silently reroute the
 whole request to the AI-plan path instead of the skill that was actually
 named — caught by a real test failure, not by inspection, which is why it's
 worth knowing about before writing the next pack's grammar.
+
+**The storage pack is the first destructive verb built from zero new platform
+methods.** `storage.emptyFolder` needed nothing beyond `listDir` (what's
+directly inside) and `deletePath` (already routes through the OS recycle bin)
+— the two primitives `platform.rs` already had, composed rather than
+duplicated. `folder_size` and `largest_files` are new (`disk_usage.rs`), and
+both cap how much of a folder they'll walk and report `truncated: true`
+rather than silently returning a number for only part of a tree too big to
+finish — the same "absence is an answer" property `net.rs` established for a
+machine with no Wi-Fi, applied here to a folder instead of a network.
 
 **The network pack is the template** for a read-only group: reads are `safe`,
 the answer is a sentence rather than a table dump, and absence is an answer.

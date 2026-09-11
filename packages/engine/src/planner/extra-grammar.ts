@@ -1009,6 +1009,57 @@ export function createExtraGrammar(): GrammarRule[] {
       },
     },
 
+    // ---- storage --------------------------------------------------------------
+    //
+    // Every rule below requires the literal word "folder" — the same
+    // tell-it-apart device the services and environment blocks use with their
+    // own nouns — so "how big is Notepad" (not a folder question at all)
+    // never reaches here.
+
+    {
+      name: 'storageFolderSize',
+      order: -6.86,
+      pathSafe: true,
+      questionSafe: ['storage-folder-size'],
+      test(_lower, raw) {
+        const m =
+          raw.match(/\bhow\s+(?:big|large)\s+is\s+(?:my\s+|the\s+)?(.+?)\s+folder\b/i) ??
+          raw.match(/\b(?:size|space)\s+of\s+(?:my\s+|the\s+)?(.+?)\s+folder\b/i) ??
+          raw.match(/\bhow\s+much\s+space\s+is\s+(?:my\s+|the\s+)?(.+?)\s+folder\s+using\b/i);
+        if (!m?.[1]) return null;
+        return plan(step('storage.folderSize', { path: m[1] }), 'storage-folder-size');
+      },
+    },
+
+    {
+      name: 'storageLargestFiles',
+      order: -6.85,
+      pathSafe: true,
+      questionSafe: ['storage-largest-files'],
+      test(_lower, raw) {
+        const m =
+          raw.match(/\blargest\s+files\s+in\s+(?:my\s+|the\s+)?(.+?)(?:\s+folder)?\s*[?.!]*$/i) ??
+          raw.match(
+            /\b(?:find|show)\s+(?:me\s+)?large\s+files\s+in\s+(?:my\s+|the\s+)?(.+?)(?:\s+folder)?\s*[?.!]*$/i,
+          );
+        if (!m?.[1]) return null;
+        return plan(step('storage.largestFiles', { path: m[1] }), 'storage-largest-files');
+      },
+    },
+
+    {
+      name: 'storageEmptyFolder',
+      order: -6.84,
+      pathSafe: true,
+      test(_lower, raw) {
+        const m =
+          raw.match(/^\s*empty\s+(?:my\s+|the\s+)?(.+?)\s+folder\s*[?.!]*$/i) ??
+          raw.match(/^\s*clear\s+out\s+(?:my\s+|the\s+)?(.+?)\s+folder\s*[?.!]*$/i);
+        if (!m?.[1]) return null;
+        return plan(step('storage.emptyFolder', { path: m[1] }), 'storage-empty-folder');
+      },
+    },
+
     // ---- windows ----------------------------------------------------------
     //
     // Every rule below requires the literal word "window", the same way the

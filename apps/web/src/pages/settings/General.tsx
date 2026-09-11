@@ -64,6 +64,7 @@ const CAPABILITY_LABELS: Record<CapabilityName, string> = {
   network: 'Web',
   services: 'Services',
   environment: 'Environment variables',
+  storage: 'Folder sizes',
   speech: 'Speech',
   listening: 'Listening',
   ai: 'AI',

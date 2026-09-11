@@ -27,6 +27,7 @@ import type { Transcript } from '../models/listening';
 import type { NetworkAdapter, WifiStatus } from '../models/network';
 import type { ServiceAction, ServiceDetail, ServiceEntry, ServiceOutcome } from '../models/service';
 import type { EnvironmentScope, EnvVar } from '../models/environment';
+import type { FolderSize, LargestFiles } from '../models/disk-usage';
 import type { WindowEntry } from '../models/window';
 import type { CursorPosition, MouseButton } from '../models/input';
 import type { UiaNode } from '../models/uia';
@@ -51,6 +52,7 @@ export type CapabilityName =
   | 'network' // search the web, fetch a page
   | 'services' // Windows services: list, inspect, start/stop
   | 'environment' // environment variables: list, set, delete
+  | 'storage' // what's using space inside a folder: size, largest files
   | 'speech' // say things out loud, locally
   | 'listening' // transcribe what you say, locally
   | 'ai'; // an intelligence provider is connected
@@ -269,6 +271,19 @@ export interface Platform {
   listEnvironmentVariables?(): Promise<EnvVar[]>;
   setEnvironmentVariable?(name: string, value: string, scope: EnvironmentScope): Promise<boolean>;
   deleteEnvironmentVariable?(name: string, scope: EnvironmentScope): Promise<boolean>;
+
+  /**
+   * What's using the space inside one folder, gated by `storage`.
+   *
+   * The counterpart to `systemInfo`'s per-drive `disks` array: that answers
+   * "how full is the drive", this answers "what's using the space inside this
+   * *folder*". Both cap how much they'll walk and report `truncated` rather
+   * than silently returning a wrong-but-plausible number for a folder too big
+   * to fully measure — see `disk_usage.rs`'s module doc.
+   */
+  folderSize?(path: string): Promise<FolderSize>;
+  /** The largest files under a folder, most-bytes first. */
+  largestFiles?(path: string, limit?: number): Promise<LargestFiles>;
 
   /**
    * Windows other than Atlas's own, gated by `window-control`.

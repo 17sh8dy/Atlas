@@ -102,7 +102,11 @@ fn is_noise(name: &str) -> bool {
 /// Checked on every path-taking command rather than trusting the caller. The
 /// renderer is the least trusted part of this application — it runs web content
 /// — so a path arriving from it is treated as a claim, not a fact.
-fn is_permitted(path: &Path) -> bool {
+///
+/// `pub(crate)` rather than private: `disk_usage.rs` needs the same boundary
+/// for `folder_size`/`largest_files` and re-implementing it there would be the
+/// one place this rule could quietly drift out of agreement with itself.
+pub(crate) fn is_permitted(path: &Path) -> bool {
     let Ok(canonical) = path.canonicalize() else {
         return false;
     };

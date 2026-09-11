@@ -22,6 +22,8 @@ import type {
   ServiceOutcome,
   EnvironmentScope,
   EnvVar,
+  FolderSize,
+  LargestFiles,
   SpeechVoice,
   Transcript,
   WebPage,
@@ -167,6 +169,10 @@ export function createTauriPlatform(): Platform {
       invoke<boolean>('set_environment_variable', { name, value, scope }),
     deleteEnvironmentVariable: (name, scope: EnvironmentScope) =>
       invoke<boolean>('delete_environment_variable', { name, scope }),
+
+    folderSize: (path) => invoke<FolderSize>('folder_size', { path }),
+    largestFiles: (path, limit) =>
+      invoke<LargestFiles>('largest_files', { path, limit: limit ?? null }),
 
     listWindows: () => invoke<WindowEntry[]>('list_windows'),
     activeWindow: () => invoke<WindowEntry | null>('active_window'),
