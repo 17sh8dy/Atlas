@@ -73,6 +73,13 @@ export interface Entry {
 
 let nextId = 1;
 
+/** Where the transcript persists — Phase 3's first piece, the same `Storage` port `MemoryStore` already proved this shape against. */
+const TRANSCRIPT_KEY = 'atlas.transcript';
+/** Entries, not turns — matches `MemoryStore`'s `EPISODIC_LIMIT` precedent for "capped rather than unbounded". */
+const TRANSCRIPT_LIMIT = 200;
+/** How long to wait after the last change before writing — a whole turn (the "you" entry, the "atlas" reply, maybe a results card) lands as one write instead of three. */
+const TRANSCRIPT_SAVE_DELAY_MS = 500;
+
 /**
  * A rows-only result, read aloud. Deliberately not the whole list — the same
  * reasoning `CapabilityBrowser`'s `teaser()` uses for the same shape of
@@ -111,6 +118,57 @@ export function useAtlas(
   const push = useCallback((entry: Omit<Entry, 'id'>) => {
     setEntries((prev) => [...prev, { ...entry, id: nextId++ }]);
   }, []);
+
+  /**
+   * The transcript across restarts — Phase 3's first piece.
+   *
+   * `Entry` is already a plain, JSON-safe shape (`rows[].payload` is always
+   * data a `Platform` method already returned across the same IPC boundary;
+   * a captured screenshot rides in a `SkillResult`'s own `data` field as a
+   * data: URL string, never as binary in an `Entry`), so this writes the
+   * array through as-is rather than needing a serialiser of its own.
+   *
+   * `loaded` gates the write effect below so a slow first read can never lose
+   * a race with it: without this, mounting with `entries` still `[]` would
+   * schedule a write of `[]` that could land *after* the real transcript comes
+   * back, silently erasing it.
+   */
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    storage
+      .get<Entry[]>(TRANSCRIPT_KEY)
+      .then((saved) => {
+        if (cancelled) return;
+        if (saved?.length) {
+          // New entries must never collide with a restored id — this hook can
+          // run more than once across the app's lifetime (mode switches),
+          // and `nextId` is process-wide by design (see its own declaration).
+          const maxId = saved.reduce((m, e) => Math.max(m, e.id), 0);
+          if (maxId >= nextId) nextId = maxId + 1;
+          setEntries(saved);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) loaded.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Runs once: `storage` is a stable instance for the app's lifetime, and
+    // re-running this on every render would re-fight the write effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!loaded.current) return;
+    const timer = setTimeout(() => {
+      storage.set(TRANSCRIPT_KEY, entries.slice(-TRANSCRIPT_LIMIT)).catch(() => {});
+    }, TRANSCRIPT_SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [entries, storage]);
 
   /**
    * Read from a ref for the same reason `speechRef` is: cycling modes
