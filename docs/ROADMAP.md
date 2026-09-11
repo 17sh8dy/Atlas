@@ -953,6 +953,49 @@ whether any of the skills still marked `confirm` are actually gated by
 *mechanism* rather than *consequence* the way raw input used to be — not a big
 lift, but a real one, and worth doing deliberately rather than by hunting.
 
+### 7. Multi-step, app-specific chains (Brandon, 2026-09-10) — three separate gaps, not one
+
+The concrete test case: *"Open Discord on Brave, go to the Nova server, and
+start a call in the Hangout voice channel."* Asked directly rather than
+guessed at from feedback, so recorded slightly differently from 1–6 above,
+but it's the same kind of thing — three already-named gaps meeting in one
+sentence, not a new capability to design from scratch:
+
+- **No named-browser targeting.** `platform.openUrl` (`platform.rs`) opens
+  an http(s) URL through `open::that_detached`, which is the OS's *default*
+  handler — there is no "open this URL in Brave specifically" today. If
+  Brave isn't the default browser, "on Brave" cannot be honoured at all; if
+  it is, saying so is redundant. A real fix needs a skill that resolves
+  "Brave" against `listApps()` the way `app.open` already does, then either
+  launches it with the URL as an argument or launches it first and calls
+  `openUrl` while the resolved app is what's in front — a small, real
+  design question, not a placeholder.
+- **The grammar chains at most two clauses, each independently complete.**
+  `COMPOUND_CONNECTOR` (`grammar.ts`) splits on one "and"/"and then" and
+  requires *both* halves to match a grammar rule standing alone — "go to the
+  Nova server" and "start a call in the Hangout channel" have no such rule
+  and never will, because which server and which channel depends on what
+  Discord actually renders at that moment, not on fixed phrasing.
+- **That's item 3 from "Deferred, and why" (Phase 12, above) by another
+  name: an autonomous observe-and-replan loop.** "Go to the Nova server"
+  means *read the UI Automation tree, find the element that says Nova among
+  however many servers are listed, click it* — and the same again for the
+  voice channel. `attemptGoal()` doesn't generalize to this (it's a
+  same-skill retry ladder, not a look-then-act cycle), and building it means
+  deciding an iteration budget and what happens when nothing matches, the
+  same open questions that deferred it the first time. It also means the
+  AI-plan path actually carrying out a multi-step plan against *live,
+  re-observed* state rather than a fixed sequence decided once up front —
+  which depends on Cortex being capable of that kind of reasoning at all;
+  untested against anything this specific as of tonight.
+
+Today's honest answer, asked of the app directly rather than inferred:
+keyboard/mouse control and UI Automation are real and verified (Phase 12,
+clicked through against the real desktop) for *named, one-shot* targets —
+closing a window, typing into a focused field, pressing a hotkey. A chain
+that requires finding a specific server and a specific channel inside
+another application's own UI, live, is the gap above, and doesn't exist yet.
+
 ---
 
 ## Versioning
