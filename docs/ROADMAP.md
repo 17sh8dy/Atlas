@@ -17,8 +17,13 @@ on its own terms, which is why it's marked done while Phase 11 isn't.
 Cortex is the only provider Atlas will ever have, it runs on loopback, and
 there is no API key anywhere in the product. Speaking and listening are Piper
 and whisper.cpp with no branch at all. (Cortex's own repo has since grown a
-real server and a `ConversationEngine` foundation — see that phase's note
-below; this file only tracks what's actually wired into Atlas.)
+real server and a `ConversationEngine` — see that phase's note below.
+**2026-09-10:** `cortex/server.py`'s `/v1/ask` now answers through that
+engine, so a running Cortex remembers a conversation across turns. The wire
+contract Atlas already speaks (`{"prompt"} -> {"text"}`, no session field) did
+not change, so nothing on Atlas's side needed touching — this file still only
+tracks what's actually wired into Atlas, and the answer is now "the memory
+too, transparently.")
 
 **A polish pass landed 2026-09-07**, alongside Phase 12's revisions below:
 Home's suggestion list traded `uppercase "hello world"` and a clipboard
@@ -37,12 +42,14 @@ of always landing in chat.
 **Next:** Phase 11's other eight groups (Storage, Audio, Display, Tasks,
 Users, Firewall, Environment, Windows) are still what's actually next for
 Atlas's own catalog — see that phase for the elevation question the services
-pack already raised. Separately, and not yet wired into Atlas at all:
-[Cortex](file:///D:/Dev/Cortex) grew a `ConversationEngine` on 2026-09-07 —
-session history, multi-turn context, a `Backend`-agnostic response seam — with
-`cortex/server.py`'s `/v1/ask` still single-shot and not yet calling it. That
-wiring is the natural next step for that thread whenever it's picked back up;
-see `cortex/conversation.py`'s own module doc for what it does and doesn't do.
+pack already raised. Separately: [Cortex](file:///D:/Dev/Cortex) grew a
+`ConversationEngine` on 2026-09-07 — session history, multi-turn context, a
+`Backend`-agnostic response seam — and on 2026-09-10 `cortex/server.py`'s
+`/v1/ask` was wired to answer through it instead of the backend directly, so a
+running Cortex now has memory across turns. Nothing in this repo changed —
+Atlas's contract with Cortex was already just `{"prompt"} -> {"text"}`, no
+session field, and still is; see `cortex/conversation.py`'s own module doc for
+what the engine does and doesn't do.
 
 **Also outstanding:** Phase 3 — persistence. Conversation history still dies
 with the process, and `files.find` still walks the disk on every query.
