@@ -180,6 +180,23 @@ export function General({
 }
 
 /**
+ * The real reason a Tauri command failed, not always the fallback.
+ *
+ * A Rust command that returns `Err(String)` rejects its JS promise with that
+ * string *directly* — Tauri never wraps it in an `Error`. Catching with
+ * `e instanceof Error ? e.message : fallback` therefore always takes the
+ * fallback branch here, no matter what Rust actually said ("That folder
+ * doesn't exist.", "That isn't a folder."): the one message this component
+ * showed for every failure, indistinguishable from a real bug, was itself
+ * the bug.
+ */
+export function folderErrorMessage(e: unknown, fallback: string): string {
+  if (typeof e === 'string' && e.trim()) return e;
+  if (e instanceof Error && e.message) return e.message;
+  return fallback;
+}
+
+/**
  * The one setting that decides what every file command may touch.
  *
  * `%USERPROFILE%` is here by default, preserving exactly what Atlas could
@@ -220,7 +237,7 @@ function AllowedFolders({ platform }: { platform: Platform }) {
       setFolders(await platform.addAllowedFolder!(path));
       setInput('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't add that folder.");
+      setError(folderErrorMessage(e, "Couldn't add that folder."));
     } finally {
       setBusy(false);
     }
@@ -232,7 +249,7 @@ function AllowedFolders({ platform }: { platform: Platform }) {
     try {
       setFolders(await platform.removeAllowedFolder!(path));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't remove that folder.");
+      setError(folderErrorMessage(e, "Couldn't remove that folder."));
     } finally {
       setBusy(false);
     }

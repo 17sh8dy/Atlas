@@ -59,8 +59,23 @@ export class MemoryStore implements Memory {
     if (last && last.type === type && last.label === label) {
       events[events.length - 1] = { ...last, count: (last.count ?? 1) + 1, at: Date.now() };
     } else {
-      events.push({ type, label, at: Date.now(), data });
+      // Strictly after the previous event, even if two steps land in the same
+      // millisecond — `at` doubles as this store's only stable identifier
+      // (`forgetEpisode` has nothing else to key on), so two entries must
+      // never share one. Two skills finishing in the same tick is not a rare
+      // edge case here: a multi-step plan runs its steps back to back.
+      const at = Math.max(Date.now(), (last?.at ?? 0) + 1);
+      events.push({ type, label, at, data });
     }
     await this.storage.set(EPISODES_KEY, events.slice(-EPISODIC_LIMIT));
+  }
+
+  async forgetEpisode(at: number): Promise<void> {
+    const next = (await this.episodes()).filter((e) => e.at !== at);
+    await this.storage.set(EPISODES_KEY, next);
+  }
+
+  async clearEpisodes(): Promise<void> {
+    await this.storage.set(EPISODES_KEY, []);
   }
 }

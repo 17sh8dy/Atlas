@@ -29,6 +29,8 @@ import type {
   Plan,
   PlanOutcome,
   ResultRow,
+  Skill,
+  SkillArgs,
   SkillContext,
   VoiceProfile,
 } from '@atlas/core';
@@ -86,6 +88,8 @@ export interface EngineOptions {
    * the same pattern applied to speech preferences.
    */
   getExecutionMode?: () => ExecutionMode;
+  /** Forwarded to the executor unchanged — see `ExecutorOptions.isPreapproved`'s doc comment. */
+  isPreapproved?(skill: Skill, args: SkillArgs): Promise<boolean>;
 }
 
 export class Engine {
@@ -103,6 +107,7 @@ export class Engine {
    */
   private readonly phrasing: Phrasing;
   private readonly getExecutionMode: () => ExecutionMode;
+  private readonly isPreapproved?: (skill: Skill, args: SkillArgs) => Promise<boolean>;
 
   constructor(options: EngineOptions) {
     this.skills = options.skills;
@@ -114,6 +119,12 @@ export class Engine {
     this.phrasing = createPhrasing(options.voice);
     this.executor = new Executor(this.skills, this.phrasing);
     this.getExecutionMode = options.getExecutionMode ?? (() => DEFAULT_EXECUTION_MODE);
+    this.isPreapproved = options.isPreapproved;
+  }
+
+  /** The one thing every `executor.run(...)` call site below shares. */
+  private executorOptions() {
+    return { mode: this.getExecutionMode(), isPreapproved: this.isPreapproved };
   }
 
   async ask(text: string, io: EngineIO): Promise<AskOutcome> {
@@ -174,7 +185,7 @@ export class Engine {
     }
 
     if (matched && matched.confidence >= this.threshold) {
-      const outcome = await this.executor.run(matched, ctx, { mode: this.getExecutionMode() });
+      const outcome = await this.executor.run(matched, ctx, this.executorOptions());
       this.bus.emit('engine:done', { mode: 'command', plan: matched, outcome });
       return { ok: outcome.ok, mode: 'command', plan: matched, outcome };
     }
@@ -185,7 +196,7 @@ export class Engine {
     if (instruction) {
       const proposed = await this.planWithAI(understood);
       if (proposed) {
-        const outcome = await this.executor.run(proposed, ctx, { mode: this.getExecutionMode() });
+        const outcome = await this.executor.run(proposed, ctx, this.executorOptions());
         this.bus.emit('engine:done', { mode: 'command', plan: proposed, outcome });
         return { ok: outcome.ok, mode: 'command', plan: proposed, outcome };
       }
@@ -231,7 +242,7 @@ export class Engine {
 
   /** Run a plan built elsewhere — a button, a result row, a saved routine. */
   async run(plan: Plan, io: EngineIO): Promise<PlanOutcome> {
-    return this.executor.run(plan, this.context(io), { mode: this.getExecutionMode() });
+    return this.executor.run(plan, this.context(io), this.executorOptions());
   }
 
   private context(io: EngineIO): SkillContext {

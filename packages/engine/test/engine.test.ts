@@ -15,6 +15,8 @@ import type {
   Memory,
   Platform,
   ResultRow,
+  Skill,
+  SkillArgs,
   SkillContext,
   WebPage,
   WebSearchResult,
@@ -482,7 +484,8 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       return true;
     },
 
-    uiaTree: async (windowId) => (windowId === '1001' ? NOTEPAD_TREE : { ...NOTEPAD_TREE, children: [] }),
+    uiaTree: async (windowId) =>
+      windowId === '1001' ? NOTEPAD_TREE : { ...NOTEPAD_TREE, children: [] },
     uiaFocusedElement: async () => ({
       path: [],
       role: 'edit',
@@ -653,6 +656,13 @@ function makeMemory(): Memory {
     async record(type, label, data) {
       episodes.push({ type, label, at: Date.now(), data });
     },
+    async forgetEpisode(at) {
+      const i = episodes.findIndex((e) => e.at === at);
+      if (i >= 0) episodes.splice(i, 1);
+    },
+    async clearEpisodes() {
+      episodes.length = 0;
+    },
   };
 }
 
@@ -726,7 +736,11 @@ function harness(
     'environment',
     'storage',
   ],
-  options: { provider?: IntelligenceProvider | null; mode?: ExecutionMode } = {},
+  options: {
+    provider?: IntelligenceProvider | null;
+    mode?: ExecutionMode;
+    isPreapproved?: (skill: Skill, args: SkillArgs) => Promise<boolean>;
+  } = {},
 ): Harness {
   const journal: Journal = {
     opened: [],
@@ -799,6 +813,7 @@ function harness(
     working,
     intelligence,
     getExecutionMode: () => options.mode ?? 'doIt',
+    isPreapproved: options.isPreapproved,
   });
   recordEpisodes(engine.bus, memory, engine.skills);
 
@@ -1305,6 +1320,61 @@ test('executor: files.delete requires confirmation, same as any other risky skil
   assert.deepEqual(h.journal.deleted, []);
 });
 
+// ---- isPreapproved: the "already permitted" exception to `doIt` -------------
+//
+// See the executor's own doc comment for why this exists at all — a plain
+// file operation inside a folder the user already added to Allowed Folders,
+// and only in `doIt`. Every assertion below is about the mode gate, not about
+// what counts as "already permitted" — that policy lives entirely in
+// whatever `isPreapproved` the caller supplies, which is `useAtlas`'s job,
+// not the executor's.
+
+test('isPreapproved: doIt runs a confirm-risk step with no card when preapproved', async () => {
+  const h = harness(undefined, { isPreapproved: async () => true });
+  await h.engine.ask('delete D:\\Dev\\old.txt', io(h));
+  assert.equal(h.confirmsAsked.length, 0);
+  assert.deepEqual(h.journal.deleted, ['D:\\Dev\\old.txt']);
+});
+
+test('isPreapproved: doIt still asks when it returns false', async () => {
+  const h = harness(undefined, { isPreapproved: async () => false });
+  await h.engine.ask('delete D:\\Dev\\old.txt', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.deleted, ['D:\\Dev\\old.txt']);
+});
+
+test('isPreapproved: never consulted for a safe step', async () => {
+  const calls: string[] = [];
+  const h = harness(undefined, {
+    isPreapproved: async (skill: Skill) => {
+      calls.push(skill.id);
+      return true;
+    },
+  });
+  await h.engine.ask("what's my battery", io(h));
+  assert.deepEqual(calls, []);
+});
+
+test('isPreapproved: confirmActions asks anyway — picking it means "ask me regardless"', async () => {
+  const h = harness(undefined, { mode: 'confirmActions', isPreapproved: async () => true });
+  await h.engine.ask('delete D:\\Dev\\old.txt', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+});
+
+test('isPreapproved: planFirst still shows its one whole-plan card, not zero', async () => {
+  const h = harness(undefined, { mode: 'planFirst', isPreapproved: async () => true });
+  await h.engine.run(
+    {
+      source: 'direct',
+      intent: 'test',
+      confidence: 1,
+      steps: [{ skill: 'files.delete', args: { path: 'D:\\Dev\\old.txt' } }],
+    },
+    io(h),
+  );
+  assert.equal(h.confirmsAsked.length, 1);
+});
+
 // ---- execution mode -----------------------------------------------------------
 //
 // `ExecutionMode` decides *when* a confirm step's question is put to the
@@ -1359,7 +1429,7 @@ test('mode: planFirst asks once for a plan containing a consequential step, not 
   assert.isTrue(outcome.ok);
 });
 
-test('mode: planFirst\'s single approval names every step, marking the consequential ones', async () => {
+test("mode: planFirst's single approval names every step, marking the consequential ones", async () => {
   const h = harness(undefined, { mode: 'planFirst' });
   await h.engine.run(
     {
@@ -1378,7 +1448,7 @@ test('mode: planFirst\'s single approval names every step, marking the consequen
   assert.match(detail!, /2\. ⚠ Delete/);
 });
 
-test('mode: declining planFirst\'s approval cancels the whole plan, nothing runs', async () => {
+test("mode: declining planFirst's approval cancels the whole plan, nothing runs", async () => {
   const h = harness(undefined, { mode: 'planFirst' });
   h.confirmAnswer = false;
   const outcome = await h.engine.run(
@@ -1768,7 +1838,6 @@ test('Example E — a name close to an installed app is offered, never invented 
   assert.lengthOf(h.journal.opened, 0);
   assert.lengthOf(h.journal.revealed, 0);
 });
-
 
 test('memory.remember + files.openAlias: teach a name, then open what it means', async () => {
   const h = harness();
@@ -3781,7 +3850,11 @@ test('windows: a disambiguation card is clickable, not just speakable — two wi
   const minimize = createWindowSkills(platform).find((s) => s.id === 'window.minimize')!;
 
   const rows: ResultRow[] = [];
-  const ctx: SkillContext = { say: () => {}, confirm: async () => true, showResults: (items) => rows.push(...items) };
+  const ctx: SkillContext = {
+    say: () => {},
+    confirm: async () => true,
+    showResults: (items) => rows.push(...items),
+  };
   const offered = await minimize.run({ name: 'calculator' }, ctx);
   assert.isTrue(offered.ok);
   assert.equal(rows.length, 2);
@@ -4099,7 +4172,11 @@ test('screen: a screenshot is never read aloud', () => {
 
 test('screen: capturing a window resolves it by name first', async () => {
   const h = harness();
-  const outcome = await h.engine.skills.invoke('screen.captureWindow', { window: 'notepad' }, io(h));
+  const outcome = await h.engine.skills.invoke(
+    'screen.captureWindow',
+    { window: 'notepad' },
+    io(h),
+  );
   assert.isTrue(outcome.ok);
   assert.deepEqual(h.journal.windowCaptures, ['1001']);
 });

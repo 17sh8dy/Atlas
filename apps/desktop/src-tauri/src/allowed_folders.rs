@@ -112,6 +112,24 @@ pub fn allowed_folders() -> Vec<String> {
     as_strings()
 }
 
+/// Strip whitespace and, if present, one wrapping pair of `"`.
+///
+/// Windows Explorer's own "Copy as path" (Shift+right-click, or the ribbon)
+/// puts the path in quotes — `"D:\Dev\Atlas"` — which is the single most
+/// common way a real path ends up in this field, and `PathBuf::canonicalize`
+/// treats the quote characters as part of the name and fails outright. Every
+/// failure here used to surface as the one generic "Couldn't add that
+/// folder." (see the frontend's `catch`, now fixed to show the real reason
+/// instead) with no hint that the pasted text itself was the problem.
+fn unquoted(path: &str) -> &str {
+    let trimmed = path.trim();
+    trimmed
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(trimmed)
+        .trim()
+}
+
 /// Add a folder to the list, and persist it.
 ///
 /// Canonicalized and confirmed to actually be a folder before it's accepted
@@ -123,7 +141,7 @@ pub fn add_allowed_folder(
     state: tauri::State<crate::storage::StorageState>,
     path: String,
 ) -> Result<Vec<String>, String> {
-    let canonical = PathBuf::from(path.trim())
+    let canonical = PathBuf::from(unquoted(&path))
         .canonicalize()
         .map_err(|_| "That folder doesn't exist.".to_string())?;
     if !canonical.is_dir() {
@@ -197,5 +215,27 @@ mod tests {
     fn a_folder_that_no_longer_exists_is_reported_dropped() {
         let dropped = init(Some(vec!["Z:\\this\\does\\not\\exist\\anywhere".to_string()]));
         assert_eq!(dropped, vec!["Z:\\this\\does\\not\\exist\\anywhere".to_string()]);
+    }
+
+    #[test]
+    fn a_path_copied_from_explorers_copy_as_path_loses_its_quotes() {
+        assert_eq!(unquoted("\"D:\\Dev\\Atlas\""), "D:\\Dev\\Atlas");
+    }
+
+    #[test]
+    fn an_unquoted_path_is_unaffected() {
+        assert_eq!(unquoted("D:\\Dev\\Atlas"), "D:\\Dev\\Atlas");
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_trimmed_on_either_side_of_the_quotes() {
+        assert_eq!(unquoted("  \"D:\\Dev\\Atlas\"  "), "D:\\Dev\\Atlas");
+    }
+
+    #[test]
+    fn a_lone_leading_quote_with_no_match_is_left_alone() {
+        // Not a real "copy as path" case — better to fail canonicalizing with
+        // a clear reason than to guess at stripping a mismatched quote.
+        assert_eq!(unquoted("\"D:\\Dev\\Atlas"), "\"D:\\Dev\\Atlas");
     }
 }

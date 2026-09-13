@@ -17,6 +17,18 @@
  * input, a stalled transcriber. This moves when sound moves.
  *
  * See `components/VoiceOrb` for how it is drawn and why it is a canvas.
+ *
+ * ── The greeting fills the one genuinely empty moment ───────────────────────
+ * The orb breathes and the field drifts even at rest (see `VoiceOrb` and
+ * `AmbientField`'s own doc comments), so motion was never actually missing.
+ * What was missing was anything to *read* the first time this screen opens
+ * and nothing has been said yet — an orb and a status pill with no content
+ * around them. `greeting` is the same line Home already says out loud
+ * (`Phrasing.greeting()`), shown here because it happens to be exactly right
+ * for a screen about talking to Atlas, not because it was invented for this
+ * one. It steps aside the moment there is something real to show instead —
+ * `heard`/`reply` — the same "real content beats a filler line" rule Home's
+ * Recent Activity follows.
  */
 
 import { Icons, cn } from '@atlas/ui';
@@ -47,6 +59,8 @@ interface Props {
   heard: string | null;
   /** The last thing Atlas said back. */
   reply: string | null;
+  /** Shown only until there's something real to show instead — see the module doc comment. */
+  greeting: string;
   /** Whether the loop continues on its own after each answer. */
   handsFree: boolean;
   /** Why nothing is happening, if something is wrong. */
@@ -70,6 +84,7 @@ export function VoiceScreen({
   bands,
   heard,
   reply,
+  greeting,
   handsFree,
   error,
   onToggle,
@@ -81,6 +96,12 @@ export function VoiceScreen({
     <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-8 py-10">
       {/* Behind everything, and behind it on purpose — see AmbientField. */}
       <AmbientField level={level} active={live} />
+
+      {!live && !heard && !reply && (
+        <p className="text-foreground relative max-w-sm text-center text-sm leading-relaxed">
+          {greeting}
+        </p>
+      )}
 
       <div className="relative flex flex-col items-center gap-6">
         <button

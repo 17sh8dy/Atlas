@@ -1,20 +1,22 @@
 /**
- * The Home screen's category cards, held against the registry.
+ * The capability cards, held against the registry.
  *
- * These cards are hand-written (see the doc comment on `CARDS` in
- * `Conversation.tsx` for why), so there is no literal skill id or example
- * text to check a chip against the way the old chip-grid tests did. What can
- * still be checked mechanically: every domain a card claims to cover is a
- * domain some skill in the registry actually declares, so a category can't
- * quietly promise an ability every skill pack has dropped. A card whose
- * `domains` all vanished from `declaredDomains()` is exactly that bug.
+ * These cards used to be Home's whole first screen; they now live in
+ * `components/CapabilityCards.tsx`, reachable from Home's "What can Atlas
+ * do?" link rather than occupying it (see that file's doc comment). They are
+ * hand-written, so there is no literal skill id or example text to check a
+ * chip against the way the old chip-grid tests did. What can still be
+ * checked mechanically: every domain a card claims to cover is a domain some
+ * skill in the registry actually declares, so a category can't quietly
+ * promise an ability every skill pack has dropped. A card whose `domains`
+ * all vanished from `declaredDomains()` is exactly that bug.
  */
 
 import { test, assert } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CARDS } from '../src/pages/Conversation';
+import { CARDS } from '../src/components/CapabilityCards';
 
 /** Every `domain:` tag any skill pack declares. */
 function declaredDomains(): Set<string> {
@@ -70,7 +72,11 @@ test('a starter, when given, ends mid-sentence ready to keep typing', () => {
   for (const card of CARDS) {
     if (card.starter === undefined) continue;
     assert.isAbove(card.starter.length, 0);
-    assert.equal(card.starter, card.starter.trimEnd() + ' ', `"${card.starter}" has no trailing space`);
+    assert.equal(
+      card.starter,
+      card.starter.trimEnd() + ' ',
+      `"${card.starter}" has no trailing space`,
+    );
   }
 });
 
@@ -79,6 +85,10 @@ test('no starter carries a filesystem path', () => {
   // on the D: drive, which only works on the machine it was written on.
   for (const card of CARDS) {
     if (!card.starter) continue;
-    assert.notMatch(card.starter, /[a-zA-Z]:[\\/]|\\\\\S|(^|\s)~?\/\S/, `${card.label}: "${card.starter}"`);
+    assert.notMatch(
+      card.starter,
+      /[a-zA-Z]:[\\/]|\\\\\S|(^|\s)~?\/\S/,
+      `${card.label}: "${card.starter}"`,
+    );
   }
 });

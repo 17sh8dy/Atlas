@@ -96,3 +96,23 @@ test('episodes are capped at 200, oldest dropped first', async () => {
   assert.equal(events[0].label, 'Opened app 5');
   assert.equal(events[events.length - 1].label, 'Opened app 204');
 });
+
+test('forgetEpisode removes only the episode with that timestamp', async () => {
+  const store = new MemoryStore(makeStorage());
+  await store.record('app.launched', 'Opened Steam');
+  await store.record('app.launched', 'Opened Discord');
+  const [first, second] = await store.episodes();
+  await store.forgetEpisode(first.at);
+  const remaining = await store.episodes();
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].label, second.label);
+});
+
+test('clearEpisodes empties the timeline without touching facts', async () => {
+  const store = new MemoryStore(makeStorage());
+  await store.remember('alias', 'work folder', 'D:\\Dev');
+  await store.record('app.launched', 'Opened Steam');
+  await store.clearEpisodes();
+  assert.deepEqual(await store.episodes(), []);
+  assert.equal((await store.fact('alias', 'work folder'))?.value, 'D:\\Dev');
+});

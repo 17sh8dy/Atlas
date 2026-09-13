@@ -36,6 +36,21 @@
  * plan — the individual `ctx.confirm` below is then skipped for steps that
  * were already named in it. A plan of only safe steps never shows this card;
  * matching every other mode, harmless things stay silent.
+ *
+ * ── `isPreapproved` — the one, narrow exception ─────────────────────────────
+ * Confirm-risk is otherwise unconditional: every mode above still stops for
+ * one. `isPreapproved` exists for exactly one case that isn't "genuinely
+ * risky" so much as "already agreed to twice" — a plain file operation whose
+ * target is already inside a folder the user explicitly added to Allowed
+ * Folders (Settings → General). Adding a folder there is already an explicit,
+ * deliberate grant; asking "are you sure?" again for every file inside it is
+ * asking the same permission a second time. It only ever softens `doIt` (see
+ * the call site below) — `confirmActions` and `planFirst` exist specifically
+ * for someone who picked "ask me anyway", and this must never quietly
+ * override that choice. It also never changes *whether* a step is refused —
+ * `skill.guard` and the registry's own capability/allowed-folder checks still
+ * run exactly as before; this only decides whether the question gets asked
+ * first.
  */
 
 import type {
@@ -58,6 +73,15 @@ export interface ExecutorOptions {
   stopOnError?: boolean;
   /** Defaults to `doIt` — today's behaviour, unchanged for callers who don't pass one. */
   mode?: ExecutionMode;
+  /**
+   * Downgrades one `confirm`-risk step to running without asking — see this
+   * module's own doc comment for the single case this exists for. Consulted
+   * only in `doIt` mode, and only for a step whose risk is already `confirm`;
+   * absent entirely for a caller that never wants this (every test in this
+   * package, notably, which is why every existing assertion about `doIt`
+   * asking stays true without touching a single one of them).
+   */
+  isPreapproved?(skill: Skill, args: SkillArgs): Promise<boolean>;
 }
 
 /**
@@ -198,18 +222,26 @@ export class Executor {
       // of the whole-plan approval above — asking again here would be the
       // "trip back to the keyboard" this mode exists to avoid.
       if (effectiveRisk(skill, step.args) === 'confirm' && !usingPlanApproval) {
-        const argsDetail = Object.values(step.args)
-          .filter((v) => v !== undefined && v !== null && v !== '')
-          .map(String)
-          .join(' · ');
+        // See this file's doc comment: the one case that quietly runs
+        // without asking even though its risk is `confirm`. Checked only in
+        // `doIt` — `confirmActions` picked "ask me anyway" and must keep
+        // meaning that.
+        const preapproved = mode === 'doIt' && (await options.isPreapproved?.(skill, step.args));
 
-        const { question, detail } = this.phrasing.confirmPrompt(skill.description, argsDetail);
-        const approved = await ctx.confirm(question, detail);
-        if (!approved) {
-          outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
-          ctx.say(this.phrasing.declined());
-          aborted = true;
-          break;
+        if (!preapproved) {
+          const argsDetail = Object.values(step.args)
+            .filter((v) => v !== undefined && v !== null && v !== '')
+            .map(String)
+            .join(' · ');
+
+          const { question, detail } = this.phrasing.confirmPrompt(skill.description, argsDetail);
+          const approved = await ctx.confirm(question, detail);
+          if (!approved) {
+            outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
+            ctx.say(this.phrasing.declined());
+            aborted = true;
+            break;
+          }
         }
       }
 

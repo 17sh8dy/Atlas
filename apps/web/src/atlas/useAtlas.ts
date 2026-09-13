@@ -19,6 +19,8 @@ import type {
   ExecutionMode,
   Platform,
   ResultRow,
+  Skill,
+  SkillArgs,
   SpeechOptions,
   SpeechPreferences,
   Storage,
@@ -95,6 +97,50 @@ function summarizeForSpeech(rows: readonly ResultRow[], meta?: { title?: string 
   const rest = rows.length - names.length;
   const listed = names.join(', ') + (rest > 0 ? `, and ${rest} more` : '');
   return [meta?.title, listed].filter(Boolean).join(' — ');
+}
+
+/**
+ * Which of a file skill's own args hold a path worth checking against
+ * Allowed Folders, for `isPreapproved` below.
+ *
+ * `files.rename`'s `newName` is a bare name, not a path (see the skill's own
+ * params), so renaming never needs a second path checked — the file stays in
+ * the folder it was already in. Every other skill here that isn't listed
+ * (read, search, info, everything outside `files.*`) never reaches
+ * `isPreapproved` at all, because it isn't `risk: 'confirm'` in the first
+ * place — see `effectiveRisk` in `@atlas/engine`'s executor.
+ */
+export const PREAPPROVABLE_PATH_ARGS: Readonly<Record<string, readonly string[]>> = {
+  'files.create': ['path'],
+  'files.createFolder': ['path'],
+  'files.rename': ['path'],
+  'files.move': ['path', 'destDir'],
+  'files.copy': ['path', 'destDir'],
+  'files.delete': ['path'],
+  'files.append': ['path'],
+};
+
+/**
+ * A best-effort match against the same list Settings → General's Allowed
+ * Folders shows — good enough to decide whether to *ask*, never the security
+ * boundary itself. That boundary is `allowed_folders::is_permitted` on the
+ * Rust side, which canonicalizes (resolving `..` and symlinks) before every
+ * real file operation regardless of what this function decides; the worst
+ * this being wrong can do is an unnecessary confirm card (folder judged
+ * outside when Rust would allow it) or one confirm card skipped for a path
+ * Rust then refuses anyway with its own error — never a file touched this
+ * didn't mean to allow.
+ */
+export function isInsideAnyAllowedFolder(path: string, allowedFolders: readonly string[]): boolean {
+  const normalize = (p: string) => p.trim().replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+  const target = normalize(path);
+  return allowedFolders.some((root) => {
+    const normalizedRoot = normalize(root);
+    return (
+      Boolean(normalizedRoot) &&
+      (target === normalizedRoot || target.startsWith(`${normalizedRoot}\\`))
+    );
+  });
 }
 
 export function useAtlas(
@@ -187,6 +233,33 @@ export function useAtlas(
 
   const phrasing = useMemo(() => createPhrasing(voiceProfile), [voiceProfile]);
   const memory = useMemo(() => new MemoryStore(storage), [storage]);
+
+  /**
+   * Do It's one "already permitted" exception — see the executor's own doc
+   * comment in `@atlas/engine` for the policy and why it exists at all. This
+   * is where the policy actually lives: the executor only knows *whether*
+   * something answered yes, never *what* "already permitted" means.
+   *
+   * Reads the allowed-folders list fresh on every call rather than caching
+   * it — this only ever runs immediately before what would otherwise be a
+   * confirm card, so the extra round-trip is free next to a dialog the user
+   * would have had to read and click anyway, and it means a folder added in
+   * Settings a moment ago is honoured on the very next command.
+   */
+  const isPreapproved = useCallback(
+    async (skill: Skill, args: SkillArgs): Promise<boolean> => {
+      const pathArgs = PREAPPROVABLE_PATH_ARGS[skill.id];
+      if (!pathArgs || !platform.allowedFolders) return false;
+      const folders = await platform.allowedFolders().catch(() => []);
+      if (!folders.length) return false;
+      return pathArgs.every((key) => {
+        const value = args[key];
+        return typeof value === 'string' && isInsideAnyAllowedFolder(value, folders);
+      });
+    },
+    [platform],
+  );
+
   // One instance shared between the grammar (which reads it synchronously to
   // resolve "it"/"the second one") and the engine (which writes to it
   // whenever a skill renders a result list) — see WorkingMemory's doc comment.
@@ -255,6 +328,7 @@ export function useAtlas(
       working,
       intelligence,
       getExecutionMode: () => executionModeRef.current,
+      isPreapproved,
     });
   }, [
     platform,
@@ -266,6 +340,7 @@ export function useAtlas(
     cortex,
     activeProviderId,
     cloudProviders,
+    isPreapproved,
   ]);
 
   // Episodic memory doesn't touch the ask/io path at all — it just listens.
@@ -485,7 +560,13 @@ export function useAtlas(
     skillCount: engine.skills.available().length,
     skills: engine.skills,
     greeting: phrasing.greeting(),
-    personalized: Boolean(voiceProfile.userName || voiceProfile.atlasName || voiceProfile.greeting),
     atlasName: voiceProfile.atlasName?.trim() || 'Atlas',
+    /**
+     * Handed straight out rather than wrapped in narrower callbacks. Home
+     * reads `episodes()` for Recent Activity and Settings' Activity tab reads
+     * and deletes from the same store — both already depend on the `Memory`
+     * port shape, so there is nothing a wrapper here would hide.
+     */
+    memory,
   };
 }

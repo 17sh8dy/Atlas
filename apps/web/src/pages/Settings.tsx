@@ -1,5 +1,5 @@
 /**
- * Settings — a vertical-tab shell around seven sections.
+ * Settings — a vertical-tab shell, one section per concern.
  *
  * Seven, not ten. Startup, Privacy and Default apps were placeholder pages —
  * a disabled switch and two paragraphs explaining that the thing they named
@@ -23,6 +23,7 @@ import type {
   CloudProviderConfig,
   ExecutionMode,
   ListeningPreferences,
+  Memory,
   Platform,
   SpeechPreferences,
   SpeechVoice,
@@ -35,6 +36,7 @@ import { General } from './settings/General';
 import { Appearance } from './settings/Appearance';
 import { Voice } from './settings/Voice';
 import { Personalization } from './settings/Personalization';
+import { Activity } from './settings/Activity';
 import { Notifications } from './settings/Notifications';
 import { Intelligence } from './settings/Intelligence';
 import { Account } from './settings/Account';
@@ -45,6 +47,7 @@ interface Props {
   storage: Storage;
   capabilities: readonly CapabilityName[];
   skills: SkillRegistry;
+  memory: Memory;
   executionMode: ExecutionMode;
   onExecutionModeChange(mode: ExecutionMode): void;
   voiceProfile: VoiceProfile;
@@ -81,6 +84,7 @@ export const SECTIONS: readonly SettingsSection[] = [
   { id: 'appearance', label: 'Appearance', icon: Icons.Palette },
   { id: 'voice', label: 'Voice', icon: Icons.Mic },
   { id: 'personalization', label: 'Personalization', icon: Icons.UserCircle },
+  { id: 'activity', label: 'Activity', icon: Icons.Activity },
   { id: 'notifications', label: 'Notifications', icon: Icons.Bell },
   { id: 'intelligence', label: 'Intelligence', icon: Icons.Brain },
   /* Second to last, above About. Atlas is complete signed out, and an account entry near the
@@ -94,6 +98,7 @@ export function Settings({
   storage,
   capabilities,
   skills,
+  memory,
   executionMode,
   onExecutionModeChange,
   voiceProfile,
@@ -163,6 +168,9 @@ export function Settings({
                 onVoiceProfileChange={onVoiceProfileChange}
               />
             </TabsContent>
+            <TabsContent value="activity">
+              <Activity memory={memory} />
+            </TabsContent>
             <TabsContent value="notifications">
               <Notifications platform={platform} capabilities={capabilities} storage={storage} />
             </TabsContent>
@@ -179,7 +187,7 @@ export function Settings({
               <Account platform={platform} storage={storage} />
             </TabsContent>
             <TabsContent value="about">
-              <About platform={platform} />
+              <About platform={platform} skillCount={skills.available().length} />
             </TabsContent>
           </div>
         </Tabs>

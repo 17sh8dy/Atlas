@@ -24,7 +24,12 @@ import type {
   Storage,
   VoiceProfile,
 } from '@atlas/core';
-import { DEFAULT_EXECUTION_MODE, DEFAULT_LISTENING, DEFAULT_SPEECH, nextExecutionMode } from '@atlas/core';
+import {
+  DEFAULT_EXECUTION_MODE,
+  DEFAULT_LISTENING,
+  DEFAULT_SPEECH,
+  nextExecutionMode,
+} from '@atlas/core';
 import {
   readActiveProvider,
   readCloudProviders,
@@ -480,6 +485,37 @@ function Ready({
     return () => unlisten?.();
   }, [platform.id]);
 
+  /**
+   * F11 toggles fullscreen — nothing did before this.
+   *
+   * `decorations: false` (see `TitleBar`'s doc comment) buys app-drawn chrome
+   * but gives up everything the OS used to wire up for free, and this key was
+   * one of them: a decorated window gets it from the shell, a borderless one
+   * gets nothing unless something asks for it. `getCurrentWindow` already
+   * exposes exactly the pair needed (`isFullscreen`/`setFullscreen`) — the
+   * same module `TitleBar`'s own maximise button already imports — so this is
+   * wiring, not a new capability.
+   *
+   * A plain `window` listener rather than a Tauri event: no Rust side needs
+   * to know this happened, and every other keyboard shortcut in this app
+   * (Shift+Tab, Escape) is handled the same way, in the renderer.
+   */
+  useEffect(() => {
+    if (platform.id !== 'tauri') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'F11') return;
+      e.preventDefault();
+      void (async () => {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const win = getCurrentWindow();
+        const fullscreen = await win.isFullscreen();
+        await win.setFullscreen(!fullscreen);
+      })();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [platform.id]);
+
   return (
     <div className="bg-background text-foreground flex h-full flex-col">
       <TitleBar
@@ -588,6 +624,7 @@ function Ready({
             bands={voiceBands}
             heard={heard}
             reply={lastReply}
+            greeting={atlas.greeting}
             handsFree={listeningPrefs.handsFree}
             error={listening.error}
             onToggle={toggleMic}
@@ -598,9 +635,8 @@ function Ready({
             entries={atlas.entries}
             busy={atlas.busy}
             awaitingAnswer={atlas.awaitingAnswer}
-            skills={atlas.skills}
+            memory={atlas.memory}
             greeting={atlas.greeting}
-            personalized={atlas.personalized}
             atlasName={atlas.atlasName}
             onAsk={askAloud}
             onRunAction={atlas.runAction}
@@ -626,6 +662,7 @@ function Ready({
             storage={storage}
             capabilities={capabilities}
             skills={atlas.skills}
+            memory={atlas.memory}
             executionMode={executionMode}
             onExecutionModeChange={onExecutionModeChange}
             voiceProfile={voiceProfile}

@@ -10,13 +10,32 @@
  * Version is read from Tauri's own app metadata (already available via
  * `@tauri-apps/api`, no new plugin); the web build has no version to show,
  * since web isn't the shipping target.
+ *
+ * ── "{n} capabilities · Local-first · No account required" ─────────────────
+ * Used to sit under Atlas's name on Home, restated every time the app was
+ * opened. It reads here now instead — right under the version, in the one
+ * section that is already about what this build *is* — because a scale
+ * claim and a trust claim are both something you check once, not chrome a
+ * screen you open constantly should keep repeating at you.
  */
 
 import { useEffect, useState } from 'react';
 import type { Platform, WindowsCompatibility } from '@atlas/core';
 import { AtlasMark, Icons } from '@atlas/ui';
 
-export function About({ platform }: { platform: Platform }) {
+/**
+ * "0.85.0" reads as "0.85" here — a trailing zero patch is Cargo/semver's own
+ * requirement (`Cargo.toml`'s `version` must be a full `major.minor.patch`,
+ * and every release so far has left patch at 0), not information anyone
+ * reads this page to learn. Anything with a real patch number — "0.85.3" —
+ * is shown in full; this only drops the part that's never actually meant
+ * anything yet.
+ */
+export function formatVersion(raw: string): string {
+  return raw.replace(/^(\d+\.\d+)\.0$/, '$1');
+}
+
+export function About({ platform, skillCount }: { platform: Platform; skillCount: number }) {
   const [version, setVersion] = useState<string | null>(null);
   const [windows, setWindows] = useState<WindowsCompatibility | null>(null);
 
@@ -51,8 +70,11 @@ export function About({ platform }: { platform: Platform }) {
           <h2 className="text-foreground text-sm font-medium">Atlas</h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
             {platform.id === 'tauri'
-              ? `Version ${version ?? '…'} — desktop build`
+              ? `Version ${version ? formatVersion(version) : '…'} — desktop build`
               : 'Browser build — a test bed and fallback, not the shipping target.'}
+          </p>
+          <p className="text-foreground-subtle mt-1 text-xs leading-relaxed">
+            {skillCount} capabilities · Local-first · No account required
           </p>
         </div>
       </section>
@@ -78,9 +100,8 @@ export function About({ platform }: { platform: Platform }) {
           <h2 className="text-foreground text-sm font-medium">Voice</h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
             Speaking uses the <span className="text-foreground">en_GB-vctk-medium</span> voice
-            (Piper), trained on the University of Edinburgh Centre for Speech Technology
-            Research's VCTK Corpus, licensed{' '}
-            <span className="text-foreground">CC BY 4.0</span>. Listening uses{' '}
+            (Piper), trained on the University of Edinburgh Centre for Speech Technology Research's
+            VCTK Corpus, licensed <span className="text-foreground">CC BY 4.0</span>. Listening uses{' '}
             <span className="text-foreground">whisper.cpp</span> and OpenAI's Whisper{' '}
             <span className="text-foreground">base.en</span> model. Both run on this machine.
           </p>
@@ -102,7 +123,8 @@ export function About({ platform }: { platform: Platform }) {
                   This machine is running{' '}
                   <span className="text-foreground">
                     {windows.productName}
-                    {windows.displayVersion ? ` (${windows.displayVersion})` : ''}, build {windows.build}
+                    {windows.displayVersion ? ` (${windows.displayVersion})` : ''}, build{' '}
+                    {windows.build}
                     {windows.ubr !== undefined ? `.${windows.ubr}` : ''}
                   </span>
                   .

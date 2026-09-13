@@ -53,7 +53,7 @@ test('the placeholder tabs are gone and have not come back', () => {
       gone,
     );
   }
-  assert.lengthOf(SECTIONS, 8);
+  assert.lengthOf(SECTIONS, 9);
 });
 
 test('the Account tab is optional in the way it claims to be', () => {
