@@ -30,6 +30,10 @@
  *    proposes it again, the loop stops and says so, rather than spinning.
  *  - A user declining a confirm step ends the task immediately, the same
  *    rule `Executor.run` already applies within one plan.
+ *  - The emergency stop ends it harder than a decline: checked before every
+ *    iteration, raced against every model call, and passed into every step.
+ *    A halted task says nothing on its way out (the surface already shows
+ *    the halt) and never starts another iteration.
  */
 
 import type {
@@ -41,6 +45,8 @@ import type {
 } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import type { Executor } from '../planner/executor';
+import { HaltedError, untilHalted } from '@atlas/core';
+import type { HaltSignal } from '@atlas/core';
 
 /** Small enough to bound a runaway task, large enough for a real one. */
 export const MAX_DEV_ITERATIONS = 12;
@@ -61,7 +67,7 @@ export interface DevTaskStepLog {
 }
 
 export type DevTaskStopReason =
-  'done' | 'budget' | 'no-provider' | 'malformed' | 'repeated-failure' | 'declined';
+  'done' | 'budget' | 'no-provider' | 'malformed' | 'repeated-failure' | 'declined' | 'halted';
 
 export interface DevTaskReport {
   ok: boolean;
@@ -106,6 +112,7 @@ function catalogFor(skills: SkillRegistry): string {
 function askProvider(
   intelligence: IntelligenceRegistry | undefined,
   prompt: string,
+  signal?: HaltSignal,
 ): Promise<string | null> {
   const provider = intelligence?.active();
   if (!provider) return Promise.resolve(null);
@@ -117,11 +124,15 @@ function askProvider(
         resolve(v);
       }
     };
-    provider.ask(prompt, {
-      onDelta: () => {},
-      onDone: (full) => finish(full),
-      onError: () => finish(null),
-    });
+    provider.ask(
+      prompt,
+      {
+        onDelta: () => {},
+        onDone: (full) => finish(full),
+        onError: () => finish(null),
+      },
+      { signal },
+    );
   });
 }
 
@@ -155,6 +166,14 @@ export async function runDevTask(
   ctx: SkillContext,
 ): Promise<DevTaskReport> {
   const steps: DevTaskStepLog[] = [];
+  const signal = ctx.signal;
+  const halted = (): DevTaskReport => ({
+    ok: false,
+    message: '',
+    steps,
+    iterations: steps.length,
+    stoppedBecause: 'halted',
+  });
 
   const finish = (ok: boolean, message: string, reason: DevTaskStopReason): DevTaskReport => {
     ctx.say(message);
@@ -175,6 +194,7 @@ export async function runDevTask(
   let malformedStreak = 0;
 
   for (let i = 0; i < MAX_DEV_ITERATIONS; i++) {
+    if (signal?.aborted) return halted();
     const prompt = [
       "You are Atlas's developer agent, working step by step toward one goal.",
       `Goal: ${goal}`,
@@ -188,7 +208,13 @@ export async function runDevTask(
       history.length ? `What has happened so far:\n${history.join('\n')}` : 'Nothing has run yet.',
     ].join('\n');
 
-    const reply = await askProvider(deps.intelligence, prompt);
+    let reply: string | null;
+    try {
+      reply = await untilHalted(askProvider(deps.intelligence, prompt, signal), signal);
+    } catch (err) {
+      if (err instanceof HaltedError) return halted();
+      throw err;
+    }
     if (!reply) {
       return finish(
         steps.some((s) => s.ok),
@@ -248,7 +274,8 @@ export async function runDevTask(
       steps: [{ skill: skillId, args: check.args }],
       confidence: 1,
     };
-    const outcome = await deps.executor.run(plan, ctx, { mode: deps.getExecutionMode() });
+    const outcome = await deps.executor.run(plan, ctx, { mode: deps.getExecutionMode(), signal });
+    if (outcome.halted) return halted();
     const stepOutcome = outcome.outcomes[0];
 
     if (stepOutcome?.skipped) {

@@ -13,8 +13,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AuroraBars, Button, Icons, cn } from '@atlas/ui';
-import type { Entry } from '../atlas/useAtlas';
+import type { Entry, StepState } from '../atlas/useAtlas';
+import { useTextStyle } from '../app/text-style';
 import { CapabilityBrowser } from './CapabilityBrowser';
+import { RevealText } from './RevealText';
+
+/** An entry this new was just said; anything older was already read. */
+const FRESH_MS = 1500;
 
 interface Props {
   entries: Entry[];
@@ -42,6 +47,16 @@ export function Transcript({
 }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
+  /** Keep a reply being written in view — unless you have scrolled up to read something else. */
+  const followReveal = useCallback(() => {
+    const end = endRef.current;
+    const scroller = end?.closest<HTMLElement>('.overflow-y-auto');
+    if (!end || !scroller) return;
+    if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120) {
+      end.scrollIntoView({ block: 'end' });
+    }
+  }, []);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [entries.length, busy]);
@@ -57,6 +72,7 @@ export function Transcript({
           busy={busy}
           onCopy={onCopy}
           onAskAgain={onAskAgain}
+          onReveal={followReveal}
         />
       ))}
 
@@ -143,7 +159,9 @@ function EntryView({
   onRunAction,
   onCopy,
   onAskAgain,
+  onReveal,
 }: {
+  onReveal?(): void;
   entry: Entry;
   busy: boolean;
   onAnswerConfirm(approved: boolean): void;
@@ -157,7 +175,7 @@ function EntryView({
     // copy button uses rather than a second one invented for this.
     return (
       <div className="group flex max-w-[80%] flex-col items-end self-end">
-        <div className="accent-surface text-primary-foreground rounded-2xl rounded-br-md px-4 py-2.5 text-sm">
+        <div className="accent-surface text-primary-foreground atlas-you whitespace-pre-wrap rounded-2xl rounded-br-md px-4 py-2.5">
           {entry.text}
         </div>
         {entry.text?.trim() && onAskAgain && (
@@ -187,10 +205,30 @@ function EntryView({
     // so the button never reflows the text it belongs to.
     return (
       <div className="group max-w-[85%]">
-        <div className="text-foreground whitespace-pre-wrap text-sm leading-relaxed">
-          {entry.text}
+        <div className="atlas-reply whitespace-pre-wrap leading-relaxed">
+          <Reply entry={entry} onProgress={onReveal} />
         </div>
         <MessageActions text={entry.text ?? ''} onCopy={onCopy} />
+      </div>
+    );
+  }
+
+  if (entry.kind === 'steps' && entry.steps) {
+    return <StepsDisclosure steps={entry.steps} />;
+  }
+
+  if (entry.kind === 'halted') {
+    // A marker in the record, not a message: Atlas did not say anything, it
+    // was stopped. It stays after the halt is over, so reading back shows
+    // where a run was cut off and by what.
+    return (
+      <div role="note" className="text-foreground-subtle flex items-center gap-3 py-1 text-xs">
+        <span className="bg-border h-px flex-1" />
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="bg-danger h-2 w-2 rounded-[2px]" />
+          Halted {entry.source === 'button' ? 'with the stop button' : 'with the stop key'}
+        </span>
+        <span className="bg-border h-px flex-1" />
       </div>
     );
   }
@@ -203,6 +241,7 @@ function EntryView({
           'duration-fast max-w-[85%] rounded-xl border p-4 transition',
           answered === 'yes' && 'border-border bg-surface/50 opacity-70',
           answered === 'no' && 'border-border bg-surface/50 opacity-70',
+          answered === 'halted' && 'border-border bg-surface/50 opacity-70',
           !answered && 'border-primary/40 bg-primary/5',
         )}
       >
@@ -222,7 +261,11 @@ function EntryView({
 
             {answered ? (
               <p className="text-foreground-subtle mt-2 text-xs">
-                {answered === 'yes' ? '✓ You approved this.' : '✕ You declined this.'}
+                {answered === 'yes'
+                  ? '✓ You approved this.'
+                  : answered === 'halted'
+                    ? 'Halted before this ran.'
+                    : '✕ You declined this.'}
               </p>
             ) : (
               <div className="mt-3 flex gap-2">
@@ -296,6 +339,94 @@ function EntryView({
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** An assistant message, revealed per Personalization → Text & colors when it is new. */
+function Reply({ entry, onProgress }: { entry: Entry; onProgress?(): void }) {
+  const { style, reducedMotion } = useTextStyle();
+  // Decided once, on mount: a reply that finished animating must not animate
+  // again when something else in the transcript re-renders it.
+  const [animate] = useState(
+    () =>
+      !reducedMotion &&
+      style.animation !== 'off' &&
+      entry.at !== undefined &&
+      Date.now() - entry.at < FRESH_MS,
+  );
+  return (
+    <RevealText
+      text={entry.text ?? ''}
+      animate={animate}
+      animation={style.animation}
+      speed={style.speed}
+      onProgress={onProgress}
+    />
+  );
+}
+
+const STEP_ICON: Record<StepState, { glyph: string; className: string; label: string }> = {
+  done: { glyph: '✓', className: 'text-success', label: 'Done' },
+  failed: { glyph: '✕', className: 'text-danger', label: 'Failed' },
+  declined: { glyph: '–', className: 'text-foreground-subtle', label: 'Declined' },
+  halted: { glyph: '■', className: 'text-danger', label: 'Halted' },
+  skipped: { glyph: '–', className: 'text-foreground-subtle', label: 'Skipped' },
+};
+
+/**
+ * What a multi-step run did, collapsed to one line until asked — the same
+ * disclosure Claude uses for its own tool calls. The replies each step gave
+ * stay where they were said; this is the index to them, not a second copy.
+ */
+function StepsDisclosure({ steps }: { steps: NonNullable<Entry['steps']> }) {
+  const [open, setOpen] = useState(false);
+  const done = steps.filter((s) => s.state === 'done').length;
+  const halted = steps.some((s) => s.state === 'halted');
+  const summary = halted
+    ? `Stopped after ${done} of ${steps.length} actions`
+    : done === steps.length
+      ? `Ran ${steps.length} actions`
+      : `${done} of ${steps.length} actions completed`;
+
+  return (
+    <div className="max-w-[85%]">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'text-foreground-subtle hover:text-foreground duration-fast -ml-1.5 flex items-center gap-1.5',
+          'rounded-md px-1.5 py-1 text-xs transition',
+          'focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2',
+        )}
+      >
+        <Icons.ChevronRight
+          className={cn('duration-fast h-3.5 w-3.5 transition-transform', open && 'rotate-90')}
+        />
+        {summary}
+      </button>
+      {open && (
+        <ol className="border-border atlas-reply-in ml-[5px] mt-1 border-l pl-3.5">
+          {steps.map((step, i) => {
+            const icon = STEP_ICON[step.state];
+            return (
+              <li key={i} className="flex items-baseline gap-2 py-1 text-xs">
+                <span aria-label={icon.label} className={cn('w-3 shrink-0 text-center', icon.className)}>
+                  {icon.glyph}
+                </span>
+                <span className="text-foreground">{step.label}</span>
+                {step.detail && step.state === 'failed' && (
+                  <span className="text-foreground-subtle truncate">{step.detail}</span>
+                )}
+                {step.state !== 'done' && step.state !== 'failed' && (
+                  <span className="text-foreground-subtle">{icon.label.toLowerCase()}</span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
   );
 }

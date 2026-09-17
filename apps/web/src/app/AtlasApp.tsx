@@ -26,6 +26,7 @@ import type {
 } from '@atlas/core';
 import {
   DEFAULT_EXECUTION_MODE,
+  DEFAULT_HALT_SHORTCUT,
   DEFAULT_LISTENING,
   DEFAULT_SPEECH,
   nextExecutionMode,
@@ -217,7 +218,49 @@ function Ready({
     speechForScreen,
     voice.speak,
     executionMode,
+    // A halt silences Atlas too. Talking on about a task that was just
+    // emergency-stopped would read as not having stopped.
+    voice.stop,
   );
+
+  /**
+   * The stop key as Windows has it registered, for the composer's hint and
+   * button label. Re-read whenever Settings closes, since that is where it
+   * changes.
+   */
+  const [stopKey, setStopKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!platform.halt) {
+      setStopKey(DEFAULT_HALT_SHORTCUT);
+      return;
+    }
+    if (screen === 'settings') return;
+    let alive = true;
+    void platform.halt
+      .status()
+      .then((status) => alive && setStopKey(status.shortcut.active))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [platform, screen]);
+
+  /**
+   * The browser build has no native key, so the default one works while the
+   * page has focus. The desktop build must not listen here: Windows delivers
+   * the registered key to the shell, and a second handler would halt twice.
+   */
+  const requestHalt = atlas.requestHalt;
+  useEffect(() => {
+    if (platform.halt) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== DEFAULT_HALT_SHORTCUT) return;
+      e.preventDefault();
+      requestHalt();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [platform, requestHalt]);
 
   /**
    * Written and reloaded rather than mirrored in local state — same reasoning
@@ -655,6 +698,10 @@ function Ready({
                 : undefined
             }
             dictated={dictated}
+            onStop={atlas.requestHalt}
+            stopKey={stopKey}
+            halted={atlas.halt !== null}
+            onResume={() => void atlas.resume()}
           />
         ) : (
           <Settings

@@ -13,6 +13,8 @@
  * result the engine can proceed without.
  */
 
+import type { HaltSignal } from '../models/halt';
+
 /**
  * The providers Atlas knows about.
  *
@@ -47,7 +49,12 @@ export interface IntelligenceProvider {
   isConfigured(): boolean;
   /** True for providers that run on this machine and send nothing outward. */
   isLocal(): boolean;
-  ask(prompt: string, handlers: ProviderStreamHandlers): void;
+  /**
+   * `signal` aborts on an emergency stop. The native side already drops the
+   * request itself; a provider uses the signal to stop delivering to
+   * handlers nobody is listening to any more.
+   */
+  ask(prompt: string, handlers: ProviderStreamHandlers, options?: { signal?: HaltSignal }): void;
   /** Opens whatever UI configures this provider. */
   configure?(): void;
 }

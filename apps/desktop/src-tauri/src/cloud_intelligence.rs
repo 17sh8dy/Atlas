@@ -328,8 +328,14 @@ async fn ask_gemini(
 
 // ---- the one command --------------------------------------------------------------
 
+/// Raced against the emergency stop: a halt drops the request mid-flight,
+/// which closes the connection — see `halt::Halt::race`.
 #[tauri::command]
-pub async fn ask_cloud_provider(
+pub async fn ask_cloud_provider(provider_id: String, kind: CloudProviderKind, base_url: String, model: String, prompt: String) -> Result<String, String> {
+    crate::halt::global().race(ask_cloud_provider_unraced(provider_id, kind, base_url, model, prompt)).await
+}
+
+async fn ask_cloud_provider_unraced(
     provider_id: String,
     kind: CloudProviderKind,
     base_url: String,

@@ -102,3 +102,73 @@ html[data-effects='enhanced'] .atlas-enhance:focus-within::before {
 html[data-effects='enhanced'] .atlas-enhance:active {
   transform: translateY(0) scale(0.99);
 }
+
+/* ── Text & colors ─────────────────────────────────────────────────────────
+ * Personalization's reading preferences, set as variables on the root by
+ * `app/text-style.tsx`. Each falls back to exactly what the transcript used
+ * before the setting existed (the theme's foreground, 14px), so an untouched
+ * setting renders pixel-identical to the old transcript.
+ */
+.atlas-reply {
+  color: rgb(var(--atlas-reply-color, var(--color-foreground)));
+  font-size: var(--atlas-reading-size, 0.875rem);
+}
+
+.atlas-you {
+  font-size: var(--atlas-reading-size, 0.875rem);
+}
+
+/* Your messages, "Subtle": a quiet card instead of a block of accent colour. */
+html[data-your-messages='subtle'] .atlas-you {
+  background: rgb(var(--color-surface-raised));
+  background-image: none;
+  color: rgb(var(--color-foreground));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-border));
+}
+
+/* Reply arrival. Opacity only for words — no movement, so a paragraph being
+ * written never shimmers — and a short lift for the whole-reply fade. */
+@keyframes atlas-word-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.atlas-word-in {
+  animation: atlas-word-in 220ms var(--ease-out) both;
+}
+
+@keyframes atlas-reply-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.atlas-reply-in {
+  animation: atlas-reply-in 280ms var(--ease-out) both;
+}
+
+.atlas-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atlas-word-in,
+  .atlas-reply-in {
+    animation: none;
+  }
+}

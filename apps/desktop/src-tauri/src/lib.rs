@@ -19,6 +19,8 @@ mod devtools;
 mod disk_usage;
 #[cfg(windows)]
 mod environment;
+#[cfg(windows)]
+mod halt;
 mod intelligence;
 #[cfg(windows)]
 mod net;
@@ -164,6 +166,10 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             capabilities,
+            halt::halt_now,
+            halt::halt_status,
+            halt::halt_reset,
+            halt::set_halt_shortcut,
             show_window,
             hide_window,
             toggle_window,
@@ -287,6 +293,19 @@ pub fn run() {
             .ok()
             .flatten()
             .and_then(|v| serde_json::from_value(v).ok());
+            // The emergency stop, before anything else that can act. Its own
+            // thread and its own hotkey registration — see halt.rs for why it
+            // must not share the event loop with the summon key below.
+            let saved_stop_key: Option<String> = storage::storage_get(
+                handle.clone(),
+                handle.state::<StorageState>(),
+                halt::SHORTCUT_STORAGE_KEY.to_string(),
+            )
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_str().map(str::to_string));
+            halt::start(handle.clone(), saved_stop_key);
+
             let dropped = allowed_folders::init(saved);
             if !dropped.is_empty() {
                 diagnostics::log_diagnostic(

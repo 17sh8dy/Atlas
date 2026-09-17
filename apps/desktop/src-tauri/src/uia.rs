@@ -235,6 +235,9 @@ pub async fn uia_focused_element() -> Result<Option<UiaNode>, String> {
 
 #[tauri::command]
 pub async fn uia_invoke(window_id: String, path: Vec<i32>) -> Result<bool, String> {
+    // Emergency stop: refuse before acting, even if this call was already
+    // on its way when the halt landed. See halt.rs.
+    crate::halt::global().check()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _com = ComGuard::new()?;
         let ui = automation()?;
@@ -267,6 +270,7 @@ pub async fn uia_invoke(window_id: String, path: Vec<i32>) -> Result<bool, Strin
 
 #[tauri::command]
 pub async fn uia_set_expanded(window_id: String, path: Vec<i32>, expand: bool) -> Result<bool, String> {
+    crate::halt::global().check()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _com = ComGuard::new()?;
         let ui = automation()?;
@@ -295,6 +299,7 @@ pub async fn uia_set_expanded(window_id: String, path: Vec<i32>, expand: bool) -
 /// falls back to focus-plus-keystrokes (`input.rs`) only when this fails.
 #[tauri::command]
 pub async fn uia_set_value(window_id: String, path: Vec<i32>, value: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _com = ComGuard::new()?;
         let ui = automation()?;
@@ -314,6 +319,7 @@ pub async fn uia_set_value(window_id: String, path: Vec<i32>, value: String) -> 
 /// path before it hands off to `input.rs`.
 #[tauri::command]
 pub async fn uia_focus(window_id: String, path: Vec<i32>) -> Result<bool, String> {
+    crate::halt::global().check()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _com = ComGuard::new()?;
         let ui = automation()?;

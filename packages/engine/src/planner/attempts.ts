@@ -72,12 +72,17 @@ export interface AttemptsLog<T> {
  * Run strategies in order until one commits (`final: true`) or the list —
  * capped at `MAX_ATTEMPTS` — is exhausted.
  */
-export async function attemptGoal<T>(strategies: readonly Attempt<T>[]): Promise<AttemptsLog<T>> {
+export async function attemptGoal<T>(
+  strategies: readonly Attempt<T>[],
+  /** The emergency stop: no further strategy starts once it aborts. */
+  signal?: { readonly aborted: boolean },
+): Promise<AttemptsLog<T>> {
   const bounded = strategies.slice(0, MAX_ATTEMPTS);
   const tried: string[] = [];
   let last: SkillResult<T> = { ok: false, error: 'Nothing relevant to try.' };
 
   for (const strategy of bounded) {
+    if (signal?.aborted) break;
     tried.push(strategy.id);
     const outcome = await strategy.run();
     last = outcome.result;

@@ -20,6 +20,15 @@
  * desktop window, a command bar, a tray popover and a test all drive the same
  * engine without it knowing which. Adding a surface means supplying an io, not
  * changing anything here.
+ *
+ * ── Halting ─────────────────────────────────────────────────────────────────
+ * `halt()` aborts every run in flight. It is not how the emergency stop
+ * *works* — that happens natively, below this, before this method is even
+ * called (see `models/halt.ts` in `@atlas/core`). It is how the engine stops
+ * *thinking about* what was just stopped: no further step, no further model
+ * call, no reply to a request the person has already abandoned. Every wait
+ * goes through `untilHalted`, so a run ends within a turn of the event loop
+ * whatever it was waiting on.
  */
 
 import type {
@@ -34,7 +43,8 @@ import type {
   SkillContext,
   VoiceProfile,
 } from '@atlas/core';
-import { DEFAULT_EXECUTION_MODE } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE, HaltController, HaltedError, untilHalted } from '@atlas/core';
+import type { HaltSignal } from '@atlas/core';
 import { Bus } from './bus';
 import { Grammar } from './planner/grammar';
 import { Executor } from './planner/executor';
@@ -45,6 +55,7 @@ import { buildAugmentedPrompt, formatSourcesFooter, needsWebSearch, runSearch } 
 import { refusalFor, screenRequest } from './safety/content-policy';
 import { normalizeRequest } from './text/normalize';
 import { readSmallTalk } from './text/smalltalk';
+import { correctLeadingVerb } from './text/verb-typo';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -62,6 +73,7 @@ export interface EngineIO {
 
 export type AskOutcome =
   | { ok: boolean; mode: 'command'; plan: Plan; outcome: PlanOutcome }
+  | { ok: false; mode: 'halted' }
   | { ok: boolean; mode: 'chat'; text?: string; error?: string };
 
 export interface EngineOptions {
@@ -108,6 +120,8 @@ export class Engine {
   private readonly phrasing: Phrasing;
   private readonly getExecutionMode: () => ExecutionMode;
   private readonly isPreapproved?: (skill: Skill, args: SkillArgs) => Promise<boolean>;
+  /** One per run in flight. A Set because `run` (a button) can overlap `ask`. */
+  private readonly live = new Set<HaltController>();
 
   constructor(options: EngineOptions) {
     this.skills = options.skills;
@@ -123,16 +137,37 @@ export class Engine {
   }
 
   /** The one thing every `executor.run(...)` call site below shares. */
-  private executorOptions() {
-    return { mode: this.getExecutionMode(), isPreapproved: this.isPreapproved };
+  private executorOptions(signal: HaltSignal) {
+    return { mode: this.getExecutionMode(), isPreapproved: this.isPreapproved, signal };
+  }
+
+  /** Stop every run in flight. See "Halting" in this file's header. */
+  halt(): void {
+    const running = [...this.live];
+    this.live.clear();
+    for (const controller of running) controller.abort();
+    this.bus.emit('engine:halted', { runs: running.length });
   }
 
   async ask(text: string, io: EngineIO): Promise<AskOutcome> {
     const raw = String(text ?? '').trim();
     if (!raw) return { ok: false, mode: 'chat', error: 'empty' };
 
+    const controller = new HaltController();
+    this.live.add(controller);
+    try {
+      return await this.askWith(raw, io, controller.signal);
+    } catch (err) {
+      if (err instanceof HaltedError) return { ok: false, mode: 'halted' };
+      throw err;
+    } finally {
+      this.live.delete(controller);
+    }
+  }
+
+  private async askWith(raw: string, io: EngineIO, signal: HaltSignal): Promise<AskOutcome> {
     this.bus.emit('engine:ask', { text: raw });
-    const ctx = this.context(io);
+    const ctx = this.context(io, signal);
 
     // 1. Grammar — the fast path. Parsing is pure: it reads the text and
     //    builds a plan object, and nothing runs until the executor is handed
@@ -161,6 +196,31 @@ export class Engine {
       }
     }
 
+    // 1c. Third attempt: an obvious typo in the leading word only — "openn
+    //     fortnite", "launh discord" — corrected against the closed
+    //     instruction-verb vocabulary and re-parsed through the same rules
+    //     a correctly-spelled verb would have reached. See
+    //     `text/verb-typo.ts` for why this is safe: it only ever resolves to
+    //     one unambiguous verb, never changes which verb was meant, and runs
+    //     before any rule (and therefore any risk check) sees the text —
+    //     a typo'd "delete" still reaches `file.delete` with its usual
+    //     confirmation gate, exactly as if it had been spelled correctly.
+    //
+    //     Runs on whichever text got this far — the filler-stripped version
+    //     when there was filler to strip, the raw text otherwise — since the
+    //     verb is only ever the first word once a leading greeting is gone.
+    const verbCorrected = correctLeadingVerb(didNormalize ? normalized : raw);
+    if (!matched && verbCorrected) {
+      // Set even if the retry below still doesn't match anything — rare,
+      // since a corrected verb almost always completes a rule, but when it
+      // doesn't, the corrected text is still more useful than the original
+      // typo to whatever reads `understood` next: the AI planner, or the
+      // clarifying question in `unresolvedReply`.
+      understood = verbCorrected;
+      const retry = this.grammar.parse(verbCorrected);
+      if (retry) matched = retry;
+    }
+
     // 2. Content policy. Placed here, between understanding the request and
     //    executing anything, because a refusal has to happen before the first
     //    keystroke reaches a search box — not after the browser is already
@@ -171,7 +231,8 @@ export class Engine {
     const actionable =
       Boolean(matched) ||
       this.grammar.looksActionable(raw) ||
-      (didNormalize && this.grammar.looksActionable(normalized));
+      (didNormalize && this.grammar.looksActionable(normalized)) ||
+      Boolean(verbCorrected && this.grammar.looksActionable(verbCorrected));
     // Screened on the raw text as well as the tidied one, so filler can never
     // be a way to smuggle something past the check.
     const screened = screenRequest(raw, actionable);
@@ -185,8 +246,9 @@ export class Engine {
     }
 
     if (matched && matched.confidence >= this.threshold) {
-      const outcome = await this.executor.run(matched, ctx, this.executorOptions());
+      const outcome = await this.executor.run(matched, ctx, this.executorOptions(signal));
       this.bus.emit('engine:done', { mode: 'command', plan: matched, outcome });
+      if (outcome.halted) throw new HaltedError();
       return { ok: outcome.ok, mode: 'command', plan: matched, outcome };
     }
 
@@ -194,10 +256,11 @@ export class Engine {
     //    how assistants end up trying to "run" a question.
     const instruction = actionable && !this.isQuestion(raw);
     if (instruction) {
-      const proposed = await this.planWithAI(understood);
+      const proposed = await this.planWithAI(understood, signal);
       if (proposed) {
-        const outcome = await this.executor.run(proposed, ctx, this.executorOptions());
+        const outcome = await this.executor.run(proposed, ctx, this.executorOptions(signal));
         this.bus.emit('engine:done', { mode: 'command', plan: proposed, outcome });
+        if (outcome.halted) throw new HaltedError();
         return { ok: outcome.ok, mode: 'command', plan: proposed, outcome };
       }
     }
@@ -232,7 +295,7 @@ export class Engine {
     }
 
     // 4. Conversation.
-    return this.converse(understood, io, ctx);
+    return this.converse(understood, io, ctx, signal);
   }
 
   /** Question-shaped, and therefore conversation rather than an instruction. */
@@ -242,11 +305,22 @@ export class Engine {
 
   /** Run a plan built elsewhere — a button, a result row, a saved routine. */
   async run(plan: Plan, io: EngineIO): Promise<PlanOutcome> {
-    return this.executor.run(plan, this.context(io), this.executorOptions());
+    const controller = new HaltController();
+    this.live.add(controller);
+    try {
+      return await this.executor.run(
+        plan,
+        this.context(io, controller.signal),
+        this.executorOptions(controller.signal),
+      );
+    } finally {
+      this.live.delete(controller);
+    }
   }
 
-  private context(io: EngineIO): SkillContext {
+  private context(io: EngineIO, signal: HaltSignal): SkillContext {
     return {
+      signal,
       say: (t: string, options?: { aloud?: boolean }) => io.say(t, options),
       confirm: (q: string, d?: string) => io.confirm(q, d),
       showResults: (items, meta) => {
@@ -267,7 +341,7 @@ export class Engine {
    * half-run plan, so the bar for accepting one is: it validates completely,
    * or it isn't a plan.
    */
-  private async planWithAI(text: string): Promise<Plan | null> {
+  private async planWithAI(text: string, signal: HaltSignal): Promise<Plan | null> {
     const provider = this.intelligence?.active();
     if (!provider) return null;
 
@@ -280,7 +354,7 @@ export class Engine {
       `Request: ${text}`,
     ].join('\n');
 
-    const reply = await new Promise<string | null>((resolve) => {
+    const asked = new Promise<string | null>((resolve) => {
       let settled = false;
       const finish = (v: string | null) => {
         if (!settled) {
@@ -288,12 +362,17 @@ export class Engine {
           resolve(v);
         }
       };
-      provider.ask(prompt, {
-        onDelta: () => {},
-        onDone: (full) => finish(full),
-        onError: () => finish(null),
-      });
+      provider.ask(
+        prompt,
+        {
+          onDelta: () => {},
+          onDone: (full) => finish(full),
+          onError: () => finish(null),
+        },
+        { signal },
+      );
     });
+    const reply = await untilHalted(asked, signal);
     if (!reply) return null;
 
     let parsed: unknown;
@@ -329,7 +408,12 @@ export class Engine {
    * gets a search first — this is what makes "what happened in the latest
    * Fortnite update?" work, since no model's training data has that.
    */
-  private async converse(text: string, io: EngineIO, ctx: SkillContext): Promise<AskOutcome> {
+  private async converse(
+    text: string,
+    io: EngineIO,
+    ctx: SkillContext,
+    signal: HaltSignal,
+  ): Promise<AskOutcome> {
     const provider = this.intelligence?.active();
     const searchSkill = this.skills.get('research.search');
     const canSearch = searchSkill ? this.skills.isAvailable(searchSkill) : false;
@@ -339,7 +423,7 @@ export class Engine {
       // into an actual answer — with a provider, the synthesized reply plus
       // its sources footer *is* the answer, and showing both would be noise.
       const searchCtx: SkillContext = provider ? { ...ctx, showResults: undefined } : ctx;
-      const results = await runSearch(text, this.skills, searchCtx);
+      const results = await untilHalted(runSearch(text, this.skills, searchCtx), signal);
 
       if (results.length) {
         if (provider) {
@@ -347,6 +431,7 @@ export class Engine {
             provider,
             buildAugmentedPrompt(text, results),
             io,
+            signal,
             formatSourcesFooter(results),
           );
         }
@@ -364,35 +449,64 @@ export class Engine {
       return { ok: false, mode: 'chat', error: 'not-configured' };
     }
 
-    return this.converseWithProvider(provider, text, io);
+    return this.converseWithProvider(provider, text, io, signal);
   }
 
   private async converseWithProvider(
     provider: IntelligenceProvider,
     promptText: string,
     io: EngineIO,
+    signal: HaltSignal,
     sourcesFooter = '',
   ): Promise<AskOutcome> {
     io.typing?.(true);
-    return new Promise<AskOutcome>((resolve) => {
+    return new Promise<AskOutcome>((resolve, reject) => {
       let stream: ReturnType<NonNullable<EngineIO['stream']>> = null;
+      let soFar = '';
+      let over = false;
 
-      provider.ask(promptText, {
-        onDelta: (chunk) => {
+      // A halted reply keeps what had already arrived (it was on screen, and
+      // taking it back would be stranger than leaving it) but gets nothing
+      // more, and the provider's late onDone is ignored.
+      const onHalt = () => {
+        if (over) return;
+        over = true;
+        io.typing?.(false);
+        stream?.finish(soFar);
+        reject(new HaltedError());
+      };
+      if (signal.aborted) {
+        onHalt();
+        return;
+      }
+      signal.addEventListener('abort', onHalt, { once: true });
+      const settle = () => {
+        over = true;
+        signal.removeEventListener('abort', onHalt);
+      };
+
+      const handlers = {
+        onDelta: (chunk: string) => {
+          if (over) return;
+          soFar += chunk;
           if (!stream) {
             io.typing?.(false);
             stream = io.stream?.() ?? null;
           }
           stream?.append(chunk);
         },
-        onDone: (full) => {
+        onDone: (full: string) => {
+          if (over) return;
+          settle();
           io.typing?.(false);
           const withSources = sourcesFooter ? full + sourcesFooter : full;
           if (stream) stream.finish(withSources);
           else if (withSources) io.say(withSources);
           resolve({ ok: true, mode: 'chat', text: withSources });
         },
-        onError: (reason) => {
+        onError: (reason: string) => {
+          if (over) return;
+          settle();
           io.typing?.(false);
           // 'not-configured'/'offline' are the two sentinel reasons this
           // interface always understood; anything else is a real provider
@@ -405,7 +519,8 @@ export class Engine {
           } else io.say(`⚠️ ${reason}`);
           resolve({ ok: false, mode: 'chat', error: reason });
         },
-      });
+      };
+      provider.ask(promptText, handlers, { signal });
     });
   }
 

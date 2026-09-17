@@ -53,6 +53,11 @@ interface Props {
   /** Passed through to the composer; absent when this build cannot listen. */
   dictation?: { active: boolean; transcribing: boolean; onToggle(): void };
   dictated?: { text: string; at: number } | null;
+  /** The emergency stop — see `Composer`. */
+  onStop?(): void;
+  stopKey?: string | null;
+  halted?: boolean;
+  onResume?(): void;
 }
 
 export function Conversation({
@@ -71,6 +76,10 @@ export function Conversation({
   onCycleExecutionMode,
   dictation,
   dictated,
+  onStop,
+  stopKey,
+  halted,
+  onResume,
 }: Props) {
   // A Home card was clicked: its starter text (possibly '') goes into the
   // composer and takes focus. `at` forces the effect in `Composer` to fire
@@ -109,6 +118,10 @@ export function Conversation({
         dictation={dictation}
         dictated={dictated}
         prefill={prefill}
+        onStop={onStop}
+        stopKey={stopKey}
+        halted={halted}
+        onResume={onResume}
       />
     </div>
   );
@@ -155,17 +168,25 @@ function EmptyState({
       <HomeBackdrop />
 
       <div className="relative z-10 flex w-full flex-col items-center">
-        <div className="accent-surface text-primary-foreground mb-3 grid h-10 w-10 place-items-center rounded-xl">
+        <div className="accent-surface text-primary-foreground mb-4 grid h-11 w-11 place-items-center rounded-xl">
           <AtlasMark className="h-5 w-5" />
         </div>
 
-        <h1 className="text-foreground text-base font-semibold tracking-tight">{atlasName}</h1>
-        <p className="text-foreground-muted mt-1 text-xs">Your personal computer companion</p>
-        <p className="text-foreground mt-3 max-w-md text-center text-sm leading-relaxed">
+        {/*
+          The invitation ("What are you working on?") is the thing this screen
+          is for — everything above it is supporting context, not competing
+          for the eye. Identity and subtitle are one small, quiet line; the
+          greeting itself carries the weight, in size and spacing rather than
+          a border or a card.
+        */}
+        <h1 className="text-foreground-subtle text-xs font-medium tracking-wide">
+          {atlasName} <span aria-hidden="true">·</span> Your personal computer companion
+        </h1>
+        <p className="text-foreground mt-3 max-w-lg text-center text-2xl font-semibold leading-snug tracking-tight">
           {greeting}
         </p>
 
-        <div className="mt-7 w-full max-w-md">
+        <div className="mt-8 w-full max-w-lg">
           {/* `null` while the first read is in flight — rendering nothing for
               that instant beats flashing the empty state and then replacing
               it with real rows a moment later. */}

@@ -217,6 +217,9 @@ pub async fn set_environment_variable(
     value: String,
     scope: String,
 ) -> Result<bool, String> {
+    // Emergency stop: refuse before acting, even if this call was already
+    // on its way when the halt landed. See halt.rs.
+    crate::halt::global().check()?;
     if !is_valid_name(&name) {
         return Err(format!("\u{201c}{name}\u{201d} isn't a valid variable name."));
     }
@@ -235,6 +238,7 @@ pub async fn set_environment_variable(
 
 #[tauri::command]
 pub async fn delete_environment_variable(name: String, scope: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     if !is_valid_name(&name) {
         return Err(format!("\u{201c}{name}\u{201d} isn't a valid variable name."));
     }

@@ -42,6 +42,15 @@ use std::process::Command;
 
 use serde::Serialize;
 
+// ── Every process here runs under `crate::halt` ─────────────────────────────
+// `Halt::run` replaces `Command::output()` throughout, so an emergency stop can
+// end a build or a test run mid-way — Ctrl+C first, then its whole Job Object.
+//
+// And every command that runs one is `#[tauri::command(async)]`. A plain
+// synchronous command runs on Tauri's main thread, which is also the event
+// loop: a ten-minute `cargo test` used to freeze the whole window for ten
+// minutes, including every button that could have stopped it.
+
 #[cfg(windows)]
 fn no_window(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -317,7 +326,7 @@ fn parse_ripgrep(root: &Path, output: &str) -> Vec<SearchMatch> {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn code_search(cwd: String, query: String, glob: Option<String>, limit: Option<u32>) -> Result<Vec<SearchMatch>, String> {
     let root = permitted_dir(&cwd)?;
     let query = query.trim();
@@ -341,7 +350,7 @@ pub fn code_search(cwd: String, query: String, glob: Option<String>, limit: Opti
     #[cfg(windows)]
     no_window(&mut cmd);
 
-    match cmd.output() {
+    match crate::halt::global().run(cmd) {
         Ok(out) => {
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
             let mut matches = parse_ripgrep(&root, &text);
@@ -351,7 +360,7 @@ pub fn code_search(cwd: String, query: String, glob: Option<String>, limit: Opti
         Err(e) if e.kind() == ErrorKind::NotFound => {
             Ok(search_fallback(&root, query, cap))
         }
-        Err(e) => Err(format!("Couldn't search: {e}")),
+        Err(e) => Err(crate::halt::describe(&e, || format!("Couldn't search: {e}"))),
     }
 }
 
@@ -379,7 +388,9 @@ fn run_git(root: &Path, args: &[&str]) -> Result<(bool, String, String), String>
     cmd.current_dir(root).args(args);
     #[cfg(windows)]
     no_window(&mut cmd);
-    let out = cmd.output().map_err(|e| format!("Couldn't run git: {e}"))?;
+    let out = crate::halt::global()
+        .run(cmd)
+        .map_err(|e| crate::halt::describe(&e, || format!("Couldn't run git: {e}")))?;
     Ok((
         out.status.success(),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -429,7 +440,7 @@ fn parse_status(text: &str) -> GitStatus {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_status(cwd: String) -> Result<GitStatus, String> {
     let root = permitted_dir(&cwd)?;
     let (ok, out, err) = run_git(&root, &["status", "--porcelain=v1", "-b"])?;
@@ -450,7 +461,7 @@ fn truncate_output(mut s: String) -> (String, bool) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_diff(cwd: String, path: Option<String>) -> Result<String, String> {
     let root = permitted_dir(&cwd)?;
     let mut args = vec!["diff"];
@@ -478,7 +489,7 @@ fn parse_log(text: &str) -> Vec<GitLogEntry> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_log(cwd: String, limit: Option<u32>) -> Result<Vec<GitLogEntry>, String> {
     let root = permitted_dir(&cwd)?;
     let n = limit.unwrap_or(20).min(200).to_string();
@@ -494,8 +505,11 @@ pub fn git_log(cwd: String, limit: Option<u32>) -> Result<Vec<GitLogEntry>, Stri
 
 // ---- git (writes — confirm-tier at the skill layer) ---------------------------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_add(cwd: String, path: String) -> Result<bool, String> {
+    // Emergency stop: refuse before acting, even if this call was already
+    // on its way when the halt landed. See halt.rs.
+    crate::halt::global().check()?;
     let root = permitted_dir(&cwd)?;
     let (ok, _out, err) = run_git(&root, &["add", "--", &path])?;
     if !ok {
@@ -504,8 +518,9 @@ pub fn git_add(cwd: String, path: String) -> Result<bool, String> {
     Ok(true)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_commit(cwd: String, message: String) -> Result<String, String> {
+    crate::halt::global().check()?;
     let root = permitted_dir(&cwd)?;
     if message.trim().is_empty() {
         return Err("A commit needs a message.".into());
@@ -555,9 +570,9 @@ fn run_direct(root: &Path, program: &str, args: &[&str]) -> Result<ToolResult, S
     cmd.current_dir(root).args(args);
     #[cfg(windows)]
     no_window(&mut cmd);
-    let out = cmd
-        .output()
-        .map_err(|e| format!("Couldn't run {program}: {e} (is it installed and on PATH?)"))?;
+    let out = crate::halt::global().run(cmd).map_err(|e| {
+        crate::halt::describe(&e, || format!("Couldn't run {program}: {e} (is it installed and on PATH?)"))
+    })?;
     let (stdout, t1) = truncate_output(String::from_utf8_lossy(&out.stdout).into_owned());
     let (stderr, t2) = truncate_output(String::from_utf8_lossy(&out.stderr).into_owned());
     Ok(ToolResult { ok: out.status.success(), stdout, stderr, exit_code: out.status.code(), truncated: t1 || t2 })
@@ -580,9 +595,9 @@ fn run_npm_or_pnpm(root: &Path, manager: &str, verb: &str, script: Option<&str>)
         let mut cmd = Command::new("cmd");
         cmd.current_dir(root).arg("/C").arg(&line);
         no_window(&mut cmd);
-        let out = cmd
-            .output()
-            .map_err(|e| format!("Couldn't run {manager}: {e} (is it installed and on PATH?)"))?;
+        let out = crate::halt::global().run(cmd).map_err(|e| {
+            crate::halt::describe(&e, || format!("Couldn't run {manager}: {e} (is it installed and on PATH?)"))
+        })?;
         let (stdout, t1) = truncate_output(String::from_utf8_lossy(&out.stdout).into_owned());
         let (stderr, t2) = truncate_output(String::from_utf8_lossy(&out.stderr).into_owned());
         Ok(ToolResult { ok: out.status.success(), stdout, stderr, exit_code: out.status.code(), truncated: t1 || t2 })
@@ -608,8 +623,9 @@ fn npm_script_exists(root: &Path, script: &str) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn run_devtool(cwd: String, tool: DevTool, arg: Option<String>) -> Result<ToolResult, String> {
+    crate::halt::global().check()?;
     let root = permitted_dir(&cwd)?;
     let arg = arg.filter(|a| !a.is_empty());
     if let Some(a) = arg.as_deref() {
@@ -670,6 +686,7 @@ const MAX_WRITE_BYTES: usize = 2 * 1024 * 1024;
 
 #[tauri::command]
 pub fn write_text_file(path: String, content: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let p = permitted_file(&path)?;
     if !p.is_file() {
         return Err("That file doesn't exist yet — create it first.".into());
@@ -687,6 +704,7 @@ pub fn write_text_file(path: String, content: String) -> Result<bool, String> {
 /// overwrite.
 #[tauri::command]
 pub fn patch_text_file(path: String, find: String, replace: String, replace_all: Option<bool>) -> Result<String, String> {
+    crate::halt::global().check()?;
     let p = permitted_file(&path)?;
     if !p.is_file() {
         return Err("That file doesn't exist.".into());

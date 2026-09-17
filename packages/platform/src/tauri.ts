@@ -43,6 +43,8 @@ import type {
   SearchMatch,
   ToolResult,
   TreeEntry,
+  HaltEvent,
+  HaltStatus,
 } from '@atlas/core';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -264,6 +266,20 @@ export function createTauriPlatform(): Platform {
     windowsCompatibility: () => invoke<WindowsCompatibility>('windows_compatibility'),
 
     logDiagnostic: (scope, message) => invoke<void>('log_diagnostic', { scope, message }),
+
+    // The emergency stop. `onHalt` listens for the native event rather than
+    // for the button's own promise, so a halt from the key and a halt from the
+    // button reach the app through exactly the same path.
+    halt: {
+      now: () => invoke<number>('halt_now'),
+      status: () => invoke<HaltStatus>('halt_status'),
+      reset: (epoch) => invoke<boolean>('halt_reset', { epoch }),
+      setShortcut: (shortcut) => invoke<HaltStatus>('set_halt_shortcut', { shortcut }),
+      onHalt: async (listener) => {
+        const { listen } = await import('@tauri-apps/api/event');
+        return listen<HaltEvent>('atlas://halt', (event) => listener(event.payload));
+      },
+    },
   };
 }
 

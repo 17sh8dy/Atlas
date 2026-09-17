@@ -129,6 +129,9 @@ fn unicode_input(ch: u16, up: bool) -> INPUT {
 
 #[tauri::command]
 pub fn move_mouse(x: i32, y: i32) -> Result<bool, String> {
+    // Emergency stop: refuse before acting, even if this call was already
+    // on its way when the halt landed. See halt.rs.
+    crate::halt::global().check()?;
     let (cx, cy) = clamp_to_screen(x, y);
     let (nx, ny) = normalize(cx, cy);
     send(&[mouse_input(
@@ -174,6 +177,7 @@ fn button_flags(
 
 #[tauri::command]
 pub fn mouse_click(x: i32, y: i32, button: String, double: Option<bool>) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let (down, up) = button_flags(&button)?;
     let (cx, cy) = clamp_to_screen(x, y);
     let (nx, ny) = normalize(cx, cy);
@@ -190,6 +194,7 @@ pub fn mouse_click(x: i32, y: i32, button: String, double: Option<bool>) -> Resu
 
 #[tauri::command]
 pub fn mouse_scroll(amount: i32) -> Result<bool, String> {
+    crate::halt::global().check()?;
     // One notch is 120 units in Win32's own vocabulary; the argument is in
     // notches so a caller never has to know that.
     let delta = amount.clamp(-20, 20) * 120;
@@ -199,6 +204,7 @@ pub fn mouse_scroll(amount: i32) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn mouse_drag(from_x: i32, from_y: i32, to_x: i32, to_y: i32, button: Option<String>) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let (down, up) = button_flags(button.as_deref().unwrap_or("left"))?;
     let (fx, fy) = normalize(clamp_to_screen(from_x, from_y).0, clamp_to_screen(from_x, from_y).1);
     let (tx, ty) = normalize(clamp_to_screen(to_x, to_y).0, clamp_to_screen(to_x, to_y).1);
@@ -283,6 +289,7 @@ fn modifier_key(name: &str) -> Option<VIRTUAL_KEY> {
 
 #[tauri::command]
 pub fn press_key(key: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let vk = named_key(&key).ok_or_else(|| format!("No key called “{key}”."))?;
     send(&[
         key_input(vk, KEYBD_EVENT_FLAGS(0)),
@@ -293,6 +300,7 @@ pub fn press_key(key: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn hotkey(modifiers: Vec<String>, key: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     if modifiers.len() > 3 {
         return Err("That's too many modifier keys.".into());
     }
@@ -334,6 +342,7 @@ pub fn hotkey(modifiers: Vec<String>, key: String) -> Result<bool, String> {
 /// render, independent of whatever keyboard layout is actually active.
 #[tauri::command]
 pub fn type_text(text: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     const MAX_CHARS: usize = 4000;
     if text.chars().count() > MAX_CHARS {
         return Err("That's too much text to type in one go.".into());

@@ -51,6 +51,17 @@
  * `skill.guard` and the registry's own capability/allowed-folder checks still
  * run exactly as before; this only decides whether the question gets asked
  * first.
+ *
+ * ── The emergency stop ───────────────────────────────────────────────────────
+ * A fifth rule, above the other four: once `signal` aborts, nothing further
+ * starts. Every wait in `run` — a confirm card, the preapproval lookup, the
+ * step itself — goes through `untilHalted`, so the plan unwinds the moment the
+ * stop is pressed rather than when whatever it was waiting on finishes. The
+ * step in flight is abandoned, not awaited; the native side has already
+ * refused or killed anything it was doing. Every step that never ran is
+ * reported `skipped` with `halted: true` on the outcome, and nothing is said:
+ * the surface shows the halted state itself, and a line of apology after an
+ * emergency stop would be Atlas carrying on talking.
  */
 
 import type {
@@ -63,7 +74,8 @@ import type {
   SkillRisk,
   StepOutcome,
 } from '@atlas/core';
-import { DEFAULT_EXECUTION_MODE } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE, HaltedError, untilHalted } from '@atlas/core';
+import type { HaltSignal } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { refusalFor, screenPlan } from '../safety/content-policy';
@@ -82,6 +94,8 @@ export interface ExecutorOptions {
    * asking stays true without touching a single one of them).
    */
   isPreapproved?(skill: Skill, args: SkillArgs): Promise<boolean>;
+  /** The emergency stop. Defaults to `ctx.signal`. */
+  signal?: HaltSignal;
 }
 
 /**
@@ -105,9 +119,38 @@ export class Executor {
   }
 
   async run(plan: Plan, ctx: SkillContext, options: ExecutorOptions = {}): Promise<PlanOutcome> {
+    const signal = options.signal ?? ctx.signal;
+    const outcomes: StepOutcome[] = [];
+    try {
+      return await this.runSteps(plan, { ...ctx, signal }, options, signal, outcomes);
+    } catch (err) {
+      if (!(err instanceof HaltedError)) throw err;
+      return {
+        ok: false,
+        ran: outcomes.filter((o) => o.ok).length,
+        outcomes: [
+          ...outcomes,
+          ...plan.steps
+            .slice(outcomes.length)
+            .map((s) => ({ skill: s.skill, ok: false, skipped: true, error: 'Halted.' })),
+        ],
+        aborted: true,
+        halted: true,
+      };
+    }
+  }
+
+  private async runSteps(
+    plan: Plan,
+    ctx: SkillContext,
+    options: ExecutorOptions,
+    signal: HaltSignal | undefined,
+    outcomes: StepOutcome[],
+  ): Promise<PlanOutcome> {
     const stopOnError = options.stopOnError !== false;
     const mode = options.mode ?? DEFAULT_EXECUTION_MODE;
-    const outcomes: StepOutcome[] = [];
+    const wait = <T>(work: Promise<T>) => untilHalted(work, signal);
+    if (signal?.aborted) throw new HaltedError();
 
     if (!plan.steps.length) {
       return { ok: false, ran: 0, outcomes, aborted: false };
@@ -164,7 +207,7 @@ export class Executor {
           };
         }),
       );
-      const approved = await ctx.confirm(question, detail);
+      const approved = await wait(ctx.confirm(question, detail));
       if (!approved) {
         ctx.say(this.phrasing.declined());
         return {
@@ -191,6 +234,7 @@ export class Executor {
 
     for (const step of plan.steps) {
       if (aborted) break;
+      if (signal?.aborted) throw new HaltedError();
 
       const skill = this.skills.get(step.skill);
       if (!skill) {
@@ -226,7 +270,9 @@ export class Executor {
         // without asking even though its risk is `confirm`. Checked only in
         // `doIt` — `confirmActions` picked "ask me anyway" and must keep
         // meaning that.
-        const preapproved = mode === 'doIt' && (await options.isPreapproved?.(skill, step.args));
+        const preapproved =
+          mode === 'doIt' &&
+          (await wait(options.isPreapproved?.(skill, step.args) ?? Promise.resolve(false)));
 
         if (!preapproved) {
           const argsDetail = Object.values(step.args)
@@ -235,7 +281,7 @@ export class Executor {
             .join(' · ');
 
           const { question, detail } = this.phrasing.confirmPrompt(skill.description, argsDetail);
-          const approved = await ctx.confirm(question, detail);
+          const approved = await wait(ctx.confirm(question, detail));
           if (!approved) {
             outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
             ctx.say(this.phrasing.declined());
@@ -245,7 +291,7 @@ export class Executor {
         }
       }
 
-      const result = await this.skills.invoke(step.skill, step.args, ctx);
+      const result = await wait(this.skills.invoke(step.skill, step.args, ctx));
       outcomes.push({
         skill: step.skill,
         ok: result.ok,

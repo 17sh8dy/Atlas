@@ -58,4 +58,6 @@ export interface PlanOutcome {
   outcomes: StepOutcome[];
   /** True when a failure or a refusal ended the plan early. */
   aborted: boolean;
+  /** True when the emergency stop ended it. Implies `aborted`. */
+  halted?: boolean;
 }

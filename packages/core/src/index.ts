@@ -35,6 +35,7 @@ export * from './models/environment';
 export * from './models/disk-usage';
 export * from './models/devtools';
 export * from './models/cloud-provider';
+export * from './models/halt';
 export * from './ports/platform';
 export * from './ports/intelligence';
 export * from './ports/storage';

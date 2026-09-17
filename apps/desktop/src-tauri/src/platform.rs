@@ -215,6 +215,9 @@ fn matches_kind(kind: &str, ext: &str, is_dir: bool) -> bool {
 
 #[tauri::command]
 pub fn open_path(path: String) -> Result<bool, String> {
+    // Emergency stop: refuse before acting, even if this call was already
+    // on its way when the halt landed. See halt.rs.
+    crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     if !is_permitted(&p) {
         return Err("That path is outside the folders Atlas can touch.".into());
@@ -224,6 +227,7 @@ pub fn open_path(path: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn reveal_path(path: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     if !is_permitted(&p) {
         return Err("That path is outside the folders Atlas can touch.".into());
@@ -234,6 +238,7 @@ pub fn reveal_path(path: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn open_url(url: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     // http(s) only. A `file://` or custom-scheme URL arriving here would be a
     // way to launch things the path checks above are meant to prevent.
     if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -526,6 +531,7 @@ fn collect_epic(out: &mut Vec<AppEntry>, seen: &mut Vec<String>) {
 
 #[tauri::command]
 pub fn launch_app(id: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     // Launch by *id*, resolved against the list above — never by an arbitrary
     // path handed in from the renderer. This is the difference between "open
     // one of these known applications" and "run whatever I say".
@@ -562,6 +568,7 @@ const MAX_READABLE_FILE_BYTES: u64 = 256 * 1024;
 
 #[tauri::command]
 pub fn create_file(path: String, content: Option<String>) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     if !is_permitted_for_create(&p) {
         return Err("That path is outside the folders Atlas can touch.".into());
@@ -575,6 +582,7 @@ pub fn create_file(path: String, content: Option<String>) -> Result<bool, String
 
 #[tauri::command]
 pub fn create_folder(path: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     if !is_permitted_for_create(&p) {
         return Err("That path is outside the folders Atlas can touch.".into());
@@ -588,6 +596,7 @@ pub fn create_folder(path: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn rename_path(path: String, new_name: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     if !is_permitted(&p) {
         return Err("That path is outside the folders Atlas can touch.".into());
@@ -608,6 +617,7 @@ pub fn rename_path(path: String, new_name: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn move_path(path: String, dest_dir: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     let dest = PathBuf::from(&dest_dir);
     if !is_permitted(&p) || !is_permitted(&dest) {
@@ -626,6 +636,7 @@ pub fn move_path(path: String, dest_dir: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn copy_path(path: String, dest_dir: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     let dest = PathBuf::from(&dest_dir);
     if !is_permitted(&p) || !is_permitted(&dest) {
@@ -647,6 +658,7 @@ pub fn copy_path(path: String, dest_dir: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn delete_path(path: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     if !is_permitted(&p) {
         return Err("That path is outside the folders Atlas can touch.".into());
@@ -723,6 +735,7 @@ pub fn path_info(path: String) -> Result<PathInfo, String> {
 
 #[tauri::command]
 pub fn append_file(path: String, content: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     use std::io::Write;
 
     let p = PathBuf::from(&path);
@@ -821,6 +834,7 @@ pub fn known_folder(id: String) -> Result<String, String> {
 
 #[tauri::command]
 pub fn open_system_tool(id: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     // Resolved against a fixed table, the same "known id, not an arbitrary
     // string" shape as `launch_app` — this is not a general launcher.
     let target = match id.as_str() {

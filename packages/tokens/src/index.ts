@@ -27,3 +27,5 @@ export {
   isAccentId,
 } from './accents';
 export type { AccentId, AccentScheme } from './accents';
+
+export * from './text-style';

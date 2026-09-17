@@ -27,7 +27,7 @@ fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// Keys are our own dot-namespaced convention (`atlas.theme`), not user
 /// content — validated the same way any input crossing from the renderer is,
 /// and it keeps the file human-diffable if anyone ever opens it.
-fn is_valid_key(key: &str) -> bool {
+pub(crate) fn is_valid_key(key: &str) -> bool {
     !key.is_empty()
         && key.len() <= 128
         && key

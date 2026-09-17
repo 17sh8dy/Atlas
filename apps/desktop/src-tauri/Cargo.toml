@@ -42,6 +42,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # `consume_sse` (intelligence.rs) uses to reassemble lines split across
 # network chunks.
 futures-util = "0.3"
+# halt.rs: `watch` wakes every in-flight request the instant a halt lands, and
+# `select!` drops the losing future — which is what actually closes a model's
+# connection mid-answer. Already in the tree via Tauri; this only names it.
+tokio = { version = "1", features = ["sync", "macros"] }
 scraper = "0.20"
 # screen.rs: encodes the raw BGRA buffer GDI hands back into PNG. GDI capture
 # is real, bug-prone work the ecosystem already solved correctly; writing a
@@ -110,10 +114,17 @@ windows = { version = "0.58", features = [
   # secrets.rs: CredWriteW/CredReadW/CredDeleteW — cloud provider API keys
   # live in Windows Credential Manager, never in storage.json.
   "Win32_Security_Credentials",
+  # halt.rs: every supervised tool runs in its own Job Object, so an emergency
+  # stop terminates the whole process tree (cmd → pnpm → node), not just the
+  # first process in it.
+  "Win32_System_JobObjects",
+  # halt.rs: Ctrl+C delivered to a tool's own console — the polite request
+  # that comes before terminating its job.
+  "Win32_System_Console",
 ] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [profile.release]
 # The premium bar for this app is "feels instant". These are the cheap wins:

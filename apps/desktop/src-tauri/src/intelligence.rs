@@ -114,8 +114,14 @@ struct CortexErrorBody {
 /// because that is not an error anyone needs a paragraph about — the renderer
 /// maps it onto `ProviderStreamHandlers`' `offline` reason and Atlas carries
 /// on with everything it can do without a model, which is nearly everything.
+/// Raced against the emergency stop: a halt drops the request mid-flight,
+/// which closes the connection — see `halt::Halt::race`.
 #[tauri::command]
 pub async fn ask_cortex(base_url: String, prompt: String) -> Result<String, String> {
+    crate::halt::global().race(ask_cortex_unraced(base_url, prompt)).await
+}
+
+async fn ask_cortex_unraced(base_url: String, prompt: String) -> Result<String, String> {
     validate_prompt(&prompt)?;
     let base = validate_base_url(&base_url)?;
     let client = http_client()?;
@@ -256,8 +262,14 @@ async fn consume_cortex_sse(
 /// flight; the call itself still resolves with the complete answer, so a
 /// caller that never subscribed to the channel still gets the right text —
 /// exactly the degrade-cleanly contract `providers.ts` already relies on.
+/// Raced against the emergency stop: a halt drops the request mid-flight,
+/// which closes the connection — see `halt::Halt::race`.
 #[tauri::command]
-pub async fn ask_cortex_stream(
+pub async fn ask_cortex_stream(app: tauri::AppHandle, base_url: String, prompt: String, stream_id: String) -> Result<String, String> {
+    crate::halt::global().race(ask_cortex_stream_unraced(app, base_url, prompt, stream_id)).await
+}
+
+async fn ask_cortex_stream_unraced(
     app: tauri::AppHandle,
     base_url: String,
     prompt: String,

@@ -24,6 +24,7 @@
 
 import type { SpeechOptions, SpeechVoice } from '../models/speech';
 import type { Transcript } from '../models/listening';
+import type { HaltEvent, HaltStatus } from '../models/halt';
 import type { NetworkAdapter, WifiStatus } from '../models/network';
 import type { ServiceAction, ServiceDetail, ServiceEntry, ServiceOutcome } from '../models/service';
 import type { EnvironmentScope, EnvVar } from '../models/environment';
@@ -540,4 +541,22 @@ export interface Platform {
    */
   searchWeb?(query: string): Promise<WebSearchResult[]>;
   fetchPage?(url: string): Promise<WebPage>;
+
+  /**
+   * The emergency stop, when this build has a native one — see
+   * `models/halt.ts` for why it lives below the engine rather than in it.
+   * Absent in the browser build, where the on-screen button still stops the
+   * engine but there is no global key and nothing native to latch.
+   */
+  halt?: {
+    /** Same path as the key: latch, cut requests, stop processes, emit. */
+    now(): Promise<number>;
+    status(): Promise<HaltStatus>;
+    /** Clear the latch for the halt with this epoch. False if a newer one happened. */
+    reset(epoch: number): Promise<boolean>;
+    /** Rebind the key. Rejects with the reason if Windows or the rules refuse it. */
+    setShortcut(shortcut: string): Promise<HaltStatus>;
+    /** Every halt, whichever way it was triggered. Resolves to an unsubscribe. */
+    onHalt(listener: (event: HaltEvent) => void): Promise<() => void>;
+  };
 }

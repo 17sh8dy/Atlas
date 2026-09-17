@@ -58,6 +58,18 @@ interface Props {
    * renders when there is nothing typed yet.
    */
   prefill?: { text: string; at: number } | null;
+  /**
+   * The emergency stop. The button is the backup, not the mechanism — the key
+   * works from anywhere, focused or not, and this is for when a mouse is
+   * already in hand. Absent props mean no stop is on offer (never the case in
+   * the app today, but a composer in a test needn't have one).
+   */
+  onStop?(): void;
+  /** The stop key Windows actually has registered, shown next to the button. */
+  stopKey?: string | null;
+  /** Atlas is halted: show it, and offer to carry on. */
+  halted?: boolean;
+  onResume?(): void;
 }
 
 const MAX_HEIGHT = 160;
@@ -72,6 +84,10 @@ export function Composer({
   dictation,
   dictated,
   prefill,
+  onStop,
+  stopKey,
+  halted = false,
+  onResume,
 }: Props) {
   const [value, setValue] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -137,8 +153,41 @@ export function Composer({
     }
   };
 
+  // Stop takes Send's place while Atlas works — the same spot, so the hand is
+  // already there. Except when a card is open and something has been typed:
+  // that is an answer on its way, and Send has to stay reachable for it.
+  const showStop = Boolean(onStop) && busy && !(awaitingAnswer && value.trim());
+
   return (
     <div className="border-border bg-background/80 border-t px-6 py-4 backdrop-blur">
+      {halted && (
+        <div
+          role="status"
+          className="border-danger/30 bg-danger/5 mb-3 flex items-center gap-3 rounded-xl border px-3.5 py-2.5"
+        >
+          <span
+            aria-hidden="true"
+            className="bg-danger grid h-5 w-5 shrink-0 place-items-center rounded-[5px]"
+          >
+            <span className="h-2 w-2 rounded-[1.5px] bg-white" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-foreground text-sm font-medium">Atlas halted</p>
+            <p className="text-foreground-subtle text-xs">
+              Everything stopped. Nothing else runs until you send something new.
+            </p>
+          </div>
+          {onResume && (
+            <button
+              type="button"
+              onClick={onResume}
+              className="text-foreground-muted hover:text-foreground hover:bg-surface duration-fast rounded-md px-2.5 py-1 text-xs font-medium transition"
+            >
+              Resume
+            </button>
+          )}
+        </div>
+      )}
       {/*
         The ring says Atlas is working, and only that.
 
@@ -227,6 +276,25 @@ export function Composer({
               <Icons.Mic className={cn('h-4 w-4', dictation.transcribing && 'opacity-40')} />
             </button>
           )}
+          {showStop ? (
+            <button
+              type="button"
+              onClick={onStop}
+              aria-label={stopKey ? `Stop Atlas (${stopKey})` : 'Stop Atlas'}
+              title={stopKey ? `Stop Atlas — ${stopKey}` : 'Stop Atlas'}
+              className={cn(
+                // A physical-feeling key rather than another flat icon: a
+                // raised face and an inset edge, in the one colour this app
+                // reserves for danger.
+                'mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
+                'bg-danger text-white shadow-[inset_0_-2px_0_rgb(0_0_0/0.25),0_1px_2px_rgb(0_0_0/0.3)]',
+                'duration-fast transition hover:brightness-110 active:translate-y-px active:shadow-none',
+                'focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2',
+              )}
+            >
+              <span aria-hidden="true" className="h-2.5 w-2.5 rounded-[2px] bg-white" />
+            </button>
+          ) : (
           <button
             type="button"
             onClick={send}
@@ -240,6 +308,7 @@ export function Composer({
           >
             <Icons.ArrowUp className="h-4 w-4" />
           </button>
+          )}
         </div>
       </div>
 
@@ -248,26 +317,46 @@ export function Composer({
         where the thing it changes happens, the same reason the speech toggle
         sits in the title bar rather than only in Settings (see AtlasApp).
         Clicking it cycles too, so the control isn't keyboard-only.
+
+        Shaped as a real pill — the same border/rounded-full/px-2.5 language
+        `NovaSwitcher`'s trigger uses — rather than a loose row of text
+        fragments, so it reads as one deliberate control with a name, not an
+        instruction strip. The shortcut stays visible (it's still how the
+        keyboard reaches it) but sits outside the pill, smaller and quieter:
+        secondary to the mode itself.
       */}
-      <button
-        type="button"
-        onClick={onCycleExecutionMode}
-        title={EXECUTION_MODE_META[executionMode].description}
-        className={cn(
-          'atlas-enhance text-foreground-subtle hover:text-foreground duration-fast mt-2 flex items-center',
-          'gap-1.5 rounded-md px-1.5 py-1 text-xs transition',
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onCycleExecutionMode}
+          title={EXECUTION_MODE_META[executionMode].description}
+          className={cn(
+            'atlas-enhance border-border text-foreground-muted hover:bg-surface hover:text-foreground',
+            'duration-fast flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition',
+          )}
+        >
+          <span aria-hidden="true" className="text-primary tracking-tighter">
+            ⏵⏵
+          </span>
+          <span>{EXECUTION_MODE_META[executionMode].label}</span>
+        </button>
+        <span className="text-foreground-subtle inline-flex items-center gap-1 text-[11px]">
+          <Kbd>Shift</Kbd>+<Kbd>Tab</Kbd> to cycle
+        </span>
+        {/* The stop key, named while there is something to stop — the moment
+            someone is most likely to need it and least likely to remember it. */}
+        {busy && stopKey && (
+          <span className="text-foreground-subtle ml-auto inline-flex items-center gap-1 text-[11px]">
+            {stopKey.split('+').map((part, i) => (
+              <span key={i} className="inline-flex items-center gap-1">
+                {i > 0 && '+'}
+                <Kbd>{part}</Kbd>
+              </span>
+            ))}{' '}
+            to stop
+          </span>
         )}
-      >
-        <span aria-hidden="true" className="text-primary tracking-tighter">
-          ⏵⏵
-        </span>
-        <span className="font-medium">{EXECUTION_MODE_META[executionMode].label}</span>
-        <span aria-hidden="true">·</span>
-        <span className="inline-flex items-center gap-0.5">
-          <Kbd>Shift</Kbd>+<Kbd>Tab</Kbd>
-        </span>
-        <span>to cycle</span>
-      </button>
+      </div>
     </div>
   );
 }

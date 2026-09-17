@@ -17,6 +17,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CloudProviderConfig,
   ExecutionMode,
+  HaltEvent,
+  HaltSource,
+  PlanOutcome,
   Platform,
   ResultRow,
   Skill,
@@ -62,7 +65,9 @@ import {
 } from '@atlas/engine';
 import type { CapabilityName } from '@atlas/core';
 
-export type EntryKind = 'you' | 'atlas' | 'results' | 'confirm';
+export type EntryKind = 'you' | 'atlas' | 'results' | 'confirm' | 'halted' | 'steps';
+
+export type StepState = 'done' | 'failed' | 'declined' | 'halted' | 'skipped';
 
 export interface Entry {
   id: number;
@@ -73,7 +78,26 @@ export interface Entry {
   /** Confirmation entries carry their own resolution state. */
   question?: string;
   detail?: string;
-  answered?: 'yes' | 'no';
+  /** `halted`: the emergency stop ended the plan while this card was open. */
+  answered?: 'yes' | 'no' | 'halted';
+  /** `halted` entries: what stopped Atlas. */
+  source?: HaltSource;
+  /** `steps` entries: what a multi-step run actually did, one row per step. */
+  steps?: { label: string; state: StepState; detail?: string }[];
+  /** When the entry was added, for animating only what is new (restored entries have none). */
+  at?: number;
+}
+
+/**
+ * Atlas is halted: nothing runs until the person does something new.
+ *
+ * `epoch` is the native halt this corresponds to, and null for the moment
+ * between pressing the on-screen button and the shell confirming it (or
+ * forever, in the browser build, which has no native stop).
+ */
+export interface HaltState {
+  epoch: number | null;
+  source: HaltSource;
 }
 
 let nextId = 1;
@@ -161,13 +185,15 @@ export function useAtlas(
    */
   speak: (text: string, options?: SpeechOptions) => void = () => {},
   executionMode: ExecutionMode = DEFAULT_EXECUTION_MODE,
+  /** Called on every halt, for what lives outside the engine — a voice mid-sentence. */
+  onHalt: () => void = () => {},
 ) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
   const pendingConfirm = useRef<((approved: boolean) => void) | null>(null);
 
   const push = useCallback((entry: Omit<Entry, 'id'>) => {
-    setEntries((prev) => [...prev, { ...entry, id: nextId++ }]);
+    setEntries((prev) => [...prev, { ...entry, id: nextId++, at: Date.now() }]);
   }, []);
 
   /**
@@ -347,6 +373,42 @@ export function useAtlas(
   useEffect(() => recordEpisodes(engine.bus, memory, engine.skills), [engine, memory]);
 
   /**
+   * A record of what a multi-step run did, as one collapsed row.
+   *
+   * Only for plans of two or more steps: a single action already says what
+   * happened in its own reply, and a disclosure for one line is noise. After
+   * a halt it is the answer to "what had Atlas already done?", so it lands
+   * above the halt marker rather than below it.
+   */
+  useEffect(
+    () =>
+      engine.bus.on<{ mode: string; outcome?: PlanOutcome }>('engine:done', (payload) => {
+        const outcome = payload.outcome;
+        if (payload.mode !== 'command' || !outcome || outcome.outcomes.length < 2) return;
+        const steps = outcome.outcomes.map((o) => {
+          const label = engine.skills.get(o.skill)?.label ?? o.skill;
+          const state: StepState = o.ok
+            ? 'done'
+            : o.error === 'Halted.'
+              ? 'halted'
+              : o.error === 'Cancelled.'
+                ? 'declined'
+                : o.skipped
+                  ? 'skipped'
+                  : 'failed';
+          return { label, state, detail: o.ok ? undefined : o.error };
+        });
+        setEntries((prev) => {
+          const entry: Entry = { id: nextId++, kind: 'steps', steps, at: Date.now() };
+          const last = prev[prev.length - 1];
+          if (outcome.halted && last?.kind === 'halted') return [...prev.slice(0, -1), entry, last];
+          return [...prev, entry];
+        });
+      }),
+    [engine],
+  );
+
+  /**
    * Speak a reply, if speaking is on.
    *
    * Read from a ref rather than a dependency so that turning speech on or off
@@ -426,6 +488,113 @@ export function useAtlas(
     resolve?.(approved);
   }, []);
 
+  // ── Emergency stop ──────────────────────────────────────────────────────
+  //
+  // The stop has already happened by the time anything here runs: the shell
+  // latched every hand, killed running tools and dropped model requests
+  // before it emitted the event (see halt.rs). This is the renderer catching
+  // up — telling the engine to stop thinking about it, clearing what was
+  // queued, and showing the state.
+  const [halt, setHalt] = useState<HaltState | null>(null);
+  const haltRef = useRef<HaltState | null>(null);
+  haltRef.current = halt;
+  /** The button's native call, so resuming can wait for an epoch it hasn't heard yet. */
+  const nativeHalt = useRef<Promise<number> | null>(null);
+  const onHaltRef = useRef(onHalt);
+  onHaltRef.current = onHalt;
+
+  const applyHalt = useCallback(
+    (event: { epoch: number | null; source: HaltSource }) => {
+      engine.halt();
+      queued.current = null;
+      onHaltRef.current();
+
+      const already = haltRef.current;
+      const next: HaltState = { epoch: event.epoch ?? already?.epoch ?? null, source: already?.source ?? event.source };
+      haltRef.current = next;
+      setHalt(next);
+      // One marker per halt the person caused, not one per native echo of it:
+      // the button applies locally at once and then hears its own event.
+      if (already) return;
+
+      const resolve = pendingConfirm.current;
+      pendingConfirm.current = null;
+      resolve?.(false);
+      setEntries((prev) => [
+        ...prev.map((e) => (e.kind === 'confirm' && !e.answered ? { ...e, answered: 'halted' as const } : e)),
+        { id: nextId++, kind: 'halted', source: event.source, at: Date.now() },
+      ]);
+    },
+    [engine],
+  );
+
+  useEffect(() => {
+    const native = platform.halt;
+    if (!native) return;
+    let unlisten: (() => void) | undefined;
+    let alive = true;
+    void native
+      .onHalt((event: HaltEvent) => applyHalt(event))
+      .then((stop) => {
+        if (alive) unlisten = stop;
+        else stop();
+      })
+      .catch(() => {});
+    // A reload while halted (or a halt from before this hook mounted) is
+    // still a halt — pick the state up rather than show Atlas as ready.
+    void native
+      .status()
+      .then((status) => {
+        if (alive && status.halted && !haltRef.current) {
+          const next: HaltState = { epoch: status.epoch, source: 'shortcut' };
+          haltRef.current = next;
+          setHalt(next);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, [platform, applyHalt]);
+
+  /** The on-screen stop button. */
+  const requestHalt = useCallback(() => {
+    applyHalt({ epoch: null, source: 'button' });
+    if (platform.halt) {
+      nativeHalt.current = platform.halt.now();
+      nativeHalt.current.catch(() => {});
+    }
+  }, [applyHalt, platform]);
+
+  /**
+   * Leave the halted state. Only ever from something the person did — a new
+   * message, a button — and only for the halt they saw: if a newer one
+   * happened in the meantime, it stays in force.
+   */
+  const resume = useCallback(async (): Promise<boolean> => {
+    const current = haltRef.current;
+    if (!current) return true;
+    const native = platform.halt;
+    if (native) {
+      let epoch = current.epoch;
+      if (epoch === null) epoch = await nativeHalt.current?.catch(() => null) ?? null;
+      if (epoch !== null && !(await native.reset(epoch).catch(() => false))) {
+        const status = await native.status().catch(() => null);
+        if (status?.halted) {
+          const next: HaltState = { epoch: status.epoch, source: current.source };
+          haltRef.current = next;
+          setHalt(next);
+          return false;
+        }
+      }
+    }
+    nativeHalt.current = null;
+    haltRef.current = null;
+    setHalt(null);
+    return true;
+  }, [platform]);
+
   const ask = useCallback(
     /**
      * `echo` is how a replayed instruction avoids appearing twice.
@@ -459,6 +628,8 @@ export function useAtlas(
       }
 
       if (busy) return;
+      // Sending something new is the explicit act that ends a halt.
+      if (haltRef.current && !(await resume())) return;
       if (options.echo !== false) push({ kind: 'you', text: trimmed });
       setBusy(true);
       try {
@@ -467,7 +638,7 @@ export function useAtlas(
         setBusy(false);
       }
     },
-    [busy, engine, io, push, answerConfirm],
+    [busy, engine, io, push, answerConfirm, resume],
   );
 
   /**
@@ -490,6 +661,7 @@ export function useAtlas(
   /** Run a row's action — the same executor path a typed command takes. */
   const runAction = useCallback(
     async (skill: string, args: Record<string, string | number | boolean>) => {
+      if (haltRef.current && !(await resume())) return;
       setBusy(true);
       try {
         await engine.run(
@@ -500,7 +672,7 @@ export function useAtlas(
         setBusy(false);
       }
     },
-    [engine, io],
+    [engine, io, resume],
   );
 
   const clear = useCallback(() => setEntries([]), []);
@@ -554,6 +726,10 @@ export function useAtlas(
     awaitingAnswer: entries.some((e) => e.kind === 'confirm' && !e.answered),
     ask,
     runAction,
+    /** Null unless Atlas is halted. */
+    halt,
+    requestHalt,
+    resume,
     answerConfirm,
     clear,
     copy,

@@ -45,6 +45,9 @@ fn tap(key: u16) {
 
 #[tauri::command]
 pub fn lock_workstation() -> Result<bool, String> {
+    // Emergency stop: refuse before acting, even if this call was already
+    // on its way when the halt landed. See halt.rs.
+    crate::halt::global().check()?;
     unsafe { LockWorkStation() }.map_err(|e| e.message())?;
     Ok(true)
 }
@@ -85,6 +88,7 @@ fn enable_shutdown_privilege() -> Result<(), String> {
 
 #[tauri::command]
 pub fn power_action(action: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     // An enum, not a flag: the caller cannot compose an ExitWindowsEx bitmask.
     let flags = match action.as_str() {
         "shutdown" => EWX_SHUTDOWN,
@@ -104,6 +108,7 @@ pub fn power_action(action: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn media_key(key: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let vk = match key.as_str() {
         "play-pause" => VK_MEDIA_PLAY_PAUSE,
         "next" => VK_MEDIA_NEXT_TRACK,
@@ -117,6 +122,7 @@ pub fn media_key(key: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn set_volume(direction: String, steps: Option<u8>) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let vk = match direction.as_str() {
         "up" => VK_VOLUME_UP,
         "down" => VK_VOLUME_DOWN,
@@ -132,12 +138,14 @@ pub fn set_volume(direction: String, steps: Option<u8>) -> Result<bool, String> 
 
 #[tauri::command]
 pub fn toggle_mute() -> Result<bool, String> {
+    crate::halt::global().check()?;
     tap(VK_VOLUME_MUTE.0);
     Ok(true)
 }
 
 #[tauri::command]
 pub fn display_off() -> Result<bool, String> {
+    crate::halt::global().check()?;
     // 2 = power off. Broadcast, because the message goes to the display driver
     // rather than to any particular window.
     unsafe {
@@ -153,6 +161,7 @@ pub fn display_off() -> Result<bool, String> {
 
 #[tauri::command]
 pub fn empty_recycle_bin() -> Result<bool, String> {
+    crate::halt::global().check()?;
     // No confirmation dialog from the shell: Atlas has already asked, in its
     // own words, through the `risk: 'confirm'` path. Two prompts for one
     // action is how people learn to click through prompts.

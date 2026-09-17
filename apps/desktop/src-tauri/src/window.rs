@@ -219,6 +219,9 @@ pub(crate) fn resolve_hwnd(id: &str) -> Result<HWND, String> {
 /// check pass, then detach it again immediately either way.
 #[tauri::command]
 pub fn focus_window(id: String) -> Result<bool, String> {
+    // Emergency stop: refuse before acting, even if this call was already
+    // on its way when the halt landed. See halt.rs.
+    crate::halt::global().check()?;
     let hwnd = resolve_hwnd(&id)?;
     unsafe {
         if IsIconic(hwnd).as_bool() {
@@ -248,6 +251,7 @@ pub fn focus_window(id: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn minimize_window(id: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let hwnd = resolve_hwnd(&id)?;
     let _ = unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
     Ok(true)
@@ -255,6 +259,7 @@ pub fn minimize_window(id: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn maximize_window(id: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let hwnd = resolve_hwnd(&id)?;
     let _ = unsafe { ShowWindow(hwnd, SW_MAXIMIZE) };
     Ok(true)
@@ -262,6 +267,7 @@ pub fn maximize_window(id: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn restore_window(id: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let hwnd = resolve_hwnd(&id)?;
     let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
     Ok(true)
@@ -279,6 +285,7 @@ pub fn set_window_bounds(
     width: Option<i32>,
     height: Option<i32>,
 ) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let hwnd = resolve_hwnd(&id)?;
     let current = visible_rect(hwnd);
 
@@ -320,6 +327,7 @@ pub fn set_window_bounds(
 /// "save changes?" dialog; this does not force it down.
 #[tauri::command]
 pub fn close_window(id: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
     let hwnd = resolve_hwnd(&id)?;
     unsafe { PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)) }.map_err(|e| e.message())?;
     Ok(true)
@@ -347,6 +355,7 @@ const NEVER_END: &[&str] = &[
 
 #[tauri::command]
 pub fn end_process(pid: u32) -> Result<bool, String> {
+    crate::halt::global().check()?;
     if pid == std::process::id() {
         return Err("I won't end my own process.".into());
     }

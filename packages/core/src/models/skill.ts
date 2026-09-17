@@ -9,6 +9,8 @@
  * a literal answer you can enumerate.
  */
 
+import type { HaltSignal } from './halt';
+
 /**
  * How much damage a skill could do if invoked wrongly.
  *
@@ -103,6 +105,12 @@ export interface SkillContext {
   confirm(question: string, detail?: string): Promise<boolean>;
   /** Render rows the user can act on. */
   showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string }): void;
+  /**
+   * Aborts when the emergency stop is pressed. A skill that loops or waits
+   * should check it; one that doesn't is still abandoned on time, because the
+   * executor races every step against it (see `untilHalted`).
+   */
+  signal?: HaltSignal;
   /** Anything else the host chooses to expose. */
   [key: string]: unknown;
 }

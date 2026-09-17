@@ -29,6 +29,7 @@ import type { SkillRegistry } from '@atlas/engine';
 import type { CapabilityName, ExecutionMode, Platform } from '@atlas/core';
 import { EXECUTION_MODES, EXECUTION_MODE_META } from '@atlas/core';
 import { Button, Icons, Input, SegmentedControl } from '@atlas/ui';
+import { EmergencyStop } from './general/EmergencyStop';
 
 interface Props {
   platform: Platform;
@@ -146,6 +147,8 @@ export function General({
           {EXECUTION_MODE_META[executionMode].description}
         </p>
       </section>
+
+      <EmergencyStop platform={platform} />
 
       <section>
         <h2 className="text-foreground mb-3 text-sm font-medium">Device</h2>

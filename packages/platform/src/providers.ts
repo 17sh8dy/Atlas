@@ -35,6 +35,7 @@
  */
 
 import type {
+  HaltSignal,
   CloudProviderConfig,
   CloudProviderTestResult,
   IntelligenceProvider,
@@ -64,9 +65,13 @@ async function streamCortex(
   baseUrl: string,
   prompt: string,
   handlers: ProviderStreamHandlers,
+  signal?: HaltSignal,
 ): Promise<void> {
   const streamId = crypto.randomUUID();
   let unlisten: (() => void) | null = null;
+  // The native side drops the request itself on a halt; this just stops
+  // listening for deltas nobody will read.
+  signal?.addEventListener('abort', () => unlisten?.(), { once: true });
   try {
     const { listen } = await import('@tauri-apps/api/event');
     unlisten = await listen<string>(`atlas://intelligence/${streamId}`, (event) => {
@@ -93,12 +98,12 @@ export function createCortexProvider(options: CortexOptions): IntelligenceProvid
     label: 'Cortex',
     isConfigured: () => options.enabled,
     isLocal: () => true,
-    ask(prompt: string, handlers: ProviderStreamHandlers) {
+    ask(prompt: string, handlers: ProviderStreamHandlers, askOptions?: { signal?: HaltSignal }) {
       if (!options.enabled) {
         handlers.onError('not-configured');
         return;
       }
-      void streamCortex(baseUrl, prompt, handlers);
+      void streamCortex(baseUrl, prompt, handlers, askOptions?.signal);
     },
   };
 }

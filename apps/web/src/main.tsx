@@ -5,6 +5,7 @@ import { detectStorage } from '@atlas/data';
 import { AtlasApp } from './app/AtlasApp';
 import { ThemeProvider } from './app/theme';
 import { EffectsProvider } from './app/effects';
+import { TextStyleProvider } from './app/text-style';
 import '@atlas/tokens/tokens.css';
 import './styles/index.css';
 
@@ -20,7 +21,9 @@ ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <ThemeProvider>
       <EffectsProvider>
-        <AtlasApp platform={platform} storage={storage} />
+        <TextStyleProvider>
+          <AtlasApp platform={platform} storage={storage} />
+        </TextStyleProvider>
       </EffectsProvider>
     </ThemeProvider>
   </React.StrictMode>,

@@ -33,6 +33,7 @@ import {
 } from '@atlas/core';
 import { writePreference } from '@atlas/data';
 import { Button, Icons, Input, cn } from '@atlas/ui';
+import { TextAndColors } from './personalization/TextAndColors';
 
 interface Props {
   storage: Storage;
@@ -74,6 +75,8 @@ export function Personalization({ storage, voiceProfile, onVoiceProfileChange }:
       </div>
 
       <RoleSection storage={storage} voiceProfile={voiceProfile} onSaved={onVoiceProfileChange} />
+
+      <TextAndColors />
     </div>
   );
 }

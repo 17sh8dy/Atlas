@@ -394,6 +394,9 @@ fn human_start_type(raw: &str) -> Option<String> {
 /// fourth value is a refusal and not an unhandled case.
 #[tauri::command]
 pub async fn service_control(name: String, action: String) -> Result<ServiceOutcome, String> {
+    // Emergency stop: refuse before acting, even if this call was already
+    // on its way when the halt landed. See halt.rs.
+    crate::halt::global().check()?;
     tauri::async_runtime::spawn_blocking(move || {
         let entry = resolve(&name)?;
         let stopping = matches!(action.as_str(), "stop" | "restart");
