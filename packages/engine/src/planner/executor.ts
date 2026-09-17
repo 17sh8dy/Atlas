@@ -65,6 +65,9 @@
  */
 
 import type {
+  ActivityHandle,
+  ActivityReporter,
+  ActivityState,
   ExecutionMode,
   Plan,
   PlanOutcome,
@@ -83,6 +86,14 @@ import { refusalFor, screenPlan } from '../safety/content-policy';
 export interface ExecutorOptions {
   /** Set false to run every step regardless of failures. */
   stopOnError?: boolean;
+  /**
+   * Called as each step starts, progresses and ends, for the activity panel.
+   *
+   * Push rather than a bus emit from in here, so the executor stays ignorant
+   * of who is listening — the engine wires this to its own bus, and a test
+   * wires it to an array.
+   */
+  onActivity?(event: ActivityEvent): void;
   /** Defaults to `doIt` — today's behaviour, unchanged for callers who don't pass one. */
   mode?: ExecutionMode;
   /**
@@ -96,6 +107,59 @@ export interface ExecutorOptions {
   isPreapproved?(skill: Skill, args: SkillArgs): Promise<boolean>;
   /** The emergency stop. Defaults to `ctx.signal`. */
   signal?: HaltSignal;
+}
+
+/**
+ * What the executor tells a listener about a step's life.
+ *
+ * `index` identifies the step within the plan; `childId` is set for something
+ * the *skill* reported while running, which nests one level under it.
+ */
+export interface ActivityEvent {
+  index: number;
+  /** The plan's total, so a surface can say "2 of 5" from the first event. */
+  total: number;
+  skill: string;
+  label: string;
+  detail?: string;
+  state: ActivityState;
+  at: number;
+  /** Present when this is a sub-step a skill reported, not the step itself. */
+  childId?: string;
+}
+
+let nextChildId = 1;
+
+/**
+ * The `ActivityReporter` one step gets.
+ *
+ * Every sub-step it reports is attributed to that step's index, so a surface
+ * can nest without the skill knowing anything about nesting — a skill calls
+ * `ctx.activity?.step('Querying DuckDuckGo')` and is done.
+ */
+function reporterFor(
+  index: number,
+  total: number,
+  skill: string,
+  emit: (event: ActivityEvent) => void,
+): ActivityReporter {
+  const send = (childId: string, label: string, detail: string | undefined, state: ActivityState) =>
+    emit({ index, total, skill, label, detail, state, at: Date.now(), childId });
+
+  return {
+    step(label, detail): ActivityHandle {
+      const childId = `c${nextChildId++}`;
+      send(childId, label, detail, 'running');
+      return {
+        update: (next) => send(childId, label, next, 'running'),
+        done: (next) => send(childId, label, next, 'done'),
+        failed: (next) => send(childId, label, next, 'failed'),
+      };
+    },
+    note(label, detail) {
+      send(`c${nextChildId++}`, label, detail, 'done');
+    },
+  };
 }
 
 /**
@@ -247,6 +311,19 @@ export class Executor {
         continue;
       }
 
+      const activityAt = plan.steps.indexOf(step);
+      const stepLabel = skill.label;
+      const report = (state: ActivityState, detail?: string) =>
+        options.onActivity?.({
+          index: activityAt,
+          total: plan.steps.length,
+          skill: step.skill,
+          label: stepLabel,
+          detail,
+          state,
+          at: Date.now(),
+        });
+
       if (step.say) ctx.say(step.say);
 
       // Refused outright, before anything is drawn. The registry checks this
@@ -256,6 +333,7 @@ export class Executor {
       // matter.
       const refusal = skill.guard?.(step.args) ?? null;
       if (refusal) {
+        report('failed', refusal);
         outcomes.push({ skill: step.skill, ok: false, error: refusal });
         ctx.say(refusal);
         aborted = true;
@@ -283,6 +361,7 @@ export class Executor {
           const { question, detail } = this.phrasing.confirmPrompt(skill.description, argsDetail);
           const approved = await wait(ctx.confirm(question, detail));
           if (!approved) {
+            report('skipped', 'You said no.');
             outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
             ctx.say(this.phrasing.declined());
             aborted = true;
@@ -291,7 +370,18 @@ export class Executor {
         }
       }
 
-      const result = await wait(this.skills.invoke(step.skill, step.args, ctx));
+      // Announced only once every gate has passed, so a step the user is
+      // still being asked about does not appear in the panel as under way.
+      report('running');
+      const result = await wait(
+        this.skills.invoke(step.skill, step.args, {
+          ...ctx,
+          activity: options.onActivity
+            ? reporterFor(activityAt, plan.steps.length, step.skill, options.onActivity)
+            : undefined,
+        }),
+      );
+      report(result.ok ? 'done' : 'failed', result.ok ? result.message : result.error);
       outcomes.push({
         skill: step.skill,
         ok: result.ok,

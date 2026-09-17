@@ -15,6 +15,15 @@
 import type { Platform, ResultRow, Skill } from '@atlas/core';
 import { filterDestinations, isExplicitDestination, refusalFor } from '../safety/content-policy';
 
+/** The bare host, for naming a source without printing a whole URL. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
 export function createWebSearchSkills(platform: Platform): Skill[] {
   return [
     {
@@ -34,28 +43,47 @@ export function createWebSearchSkills(platform: Platform): Skill[] {
         const query = String(args.query).trim();
         if (!query) return { ok: false, error: 'Give me something to search for.' };
 
+        // Observable actions only — the query that went out, and what came
+        // back. Nothing here reports what Atlas made of any of it.
+        const searching = ctx.activity?.step('Searching the web', query);
+
         let results;
         try {
           results = await platform.searchWeb!(query);
         } catch (e) {
-          return {
-            ok: false,
-            error: e instanceof Error ? e.message : "I couldn't search the web.",
-          };
+          const reason = e instanceof Error ? e.message : "I couldn't search the web.";
+          searching?.failed(reason);
+          return { ok: false, error: reason };
         }
 
         if (!results.length) {
+          searching?.done('No results');
           return { ok: true, message: `No web results for "${query}".` };
         }
+        searching?.done(`${results.length} result${results.length === 1 ? '' : 's'}`);
 
         // Requirement 6, accidental exposure: an ordinary query can return
         // something explicit. Dropped here, at the point the results enter
         // Atlas, so they reach neither the rows the user can click nor the
         // `data` a connected model is later asked to read — one filter rather
         // than one per consumer.
+        const beforeFilter = results.length;
         results = filterDestinations(results);
+        if (beforeFilter !== results.length) {
+          ctx.activity?.note(
+            'Filtered results',
+            `${beforeFilter - results.length} not shown`,
+          );
+        }
         if (!results.length) {
           return { ok: true, message: `No results I can show you for "${query}".` };
+        }
+
+        // The sources actually being offered — the useful half of "what is it
+        // doing", and all of it observable.
+        const hosts = [...new Set(results.map((r) => hostOf(r.url)).filter(Boolean))];
+        if (hosts.length) {
+          ctx.activity?.note('Sources', hosts.slice(0, 6).join(', '));
         }
 
         const rows: ResultRow[] = results.map((r) => ({

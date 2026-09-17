@@ -20,6 +20,11 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-notification = "2"
+# The native file picker. Nothing else in this app can choose a file for
+# the person, and an <input type="file"> in the webview hands back a
+# browser File with no path — which is useless to skills that operate on
+# paths. Only the open dialog is granted; see capabilities/default.json.
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = "0.32"

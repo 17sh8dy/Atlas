@@ -752,6 +752,13 @@ export function useAtlas(
     answerConfirm,
     clear,
     copy,
+    /**
+     * The engine's own bus, for a surface that wants to watch rather than
+     * ask — the activity panel subscribes to `activity:step` on it. Handed
+     * out rather than wrapped for the same reason `memory` is: anything
+     * useful here already depends on the engine's event shapes.
+     */
+    engineBus: engine.bus,
     skillCount: engine.skills.available().length,
     skills: engine.skills,
     greeting: phrasing.greeting(),

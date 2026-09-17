@@ -16,7 +16,7 @@ export { Grammar, plan, step } from './planner/grammar';
 export type { GrammarRule } from './planner/grammar';
 
 export { Executor } from './planner/executor';
-export type { ExecutorOptions } from './planner/executor';
+export type { ExecutorOptions, ActivityEvent } from './planner/executor';
 
 export { Engine } from './engine';
 export type { EngineIO, EngineOptions, AskOutcome } from './engine';

@@ -156,6 +156,43 @@ html[data-your-messages='subtle'] .atlas-you {
   animation: atlas-reply-in 280ms var(--ease-out) both;
 }
 
+/* A popover arriving. Anchored panels read as "coming out of" the control
+ * that opened them, so this lifts a little further than a reply does and
+ * scales from just under full size — enough to see the direction of travel,
+ * short enough never to be waited on. */
+@keyframes atlas-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.atlas-popover-in {
+  animation: atlas-popover-in 140ms var(--ease-out) both;
+  transform-origin: top left;
+}
+
+/* A disclosure opening. The height is animated by the component, which
+ * measures its own content; this is the fade and lift that rides along. */
+@keyframes atlas-disclose-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.atlas-disclose-in {
+  animation: atlas-disclose-in 180ms var(--ease-out) both;
+}
+
 .atlas-caret {
   display: inline-block;
   width: 2px;
@@ -168,7 +205,9 @@ html[data-your-messages='subtle'] .atlas-you {
 
 @media (prefers-reduced-motion: reduce) {
   .atlas-word-in,
-  .atlas-reply-in {
+  .atlas-reply-in,
+  .atlas-popover-in,
+  .atlas-disclose-in {
     animation: none;
   }
 }

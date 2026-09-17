@@ -908,9 +908,17 @@ mod tests {
             "network_adapters", "wifi_status", "wifi_networks", "network_reachable",
             "search_files", "system_info", "running_processes", "list_apps", "read_text_file",
             "path_info", "list_dir", "known_folder", "capture_window", "capture_screen",
-            "list_displays", "list_services", "service_detail", "uia_tree",
+            "list_displays", "capture_display", "list_services", "service_detail", "uia_tree",
             "uia_focused_element", "web_search", "fetch_page", "speech_voices",
             "cursor_position", "list_windows", "active_window", "capabilities", "has_secret",
+            // A live screen share is the one read that keeps happening, so it
+            // is the one a stop should end — but the latch is the wrong lever
+            // for it. The share is a loop in the renderer, and stopping it
+            // there is what lets the status bar say "paused" and offer to
+            // resume, instead of every capture failing with a message nobody
+            // asked for. `useScreenShare` pauses on `atlas://halt`; this stays
+            // exempt so the capture itself is refused nowhere.
+
             // Atlas's own window, which the stop shows rather than hides.
             "show_window", "hide_window", "toggle_window",
             // The model cache: warming and unloading cost only memory.

@@ -23,8 +23,8 @@
  * the screen you open the most.
  */
 
-import { useEffect, useState } from 'react';
-import type { EpisodicEvent, ExecutionMode, Memory } from '@atlas/core';
+import { useEffect, useState, type ReactNode } from 'react';
+import type { ActivityRun, Attachment, EpisodicEvent, ExecutionMode, Memory } from '@atlas/core';
 import { AtlasMark, Modal } from '@atlas/ui';
 import { Composer } from '../components/Composer';
 import { Transcript } from '../components/Transcript';
@@ -58,6 +58,21 @@ interface Props {
   stopKey?: string | null;
   halted?: boolean;
   onResume?(): void;
+  /** The "+" button, built by the shell where the platform and the share live. */
+  contextButton?: ReactNode;
+  attachments?: Attachment[];
+  onRemoveAttachment?(id: string): void;
+  onExtractAttachment?(id: string): void;
+  /**
+   * The screen-share status bar.
+   *
+   * Above the transcript rather than inside the composer, and deliberately:
+   * it has to stay in view while the conversation scrolls, because a share
+   * you have scrolled past is a share you have forgotten is running.
+   */
+  shareBar?: ReactNode;
+  /** The run in flight, for the live activity disclosure in the transcript. */
+  activeRun?: ActivityRun | null;
 }
 
 export function Conversation({
@@ -80,6 +95,12 @@ export function Conversation({
   stopKey,
   halted,
   onResume,
+  contextButton,
+  attachments,
+  onRemoveAttachment,
+  onExtractAttachment,
+  shareBar,
+  activeRun,
 }: Props) {
   // A Home card was clicked: its starter text (possibly '') goes into the
   // composer and takes focus. `at` forces the effect in `Composer` to fire
@@ -105,9 +126,12 @@ export function Conversation({
             onRunAction={onRunAction}
             onCopy={onCopy}
             onAskAgain={onAskAgain}
+            activeRun={activeRun}
           />
         )}
       </div>
+
+      {shareBar}
 
       <Composer
         onSubmit={onAsk}
@@ -122,6 +146,10 @@ export function Conversation({
         stopKey={stopKey}
         halted={halted}
         onResume={onResume}
+        contextButton={contextButton}
+        attachments={attachments}
+        onRemoveAttachment={onRemoveAttachment}
+        onExtractAttachment={onExtractAttachment}
       />
     </div>
   );

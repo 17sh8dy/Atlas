@@ -11,6 +11,8 @@ export { Spinner } from './components/Spinner';
 export { Input } from './components/Input';
 export type { InputProps } from './components/Input';
 export { Kbd } from './components/Kbd';
+export { Popover, PopoverItem, PopoverGroup } from './components/Popover';
+export type { PopoverProps, PopoverItemProps } from './components/Popover';
 export { Modal } from './components/Dialog';
 export type { ModalProps } from './components/Dialog';
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/Tabs';

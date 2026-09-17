@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the Atlas window is permitted to do. Tauri 2 denies everything not listed here, so this file is the allow-list — deliberately short, and deliberately without any shell or arbitrary-fs permission.",
-  "windows": ["main"],
+  "description": "What the Atlas window is permitted to do. Tauri 2 denies everything not listed here, so this file is the allow-list \u2014 deliberately short, and deliberately without any shell or arbitrary-fs permission.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -15,6 +17,7 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "global-shortcut:default",
-    "notification:default"
+    "notification:default",
+    "dialog:allow-open"
   ]
 }

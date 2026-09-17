@@ -460,7 +460,45 @@ export interface Platform {
    */
   captureWindow?(windowId: string): Promise<ArrayBuffer>;
   captureScreen?(): Promise<ArrayBuffer>;
+  /**
+   * One monitor, by its index in `listDisplays`.
+   *
+   * Separate from `captureScreen`, which takes the whole virtual desktop in
+   * one go. That is right for "take a screenshot" and wrong for sharing: on a
+   * multi-monitor machine it hands over every monitor at once, including the
+   * one nobody chose. Sharing a screen has to mean *that* screen or the
+   * choice isn't one.
+   */
+  captureDisplay?(index: number): Promise<ArrayBuffer>;
   listDisplays?(): Promise<DisplayInfo[]>;
+
+  /**
+   * Let the person choose files, through the OS picker.
+   *
+   * Only ever called from an explicit click — there is no way for Atlas to
+   * raise this dialog on its own, and no save half to it. Resolves to the
+   * chosen paths, or an empty array if the dialog was dismissed.
+   *
+   * Paths, not contents: an attachment is a *reference* (see
+   * `models/attachment.ts`), and everything Atlas can already do to a file it
+   * does by path. A browser `<input type="file">` was the alternative and is
+   * useless here — it hands back a `File` with no path, which no skill can
+   * act on.
+   *
+   * ⚠️ Picking a file does **not** widen the allowed-folders boundary.
+   * `readTextFile` still refuses a path outside it, and the composer says so
+   * plainly rather than failing silently. Treating the pick as a per-file
+   * grant would be defensible — an OS picker *is* consent, and that is how
+   * every other application treats it — but it is a real loosening of the one
+   * boundary every file command shares, so it is a decision to take
+   * deliberately rather than as a side effect of adding an attach button.
+   */
+  pickFiles?(options?: {
+    /** Extension groups to offer, e.g. `[{ name: 'Images', extensions: ['png','jpg'] }]`. */
+    filters?: { name: string; extensions: string[] }[];
+    multiple?: boolean;
+    title?: string;
+  }): Promise<string[]>;
 
   /**
    * Which Windows this is — informational, shown in About. Not gated by a

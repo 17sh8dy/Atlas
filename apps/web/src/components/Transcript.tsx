@@ -17,6 +17,8 @@ import type { Entry, StepState } from '../atlas/useAtlas';
 import { useTextStyle } from '../app/text-style';
 import { CapabilityBrowser } from './CapabilityBrowser';
 import { RevealText } from './RevealText';
+import type { ActivityRun } from '@atlas/core';
+import { ActivityPanel } from './ActivityPanel';
 
 /** An entry this new was just said; anything older was already read. */
 const FRESH_MS = 1500;
@@ -35,6 +37,15 @@ interface Props {
    * way to refresh one is to ask again, not to invent a cache to invalidate.
    */
   onAskAgain?(text: string): void;
+  /**
+   * The run happening right now, if there is one.
+   *
+   * Rendered in place of the thinking bars once it has something to say.
+   * A run with no steps yet keeps the bars: "Atlas is thinking" is honest
+   * while the grammar is still deciding, and an empty activity panel would
+   * be less informative than the animation it replaced.
+   */
+  activeRun?: ActivityRun | null;
 }
 
 export function Transcript({
@@ -44,6 +55,7 @@ export function Transcript({
   onRunAction,
   onCopy,
   onAskAgain,
+  activeRun,
 }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -80,7 +92,12 @@ export function Transcript({
           about to replace it — the text lands where the bars were and nothing
           below it moves. A centred spinner would have to be pushed out of the
           way by the answer it was waiting for. */}
-      {busy && <AuroraBars className="max-w-[85%]" label="Atlas is thinking" />}
+      {busy &&
+        (activeRun && activeRun.steps.length > 0 ? (
+          <ActivityPanel run={activeRun} />
+        ) : (
+          <AuroraBars className="max-w-[85%]" label="Atlas is thinking" />
+        ))}
 
       <div ref={endRef} />
     </div>

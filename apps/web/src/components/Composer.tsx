@@ -7,10 +7,11 @@
  * assistant you have to click into between commands is one you stop using.
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { ExecutionMode } from '@atlas/core';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import type { Attachment, ExecutionMode } from '@atlas/core';
 import { EXECUTION_MODE_META } from '@atlas/core';
 import { Icons, Kbd, cn } from '@atlas/ui';
+import { AttachmentChips } from './AttachmentChips';
 
 interface Props {
   onSubmit(text: string): void;
@@ -65,6 +66,19 @@ interface Props {
    * the app today, but a composer in a test needn't have one).
    */
   onStop?(): void;
+  /**
+   * The context menu's button, rendered by the composer so it sits inside the
+   * input's own frame rather than beside it.
+   *
+   * Passed in rather than built here because what the menu offers depends on
+   * the platform and on a live screen share, and neither is the composer's
+   * business — it owns the box you type in, not the capabilities behind it.
+   */
+  contextButton?: ReactNode;
+  /** What is attached to this message. Empty renders nothing at all. */
+  attachments?: Attachment[];
+  onRemoveAttachment?(id: string): void;
+  onExtractAttachment?(id: string): void;
   /** The stop key Windows actually has registered, shown next to the button. */
   stopKey?: string | null;
   /** Atlas is halted: show it, and offer to carry on. */
@@ -85,6 +99,10 @@ export function Composer({
   dictated,
   prefill,
   onStop,
+  contextButton,
+  attachments = [],
+  onRemoveAttachment,
+  onExtractAttachment,
   stopKey,
   halted = false,
   onResume,
@@ -188,6 +206,13 @@ export function Composer({
           )}
         </div>
       )}
+      {onRemoveAttachment && onExtractAttachment && (
+        <AttachmentChips
+          items={attachments}
+          onRemove={onRemoveAttachment}
+          onExtract={onExtractAttachment}
+        />
+      )}
       {/*
         The ring says Atlas is working, and only that.
 
@@ -233,6 +258,7 @@ export function Composer({
             busy && 'border-transparent',
           )}
         >
+          {contextButton}
           <textarea
             ref={ref}
             rows={1}

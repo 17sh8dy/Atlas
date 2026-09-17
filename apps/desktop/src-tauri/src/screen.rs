@@ -216,6 +216,44 @@ fn capture_screen_sync() -> Result<Vec<u8>, String> {
     })
 }
 
+/// One monitor, by its index in `list_displays`.
+///
+/// `capture_screen` takes the whole virtual desktop in one `BitBlt`, which on
+/// a multi-monitor machine is a single very wide image with everything in it.
+/// That is the right default for "take a screenshot" and the wrong one for
+/// "share this screen" — sharing a monitor has to mean *that* monitor, or the
+/// choice is not a choice. The work is the same `BitBlt` with the display's
+/// own origin and size instead of the virtual screen's, so this adds an
+/// argument rather than a second capture path.
+///
+/// Addressed by index rather than by name because a monitor's device name is
+/// neither stable nor unique in practice (`\\.\DISPLAY1` gets reused across
+/// hotplugs), and the index is exactly what the caller just picked from.
+#[tauri::command]
+pub async fn capture_display(index: usize) -> Result<tauri::ipc::Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || capture_display_sync(index))
+        .await
+        .map_err(|e| format!("The capture task failed: {e}"))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+fn capture_display_sync(index: usize) -> Result<Vec<u8>, String> {
+    let displays = list_displays();
+    let display = displays
+        .get(index)
+        .ok_or_else(|| format!("There is no display {}.", index + 1))?;
+
+    let screen_dc = Dc(unsafe { GetDC(None) });
+    if screen_dc.0.is_invalid() {
+        return Err("Windows wouldn't give me a drawing surface.".to_string());
+    }
+    let (x, y, width, height) = (display.x, display.y, display.width, display.height);
+    capture_via(screen_dc.0, width, height, |mem_dc| {
+        unsafe { BitBlt(mem_dc, 0, 0, width, height, screen_dc.0, x, y, SRCCOPY) }
+            .map_err(|e| e.message())
+    })
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplayInfo {
@@ -317,6 +355,45 @@ mod tests {
         let bytes = capture_screen_sync().expect("capture_screen_sync");
         assert!(bytes.len() > 100, "suspiciously small PNG: {} bytes", bytes.len());
         assert_eq!(&bytes[1..4], b"PNG");
+    }
+
+    /// Sharing "this screen" has to mean one monitor. The bug this guards is
+    /// the easy one: falling back to `capture_screen`, which on a
+    /// multi-monitor machine hands over every monitor at once — including
+    /// whatever is on the other one, which nobody consented to share.
+    #[test]
+    #[ignore = "live: captures this machine's real displays"]
+    fn each_display_captures_at_its_own_size() {
+        let displays = list_displays();
+        assert!(!displays.is_empty());
+
+        for (i, display) in displays.iter().enumerate() {
+            let png = capture_display_sync(i).expect("a real display should capture");
+            let (w, h) = png_size(&png).expect("a real PNG");
+            assert_eq!(
+                (w as i32, h as i32),
+                (display.width, display.height),
+                "display {} captured at the wrong size",
+                i + 1
+            );
+        }
+    }
+
+    #[test]
+    fn a_display_that_does_not_exist_is_refused_by_name() {
+        let err = capture_display_sync(999).unwrap_err();
+        assert!(err.contains("display 1000"), "unhelpful refusal: {err}");
+    }
+
+    /// Width and height out of a PNG's IHDR, which is always the first chunk.
+    fn png_size(png: &[u8]) -> Option<(u32, u32)> {
+        if png.len() < 24 {
+            return None;
+        }
+        let read = |at: usize| -> Option<u32> {
+            Some(u32::from_be_bytes(png[at..at + 4].try_into().ok()?))
+        };
+        Some((read(16)?, read(20)?))
     }
 
     #[test]

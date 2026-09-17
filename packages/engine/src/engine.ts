@@ -56,6 +56,7 @@ import { refusalFor, screenRequest } from './safety/content-policy';
 import { normalizeRequest } from './text/normalize';
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
+import type { ActivityEvent } from './planner/executor';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -138,7 +139,15 @@ export class Engine {
 
   /** The one thing every `executor.run(...)` call site below shares. */
   private executorOptions(signal: HaltSignal) {
-    return { mode: this.getExecutionMode(), isPreapproved: this.isPreapproved, signal };
+    return {
+      mode: this.getExecutionMode(),
+      isPreapproved: this.isPreapproved,
+      signal,
+      // Straight onto the bus: the executor reports, the engine publishes,
+      // and whatever is watching decides what a step looks like. Nothing here
+      // knows a disclosure arrow exists.
+      onActivity: (event: ActivityEvent) => this.bus.emit('activity:step', event),
+    };
   }
 
   /** Stop every run in flight. See "Halting" in this file's header. */

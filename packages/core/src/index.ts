@@ -30,6 +30,8 @@ export * from './models/window';
 export * from './models/input';
 export * from './models/uia';
 export * from './models/screen';
+export * from './models/attachment';
+export * from './models/activity';
 export * from './models/compat';
 export * from './models/environment';
 export * from './models/disk-usage';

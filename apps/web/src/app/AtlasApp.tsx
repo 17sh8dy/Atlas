@@ -47,6 +47,11 @@ import type { CortexSettings } from '@atlas/data';
 import { Icons, Spinner, cn } from '@atlas/ui';
 import { TitleBar } from '../components/TitleBar';
 import { Conversation } from '../pages/Conversation';
+import { ContextMenu } from '../components/ContextMenu';
+import { ScreenShareBar, ShareTargetPicker } from '../components/ScreenShareBar';
+import { useAttachments } from '../atlas/useAttachments';
+import { useScreenShare, type ShareTarget } from '../atlas/useScreenShare';
+import { useActivity } from '../atlas/useActivity';
 import { Settings } from '../pages/Settings';
 import { VoiceScreen, type VoicePhase } from '../pages/VoiceScreen';
 import { useAtlas } from '../atlas/useAtlas';
@@ -246,6 +251,71 @@ function Ready({
   }, [platform, screen]);
 
   /**
+   * Context the person has attached to the message they are writing, and the
+   * screen share it can come from.
+   *
+   * Both live here rather than in `useAtlas` because both are shell concerns:
+   * they are about the window, the picker and the platform, and the engine
+   * knows nothing about any of them. What the engine eventually sees is a
+   * line of text naming what was attached — `describeForEngine` — which is
+   * the same thing a person could have typed.
+   */
+  /**
+   * What Atlas is observably doing, assembled from the engine's own bus. The
+   * transcript shows the run in flight; the rest are kept so a finished run
+   * can still be expanded after the fact.
+   */
+  const activityRuns = useActivity(atlas.engineBus);
+  const activeRun = useMemo(() => {
+    for (const run of [...activityRuns.values()].reverse()) {
+      if (run.state === 'running') return run;
+    }
+    return null;
+  }, [activityRuns]);
+
+  const attachments = useAttachments(platform);
+  const share = useScreenShare(platform);
+  const [sharePickerOpen, setSharePickerOpen] = useState(false);
+
+  /**
+   * The emergency stop pauses a live share.
+   *
+   * "Stop everything" has to include the one thing Atlas is doing on a timer,
+   * and a share that carried on capturing through a halt would make the stop
+   * a lie. Paused rather than stopped: the target is kept and the bar stays
+   * on screen saying so, which is recoverable in one click — revoking the
+   * choice entirely would be a harsher thing than the key promises.
+   */
+  const halted = atlas.halt !== null;
+  const pauseShare = share.setPaused;
+  const sharing = share.target !== null;
+  useEffect(() => {
+    if (halted && sharing) pauseShare(true);
+  }, [halted, sharing, pauseShare]);
+
+  /** Capture everything once, right now, and attach it. */
+  const takeScreenshot = useCallback(async () => {
+    const buffer = await platform.captureScreen?.().catch(() => null);
+    if (!buffer) return;
+    attachments.addCapture({ buffer, name: 'Screenshot', source: 'Whole desktop' });
+  }, [platform, attachments]);
+
+  /** The live share's current frame, as an attachment. */
+  const attachCurrentFrame = useCallback(() => {
+    const frame = share.frame;
+    if (!frame || !share.target) return;
+    attachments.addCapture({
+      buffer: frame.buffer,
+      name: share.target.label,
+      source: 'Shared screen',
+      kind: 'frame',
+    });
+  }, [share.frame, share.target, attachments]);
+
+  const startShare = useCallback((target: ShareTarget) => share.start(target), [share]);
+
+
+  /**
    * Keep the shell told whether there is anything to stop.
    *
    * The stop key is registered system-wide: while Atlas runs, that key is
@@ -432,6 +502,23 @@ function Ready({
     [atlas, voice, speechForScreen.enabled],
   );
 
+  /**
+   * Send, with whatever is attached named alongside it.
+   *
+   * The attachment line is appended to the message rather than smuggled
+   * through a side channel, because that is what keeps the transcript honest:
+   * what Atlas was told is what you can read back. Cleared on send — an
+   * attachment belongs to one message, and silently carrying it into the next
+   * one is how a screenshot ends up somewhere nobody meant it to be.
+   */
+  const askWithContext = useCallback(
+    (text: string) => {
+      const context = attachments.describeForEngine();
+      askAloud(context ? `${text}\n\n${context}` : text);
+      attachments.clear();
+    },
+    [attachments, askAloud],
+  );
   /** The last thing Atlas actually said, for the screen to show in text. */
   const lastReply = useMemo(() => {
     for (let i = atlas.entries.length - 1; i >= 0; i--) {
@@ -708,7 +795,7 @@ function Ready({
             memory={atlas.memory}
             greeting={atlas.greeting}
             atlasName={atlas.atlasName}
-            onAsk={askAloud}
+            onAsk={askWithContext}
             onRunAction={atlas.runAction}
             onAnswerConfirm={atlas.answerConfirm}
             onCopy={atlas.copy}
@@ -729,6 +816,29 @@ function Ready({
             stopKey={stopKey}
             halted={atlas.halt !== null}
             onResume={() => void atlas.resume()}
+            activeRun={activeRun}
+            attachments={attachments.items}
+            onRemoveAttachment={attachments.remove}
+            onExtractAttachment={(id) => void attachments.extractText(id)}
+            contextButton={
+              <ContextMenu
+                platform={platform}
+                capabilities={capabilities}
+                busy={attachments.busy}
+                onAddFiles={(options) => void attachments.addFiles(options)}
+                onTakeScreenshot={() => void takeScreenshot()}
+                onShareScreen={() => setSharePickerOpen(true)}
+                sharing={share.target !== null}
+                onStopSharing={share.stop}
+              />
+            }
+            shareBar={
+              <ScreenShareBar
+                share={share}
+                onAttachFrame={attachCurrentFrame}
+                onChangeTarget={() => setSharePickerOpen(true)}
+              />
+            }
           />
         ) : (
           <Settings
@@ -757,6 +867,16 @@ function Ready({
           />
         )}
       </div>
+
+      {/* Outside the screen switch: a share started from the conversation
+          must stay controllable after opening Settings, and the picker has to
+          be reachable from wherever "share something else" was pressed. */}
+      <ShareTargetPicker
+        open={sharePickerOpen}
+        onClose={() => setSharePickerOpen(false)}
+        share={share}
+        onPick={startShare}
+      />
     </div>
   );
 }

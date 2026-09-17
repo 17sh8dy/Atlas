@@ -10,6 +10,7 @@
  */
 
 import type { HaltSignal } from './halt';
+import type { ActivityReporter } from './activity';
 
 /**
  * How much damage a skill could do if invoked wrongly.
@@ -111,6 +112,18 @@ export interface SkillContext {
    * executor races every step against it (see `untilHalted`).
    */
   signal?: HaltSignal;
+  /**
+   * Report what this skill is observably doing, for the activity panel.
+   *
+   * Optional, and most skills rightly ignore it: a calculation that finishes
+   * in a microsecond has no progress worth watching. It earns its place in
+   * the ones that take a noticeable time and do several distinguishable
+   * things — a web search, a directory walk, a build.
+   *
+   * ⚠️ Observable actions only. What was queried, where was looked, what came
+   * back. Never reasoning, intent or deliberation — see `models/activity.ts`.
+   */
+  activity?: ActivityReporter;
   /** Anything else the host chooses to expose. */
   [key: string]: unknown;
 }

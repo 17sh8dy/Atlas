@@ -604,6 +604,102 @@ last said.
 While Atlas *is* working, the key is global in the full sense — it fires
 whichever application has focus, which is the entire point when Atlas is
 driving a window that is not its own.
+---
+
+## 7b. Context: attachments, captures and screen sharing
+
+### An attachment is a reference
+
+Attaching a file records **what you pointed at** — path, name, kind, size — and
+nothing else. It is never read on attach. That single rule is what lets a 4 GB
+video and a `.pdf` both be attachable without either producing nonsense, and
+what keeps `files.readText`'s 256 KB cap a real limit rather than one the newer
+feature quietly routes around.
+
+Reading is a separate, deliberate action: the "Add contents" button on the chip,
+offered only where `extractionStateFor` says text can honestly be produced. A
+format with no extractor is labelled as such **before** you send — a PDF says
+"text not extractable yet", which is a gap being worked on, rather than
+"unsupported", which is a shrug. `EXTRACTION_NOT_BUILT_YET` names those formats
+specifically so the gap stays visible instead of dissolving into a default.
+
+Because the attachment is a path, every file skill Atlas already has applies to
+it without a model being involved at all: `files.move`, `files.info`,
+`files.peek`, `files.readText`.
+
+⚠️ **Picking a file does not widen the allowed-folders boundary.** `readTextFile`
+still refuses a path outside it, and the chip says so and points at Settings.
+Treating an OS picker as a per-file grant would be defensible — that is how
+every other application treats it — but it is a real loosening of the boundary
+every file command shares, so it is a decision to take on purpose rather than as
+a side effect of adding an attach button.
+
+### Screen sharing is repeated stills, and says so
+
+There is no video pipeline here. A share is a `BitBlt` of the chosen target
+every ~1.5 s, through the same path `screen.capture` has always used. That is
+the honest shape of what `screen.rs` can do, and it is enough for "look at this
+error", where the screen is not moving. It is not called a frame rate anywhere.
+
+`capture_display` was added for it: `capture_screen` takes the whole virtual
+desktop in one image, which is right for a screenshot and wrong for sharing —
+on a multi-monitor machine it hands over the monitor nobody chose.
+
+Consent is the feature, and it is expressed in the UI rather than in a setting:
+
+- nothing starts without an explicit pick of an explicit target;
+- the status bar is visible for as long as the share runs, and shows the live
+  frame — a bar that says "sharing" and shows nothing asks to be trusted; one
+  that shows the frame proves it, and catches the wrong-monitor mistake;
+- every control **reduces** what Atlas can see. "Share something else" reopens
+  the picker rather than cycling, so a share can never silently become a share
+  of something different;
+- pausing stops capturing rather than freezing a preview over a live feed;
+- **the emergency stop pauses a share.** "Stop everything" has to include the
+  one thing Atlas does on a timer. Paused rather than stopped, so it is
+  recoverable in one click — revoking the choice outright is harsher than the
+  key promises.
+
+### Nothing can see the images, and nothing pretends to
+
+`IntelligenceProvider.ask` takes a string. Cortex is a text model. The cloud
+providers in `cloud_intelligence.rs` post a text-only body. **There is therefore
+no send path for a capture to travel down**, and this is a property of the code
+rather than a policy: a screenshot is shown, it is a referent for Atlas's own
+skills, and it stays on the machine.
+
+`VisionContext` / `VisionProvider` in `models/attachment.ts` declare the seam a
+vision provider would implement, so it is typed rather than imagined.
+`isLocal()` is on the interface deliberately: the first vision provider Atlas
+accepts is intended to be a local one (Nova Intelligence), and a surface can
+refuse a remote implementation by reading one field instead of every caller
+remembering the rule.
+
+---
+
+## 7c. Activity: observable actions, never reasoning
+
+The expandable panel beside "Searching the web ▸" shows **what Atlas did to the
+world**: the query it sent, the hosts that answered, the folder it walked, the
+file it read. Every entry corresponds to something that happened outside the
+process.
+
+It is deliberately not a thinking-out-loud channel, and the data model has no
+field one could arrive in — no plan under consideration, no hypothesis, no
+intermediate tokens. `every activity event carries no channel for reasoning` in
+`activity.test.ts` asserts the exact key set, so adding one is a conversation
+rather than a commit.
+
+The reason is as much product as privacy: a panel that mixes "searched
+Microsoft's docs for this error" with "I wonder whether they meant…" trains
+people to read speculation as fact.
+
+Mechanically: the executor reports each step's life to `onActivity`, the engine
+republishes on the bus as `activity:step`, and the surface renders. A skill can
+report its own sub-steps through `ctx.activity` — one level of nesting, because
+two is deeper than anyone reads. A step is announced as `running` only once
+every gate in front of it has passed, so a step you are still being *asked*
+about never shows as already under way.
 
 ---
 

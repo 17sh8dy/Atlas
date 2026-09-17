@@ -148,6 +148,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
+        // Only ever opened by a person clicking "+" in the composer, and
+        // only the open half is granted — Atlas cannot put up a save dialog,
+        // and cannot open this one unprompted.
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, event| {
@@ -245,6 +249,7 @@ pub fn run() {
             uia::uia_focus,
             screen::capture_window,
             screen::capture_screen,
+            screen::capture_display,
             screen::list_displays,
             compat::windows_compatibility,
             diagnostics::log_diagnostic,

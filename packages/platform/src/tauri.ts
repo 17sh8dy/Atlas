@@ -262,7 +262,27 @@ export function createTauriPlatform(): Platform {
     captureWindow: async (windowId) =>
       toArrayBuffer(await invoke<unknown>('capture_window', { windowId })),
     captureScreen: async () => toArrayBuffer(await invoke<unknown>('capture_screen')),
+    captureDisplay: async (index) =>
+      toArrayBuffer(await invoke<unknown>('capture_display', { index })),
     listDisplays: () => invoke<DisplayInfo[]>('list_displays'),
+
+    /**
+     * Imported where it is used rather than at the top of the file, matching
+     * `halt.onHalt`'s dynamic import of the event API: the dialog plugin is
+     * only reachable from one button, and a person who never clicks it should
+     * not pay for the module.
+     */
+    pickFiles: async (options) => {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = await open({
+        multiple: options?.multiple ?? true,
+        directory: false,
+        title: options?.title,
+        filters: options?.filters,
+      });
+      if (!picked) return [];
+      return Array.isArray(picked) ? picked : [picked];
+    },
     windowsCompatibility: () => invoke<WindowsCompatibility>('windows_compatibility'),
 
     logDiagnostic: (scope, message) => invoke<void>('log_diagnostic', { scope, message }),
