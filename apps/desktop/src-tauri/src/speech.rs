@@ -365,6 +365,13 @@ pub async fn synthesize_speech(
     voice_id: Option<String>,
     pace: Option<f32>,
 ) -> Result<tauri::ipc::Response, String> {
+    // A halt silences Atlas. The renderer stops playback on its own (`voice
+    // .stop`), but a synthesis requested in the moments before the stop
+    // landed would otherwise come back afterwards and be spoken — Atlas
+    // talking on about a task that was just emergency-stopped, which reads as
+    // not having stopped at all.
+    crate::halt::global().check()?;
+
     // Synthesis is CPU work measured in tenths of a second. Off the async
     // runtime's thread regardless, so a long reply can never stall the
     // window's event loop.

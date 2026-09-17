@@ -95,6 +95,37 @@ export interface Entry {
  * between pressing the on-screen button and the shell confirming it (or
  * forever, in the browser build, which has no native stop).
  */
+/**
+ * One row per step of a finished plan, for the transcript's collapsed
+ * "Ran X actions" disclosure.
+ *
+ * Every field comes from the `PlanOutcome` the executor returned and nothing
+ * else — there is no progress to animate here and no activity to stand in for
+ * one. A row exists because a step existed; its state is what that step did.
+ * The executor pads the steps a plan never reached (see its own doc comment),
+ * so the count is out of what was *planned* rather than out of how far it got.
+ *
+ * Exported for `action-summary.test.ts`, which drives it from a real
+ * `Executor` run rather than a hand-written outcome.
+ */
+export function stepRowsFrom(
+  outcome: PlanOutcome,
+  labelFor: (skillId: string) => string,
+): { label: string; state: StepState; detail?: string }[] {
+  return outcome.outcomes.map((o) => {
+    const state: StepState = o.ok
+      ? 'done'
+      : o.error === 'Halted.'
+        ? 'halted'
+        : o.error === 'Cancelled.'
+          ? 'declined'
+          : o.skipped
+            ? 'skipped'
+            : 'failed';
+    return { label: labelFor(o.skill), state, detail: o.ok ? undefined : o.error };
+  });
+}
+
 export interface HaltState {
   epoch: number | null;
   source: HaltSource;
@@ -385,19 +416,7 @@ export function useAtlas(
       engine.bus.on<{ mode: string; outcome?: PlanOutcome }>('engine:done', (payload) => {
         const outcome = payload.outcome;
         if (payload.mode !== 'command' || !outcome || outcome.outcomes.length < 2) return;
-        const steps = outcome.outcomes.map((o) => {
-          const label = engine.skills.get(o.skill)?.label ?? o.skill;
-          const state: StepState = o.ok
-            ? 'done'
-            : o.error === 'Halted.'
-              ? 'halted'
-              : o.error === 'Cancelled.'
-                ? 'declined'
-                : o.skipped
-                  ? 'skipped'
-                  : 'failed';
-          return { label, state, detail: o.ok ? undefined : o.error };
-        });
+        const steps = stepRowsFrom(outcome, (id) => engine.skills.get(id)?.label ?? id);
         setEntries((prev) => {
           const entry: Entry = { id: nextId++, kind: 'steps', steps, at: Date.now() };
           const last = prev[prev.length - 1];

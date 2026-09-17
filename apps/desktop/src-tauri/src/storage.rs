@@ -96,3 +96,117 @@ pub fn storage_remove(
     store.remove(&key);
     save(&app, &store)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_rule_is_lowercase_dot_namespaced_names() {
+        assert!(is_valid_key("atlas.theme"));
+        assert!(is_valid_key("atlas.halt-shortcut"));
+        assert!(is_valid_key("atlas.settings.notifications-enabled"));
+        assert!(!is_valid_key(""));
+        assert!(!is_valid_key("atlas/theme"));
+        assert!(!is_valid_key(&"a".repeat(129)));
+    }
+
+    /// Capital letters are the trap, and this test exists because they do not
+    /// fail loudly. `storage_set` returns an `Err` callers log at best, and the
+    /// paired `storage_get` is usually `.ok().flatten()` — so a key with a
+    /// capital letter reads back as "never saved", forever, in silence. It has
+    /// bitten twice now: `atlas.haltShortcut` (a rebind Windows had already
+    /// accepted, reported to the user as a failure) and `atlas.allowedFolders`
+    /// (the folder list quietly reverting to the default on every launch).
+    ///
+    /// So this sweeps every `atlas.*` key literal in the repo — Rust and
+    /// TypeScript alike, since both halves call the same commands — rather
+    /// than naming keys one at a time, which is what let the second one
+    /// through. A new key with a capital letter now fails in `cargo test`.
+    #[test]
+    fn every_storage_key_literal_in_the_repo_is_one_storage_accepts() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("..");
+        let mut checked = 0usize;
+        let mut bad: Vec<(String, String)> = Vec::new();
+
+        for file in source_files(&root) {
+            let Ok(text) = std::fs::read_to_string(&file) else { continue };
+            for key in key_literals(&text) {
+                checked += 1;
+                if !is_valid_key(&key) {
+                    bad.push((file.display().to_string(), key));
+                }
+            }
+        }
+
+        assert!(
+            checked > 5,
+            "the sweep found almost nothing, so it has stopped looking (checked {checked})"
+        );
+        assert!(
+            bad.is_empty(),
+            "storage keys that `storage_get`/`storage_set` refuse \
+             (lowercase `[a-z0-9._-]` only):\n{}",
+            bad.iter()
+                .map(|(f, k)| format!("  {k}  in {f}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    /// The one legitimate reason to write a key storage would refuse: reading
+    /// a value the *browser* build saved under an older spelling, where
+    /// `localStorage` accepted it. A line carrying this marker is exempt — it
+    /// has to be written deliberately, and it reads as what it is.
+    const LEGACY_MARKER: &str = "storage-key-legacy";
+
+    /// Quoted `atlas.…` literals, single- or double-quoted, containing no path
+    /// separator — which is what keeps a file path that merely mentions the
+    /// word from being read as a storage key.
+    fn key_literals(text: &str) -> Vec<String> {
+        let not_a_key = ['/', '\\', ' ', '{', '$'];
+        let mut found = Vec::new();
+        for line in text.lines() {
+            if line.contains(LEGACY_MARKER) {
+                continue;
+            }
+            for quote in ['"', '\''] {
+                let mut rest = line;
+                while let Some(start) = rest.find(quote) {
+                    rest = &rest[start + 1..];
+                    let Some(end) = rest.find(quote) else { break };
+                    let literal = &rest[..end];
+                    rest = &rest[end + 1..];
+                    if literal.starts_with("atlas.")
+                        && literal.len() > "atlas.".len()
+                        && !literal.contains(not_a_key)
+                    {
+                        found.push(literal.to_string());
+                    }
+                }
+            }
+        }
+        found
+    }
+
+    fn source_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        const SKIP: [&str; 5] = ["node_modules", "target", "dist", ".git", "gen"];
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(dir) else { return out };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if !SKIP.contains(&name.as_str()) {
+                    out.extend(source_files(&path));
+                }
+            } else if matches!(path.extension().and_then(|e| e.to_str()), Some("rs" | "ts" | "tsx")) {
+                out.push(path);
+            }
+        }
+        out
+    }
+}

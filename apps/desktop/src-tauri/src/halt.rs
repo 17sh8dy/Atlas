@@ -98,6 +98,9 @@ pub struct Halt {
     watch: tokio::sync::watch::Sender<u64>,
     processes: Mutex<Vec<Supervised>>,
     next_id: AtomicU64,
+    /// What the surface last said about whether it has a run in flight. See
+    /// `is_working` for why the shell asks rather than deciding for itself.
+    surface_working: AtomicBool,
 }
 
 /// How a halt ended the processes it found — reported to diagnostics, because
@@ -125,11 +128,41 @@ impl Halt {
             watch,
             processes: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
+            surface_working: AtomicBool::new(false),
         }
     }
 
     pub fn is_halted(&self) -> bool {
         self.latched.load(Ordering::SeqCst)
+    }
+
+    /// Is there actually something to stop?
+    ///
+    /// Two sources, ORed, because neither sees the whole picture:
+    ///
+    ///  - **The surface**, via `set_working`. Only the renderer knows a plan
+    ///    is mid-flight, a confirm card is open, or a model is being waited
+    ///    on — none of which the shell can observe, because none of them
+    ///    touch it.
+    ///  - **This process**, via the supervised-process list. A build still
+    ///    running is something to stop whatever the renderer believes, which
+    ///    is what makes the answer safe when the webview has hung, crashed or
+    ///    reloaded and its flag is stale.
+    ///
+    /// Stale in the other direction — the surface saying "working" when it
+    /// isn't — costs only that an idle press still halts, which is exactly
+    /// today's behaviour. The failure mode of this check is therefore always
+    /// "the stop key does something", never "the stop key does nothing".
+    pub fn is_working(&self) -> bool {
+        if self.surface_working.load(Ordering::SeqCst) {
+            return true;
+        }
+        self.processes.lock().map(|p| !p.is_empty()).unwrap_or(true)
+    }
+
+    /// Told by the surface, whenever its answer changes.
+    pub fn set_working(&self, working: bool) {
+        self.surface_working.store(working, Ordering::SeqCst);
     }
 
     pub fn epoch(&self) -> u64 {
@@ -151,6 +184,10 @@ impl Halt {
     /// from the hotkey thread or a blocking task, never from the main thread.
     pub fn trigger(&self, on_latched: impl FnOnce(u64)) -> (u64, StopReport) {
         self.latched.store(true, Ordering::SeqCst);
+        // Whatever the surface was doing, it is not doing it any more. Cleared
+        // here rather than waiting to be told, so a renderer that never gets
+        // the event can't leave Atlas looking busy forever.
+        self.surface_working.store(false, Ordering::SeqCst);
         let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
         self.watch.send_replace(epoch);
         on_latched(epoch);
@@ -665,11 +702,28 @@ pub fn start(app: tauri::AppHandle, saved: Option<String>) {
 
     let handle = app.clone();
     let spawned = HotkeyThread::spawn(preferred, fallback, move || {
+        // Idle is a no-op, and deliberately a silent one.
+        //
+        // The key is registered system-wide, so it is swallowed everywhere for
+        // as long as Atlas is running. A press while there is nothing to stop
+        // used to latch anyway, pull Atlas's window in front of whatever you
+        // were doing, and leave a "halted" marker in the transcript — an
+        // interruption caused by the control whose entire job is to prevent
+        // interruptions. Now nothing happens at all: no latch, no event, no
+        // window. See `is_working` for what "nothing to stop" means, and note
+        // that it is checked *here* rather than inside `trigger` — the
+        // on-screen stop button (`halt_now`) is only reachable while Atlas is
+        // visibly working, and pressing it must always do what it says.
+        if !global().is_working() {
+            return;
+        }
         let app = handle.clone();
         let (epoch, report) = global().trigger(|epoch| {
             let _ = app.emit("atlas://halt", HaltEvent { epoch, source: "shortcut" });
             // Show the state, not just set it: when Atlas is driving another
-            // window, its own is usually hidden or behind.
+            // window, its own is usually hidden or behind. Only reached when
+            // Atlas really was working, so this can no longer steal focus from
+            // an idle press.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
@@ -750,6 +804,14 @@ pub fn halt_status() -> HaltStatus {
     status_now()
 }
 
+/// The surface telling the shell whether it has a run in flight, so an idle
+/// press of the stop key can be the no-op it should be. Sent on every change,
+/// and `false` on mount — a reload must not leave a stale `true` behind.
+#[tauri::command]
+pub fn halt_set_working(working: bool) {
+    global().set_working(working);
+}
+
 #[tauri::command]
 pub fn halt_reset(epoch: u64) -> bool {
     global().reset(epoch)
@@ -802,6 +864,233 @@ mod tests {
     #[test]
     fn the_shortcut_storage_key_is_one_storage_accepts() {
         assert!(crate::storage::is_valid_key(SHORTCUT_STORAGE_KEY));
+    }
+
+    /// Every command that *acts* refuses while halted — checked here rather
+    /// than trusted, because this is the whole guarantee.
+    ///
+    /// ── What the stop actually promises ────────────────────────────────────
+    /// **Atlas issues no new actions.** `check()` is an atomic load in front
+    /// of every command that touches the machine, so an action refuses before
+    /// it sends its first event — including one the webview had already
+    /// dispatched, and one a queued step was about to reach: the executor
+    /// unwinds through `untilHalted`, and the shell would refuse it anyway if
+    /// it did not. That promise depends on nothing above this module — not the
+    /// engine, the planner, the model or the chat UI, which are the things
+    /// being stopped. It is *not* a promise to recall an action already
+    /// delivered to Windows; a single `SendInput` batch is atomic and there is
+    /// nothing to recall, so the stop point for input is between actions,
+    /// which is exactly where the latch sits.
+    ///
+    /// **A process Atlas started is terminated.** A different promise, and a
+    /// weaker one: Ctrl+C first, then the whole Job Object — see this module's
+    /// header. Whatever that build already wrote to disk stays written.
+    /// Halting stops Atlas from doing *more*; it does not undo.
+    ///
+    /// ── Reading the list below ─────────────────────────────────────────────
+    /// A command is exempt only for a reason that stays true: it reads without
+    /// changing anything, it is Atlas's own window, it is a Settings control
+    /// the *person* is operating (a halt must never lock someone out of their
+    /// own settings), or it is part of the stop itself and has to work
+    /// precisely while halted. Anything else — anything that types, clicks,
+    /// moves, writes, launches, kills or spends — is gated, and a new one that
+    /// forgets fails here rather than in the field.
+    #[test]
+    fn every_command_that_acts_refuses_while_halted() {
+        // Read-only, Atlas's own window, person-operated Settings, or the
+        // stop's own controls. Adding a name here is a claim that pressing
+        // stop should not prevent it.
+        const EXEMPT: &[&str] = &[
+            // Reads — nothing changes on the machine.
+            "allowed_folders", "windows_compatibility", "detect_project", "dir_tree",
+            "read_diagnostics", "folder_size", "largest_files", "list_environment_variables",
+            "cortex_reachable", "kokoro_status", "kokoro_voices", "transcribe_speech",
+            "network_adapters", "wifi_status", "wifi_networks", "network_reachable",
+            "search_files", "system_info", "running_processes", "list_apps", "read_text_file",
+            "path_info", "list_dir", "known_folder", "capture_window", "capture_screen",
+            "list_displays", "list_services", "service_detail", "uia_tree",
+            "uia_focused_element", "web_search", "fetch_page", "speech_voices",
+            "cursor_position", "list_windows", "active_window", "capabilities", "has_secret",
+            // Atlas's own window, which the stop shows rather than hides.
+            "show_window", "hide_window", "toggle_window",
+            // The model cache: warming and unloading cost only memory.
+            "kokoro_warm", "kokoro_unload",
+            // Settings, operated by the person. A halt must not lock someone
+            // out of their own preferences — least of all the folder list and
+            // the keys that bound what Atlas can do in the first place.
+            "add_allowed_folder", "remove_allowed_folder", "save_secret", "delete_secret",
+            "test_cloud_provider", "log_diagnostic",
+            // The stop itself, and the store it persists through. These have
+            // to work *while* halted; gating them would make the latch
+            // unclearable.
+            "halt_now", "halt_status", "halt_reset", "halt_set_working", "set_halt_shortcut",
+            "storage_get", "storage_set", "storage_remove",
+        ];
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut commands = 0usize;
+        let mut ungated: Vec<String> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+
+        for file in std::fs::read_dir(&dir).expect("src/").flatten() {
+            let path = file.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let fns = function_bodies(&text);
+            let gated_helpers: Vec<&String> = fns
+                .iter()
+                .filter(|(_, body)| body.contains("halt::global()"))
+                .map(|(name, _)| name)
+                .collect();
+
+            for name in command_names(&text) {
+                commands += 1;
+                seen.push(name.clone());
+                let Some(body) = fns.iter().find(|(n, _)| *n == name).map(|(_, b)| b) else {
+                    continue;
+                };
+                let gated = body.contains("halt::global()")
+                    || gated_helpers
+                        .iter()
+                        .any(|h| **h != name && body.contains(&format!("{h}(")));
+                if !gated && !EXEMPT.contains(&name.as_str()) {
+                    ungated.push(format!("  {name}  in {}", path.display()));
+                }
+            }
+        }
+
+        assert!(commands > 50, "the sweep has stopped finding commands (found {commands})");
+        assert!(
+            ungated.is_empty(),
+            "these commands act on the machine but never check the stop. Put \
+             `crate::halt::global().check()?;` first, or add the name to EXEMPT \
+             with the reason it belongs there:\n{}",
+            ungated.join("\n")
+        );
+
+        let stale: Vec<&&str> = EXEMPT.iter().filter(|e| !seen.iter().any(|s| s == *e)).collect();
+        assert!(stale.is_empty(), "EXEMPT names commands that no longer exist: {stale:?}");
+    }
+
+    /// `fn name` paired with its body, by brace depth. Good enough for a
+    /// source sweep, and the assertions above fail loudly if it ever stops
+    /// finding things.
+    fn function_bodies(text: &str) -> Vec<(String, String)> {
+        let lines: Vec<&str> = text.lines().collect();
+        let mut out = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            let Some(name) = fn_name(line) else { continue };
+            let mut depth = 0i32;
+            let mut started = false;
+            let mut body = String::new();
+            for l in &lines[i..] {
+                body.push_str(l);
+                body.push('\n');
+                depth += l.matches('{').count() as i32 - l.matches('}').count() as i32;
+                if l.contains('{') {
+                    started = true;
+                }
+                if started && depth <= 0 {
+                    break;
+                }
+            }
+            out.push((name, body));
+        }
+        out
+    }
+
+    fn command_names(text: &str) -> Vec<String> {
+        let lines: Vec<&str> = text.lines().collect();
+        let mut out = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if !line.trim_start().starts_with("#[tauri::command") {
+                continue;
+            }
+            if let Some(name) = lines[i + 1..].iter().find_map(|l| fn_name(l)) {
+                out.push(name);
+            }
+        }
+        out
+    }
+
+    /// The name in a `fn` declaration, ignoring `pub`, `pub(crate)` and
+    /// `async`, and ignoring a line that only mentions `fn` in passing.
+    fn fn_name(line: &str) -> Option<String> {
+        let rest = line.trim_start();
+        let rest = rest.strip_prefix("pub").map_or(rest, |r| {
+            let r = r.trim_start();
+            r.strip_prefix('(')
+                .and_then(|r| r.split_once(')'))
+                .map_or(r, |(_, after)| after)
+        });
+        let rest = rest.trim_start();
+        let rest = rest.strip_prefix("async").map_or(rest, str::trim_start);
+        let rest = rest.strip_prefix("fn ")?;
+        let name: String = rest
+            .trim_start()
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        (!name.is_empty()).then_some(name)
+    }
+
+    /// The stop key is registered system-wide, so it is swallowed in every
+    /// app for as long as Atlas runs. Pressing it with nothing to stop used to
+    /// latch, raise Atlas's window over whatever you were doing and leave a
+    /// "halted" marker in the transcript. `start`'s hotkey callback now
+    /// returns early on exactly this predicate.
+    #[test]
+    fn an_idle_atlas_has_nothing_to_stop() {
+        let halt = Halt::new();
+        assert!(!halt.is_working(), "nothing declared, nothing running");
+    }
+
+    #[test]
+    fn the_surface_saying_it_is_working_is_enough() {
+        let halt = Halt::new();
+        halt.set_working(true);
+        assert!(halt.is_working());
+        halt.set_working(false);
+        assert!(!halt.is_working());
+    }
+
+    /// The safety net: a renderer that hung, crashed or reloaded mid-run never
+    /// sends `false`, and never sends `true` again either. A process it left
+    /// running still answers for it, so the key keeps working when it is
+    /// needed most.
+    #[test]
+    fn a_running_process_counts_even_when_the_surface_says_nothing() {
+        let halt = Arc::new(Halt::new());
+        let runner = Arc::clone(&halt);
+        let worker = std::thread::spawn(move || {
+            let mut cmd = Command::new("ping");
+            cmd.args(["-n", "30", "127.0.0.1"]);
+            no_window(&mut cmd);
+            runner.run(cmd)
+        });
+        std::thread::sleep(Duration::from_millis(400));
+
+        assert!(!halt.surface_working.load(Ordering::SeqCst), "the surface never said a word");
+        assert!(halt.is_working(), "a supervised process is something to stop");
+
+        halt.trigger(|_| {});
+        let _ = worker.join().unwrap();
+        assert!(!halt.is_working(), "and once it is gone, there is nothing to stop again");
+    }
+
+    /// Cleared by the halt itself rather than waiting to be told, so a
+    /// renderer that never receives the event cannot leave the stop key
+    /// permanently armed against an Atlas that is doing nothing.
+    #[test]
+    fn a_halt_clears_the_surfaces_working_flag() {
+        let halt = Halt::new();
+        halt.set_working(true);
+        let (epoch, _) = halt.trigger(|_| {});
+        assert!(!halt.is_working());
+        halt.reset(epoch);
+        assert!(!halt.is_working(), "resuming is the surface's to declare, not the halt's");
     }
 
     #[test]

@@ -11,7 +11,15 @@ import { useEffect, useState } from 'react';
 import type { CapabilityName, Platform, Storage } from '@atlas/core';
 import { Button, Switch } from '@atlas/ui';
 
-const KEY = 'atlas.settings.notificationsEnabled';
+/**
+ * Lowercase on purpose. `storage.rs` only accepts `[a-z0-9._-]` keys, so the
+ * camelCase name this used to have was refused on the desktop build — the
+ * toggle looked like it saved and reverted on every launch. `LEGACY_KEY` is
+ * only for the browser build, where `localStorage` accepted the old spelling
+ * and someone may genuinely have a saved value under it.
+ */
+const KEY = 'atlas.settings.notifications-enabled';
+const LEGACY_KEY = 'atlas.settings.notificationsEnabled'; // storage-key-legacy
 
 interface Props {
   platform: Platform;
@@ -26,9 +34,15 @@ export function Notifications({ platform, capabilities, storage }: Props) {
 
   useEffect(() => {
     let alive = true;
-    storage.get<boolean>(KEY).then((v) => {
+    void (async () => {
+      let v = await storage.get<boolean>(KEY).catch(() => undefined);
+      if (v === undefined) {
+        v = await storage.get<boolean>(LEGACY_KEY).catch(() => undefined);
+        // Carry it forward once, so the next read is a plain hit on `KEY`.
+        if (v !== undefined) await storage.set(KEY, v).catch(() => {});
+      }
       if (alive) setEnabled(v ?? true);
-    });
+    })();
     return () => {
       alive = false;
     };

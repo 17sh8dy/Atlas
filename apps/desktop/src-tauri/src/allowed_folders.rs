@@ -186,7 +186,13 @@ pub fn remove_allowed_folder(
     Ok(as_strings())
 }
 
-const STORAGE_KEY: &str = "atlas.allowedFolders";
+/// Lowercase on purpose: `storage.rs` only accepts `[a-z0-9._-]` keys, and a
+/// capital letter here does not fail loudly — `storage_set` returns an `Err`
+/// that `persist` passes up, but the startup read in `lib.rs` is
+/// `.ok().flatten()`, so the list silently reverted to the default on every
+/// launch. `the_storage_keys_this_app_uses_are_ones_storage_accepts` in
+/// `storage.rs` now sweeps the whole tree so this cannot come back anywhere.
+pub(crate) const STORAGE_KEY: &str = "atlas.allowed-folders";
 
 fn persist(
     app: tauri::AppHandle,

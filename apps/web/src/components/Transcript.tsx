@@ -375,19 +375,33 @@ const STEP_ICON: Record<StepState, { glyph: string; className: string; label: st
 };
 
 /**
+ * The one line the disclosure shows collapsed.
+ *
+ * Counted from the rows, which come from the executor's own outcomes — so
+ * "Ran 4 actions" means four steps returned `ok`, and "Stopped after 1 of 5"
+ * means the stop landed with four still to go. Nothing here is estimated from
+ * elapsed time or from how busy Atlas looked.
+ *
+ * Exported for `action-summary.test.ts`.
+ */
+export function summarizeSteps(steps: { state: StepState }[]): string {
+  const done = steps.filter((s) => s.state === 'done').length;
+  if (steps.some((s) => s.state === 'halted')) {
+    return `Stopped after ${done} of ${steps.length} actions`;
+  }
+  return done === steps.length
+    ? `Ran ${steps.length} actions`
+    : `${done} of ${steps.length} actions completed`;
+}
+
+/**
  * What a multi-step run did, collapsed to one line until asked — the same
  * disclosure Claude uses for its own tool calls. The replies each step gave
  * stay where they were said; this is the index to them, not a second copy.
  */
 function StepsDisclosure({ steps }: { steps: NonNullable<Entry['steps']> }) {
   const [open, setOpen] = useState(false);
-  const done = steps.filter((s) => s.state === 'done').length;
-  const halted = steps.some((s) => s.state === 'halted');
-  const summary = halted
-    ? `Stopped after ${done} of ${steps.length} actions`
-    : done === steps.length
-      ? `Ran ${steps.length} actions`
-      : `${done} of ${steps.length} actions completed`;
+  const summary = summarizeSteps(steps);
 
   return (
     <div className="max-w-[85%]">

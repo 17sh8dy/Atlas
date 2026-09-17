@@ -315,6 +315,25 @@ export class Executor {
       }
     }
 
+    // A plan that stopped early still has to account for every step it named.
+    //
+    // Without this, `outcomes` simply ends where the plan did, and anything
+    // reading it — the transcript's "X of Y actions" disclosure above all —
+    // takes Y from the steps that were *reached* rather than the steps that
+    // were *planned*. A five-step plan that failed at the second reported "1
+    // of 2", which reads as a plan that nearly finished instead of one that
+    // barely started. The halted path in `run` has always padded for exactly
+    // this reason; the other two ways a plan aborts — a failed step and a
+    // declined one — now say the same thing the same way.
+    //
+    // `Skipped.` and not `Cancelled.`: the step the person actually declined
+    // already carries that, and the steps behind it were never put to them.
+    if (aborted) {
+      for (const step of plan.steps.slice(outcomes.length)) {
+        outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Skipped.' });
+      }
+    }
+
     const ran = outcomes.filter((o) => o.ok).length;
     return {
       ok: ran > 0 && outcomes.every((o) => o.ok),

@@ -275,6 +275,7 @@ export function createTauriPlatform(): Platform {
       status: () => invoke<HaltStatus>('halt_status'),
       reset: (epoch) => invoke<boolean>('halt_reset', { epoch }),
       setShortcut: (shortcut) => invoke<HaltStatus>('set_halt_shortcut', { shortcut }),
+      setWorking: (working) => invoke<void>('halt_set_working', { working }),
       onHalt: async (listener) => {
         const { listen } = await import('@tauri-apps/api/event');
         return listen<HaltEvent>('atlas://halt', (event) => listener(event.payload));

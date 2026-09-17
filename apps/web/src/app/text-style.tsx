@@ -25,7 +25,16 @@ import {
 } from '@atlas/tokens';
 import { useTheme } from './theme';
 
-const STORAGE_KEY = 'atlas.textStyle';
+/**
+ * Lowercase on purpose. This particular setting goes straight to
+ * `localStorage`, which does not care — but `storage.rs` refuses a key with a
+ * capital letter, and the same camelCase spelling has already cost two
+ * settings elsewhere (see `every_storage_key_literal_in_the_repo_is_one_storage_accepts`).
+ * One convention across every key, so routing this through the `Storage` port
+ * later is a change of route and nothing else.
+ */
+const STORAGE_KEY = 'atlas.text-style';
+const LEGACY_KEY = 'atlas.textStyle'; // storage-key-legacy
 
 interface TextStyleContextValue {
   style: TextStyle;
@@ -39,7 +48,10 @@ const TextStyleContext = createContext<TextStyleContextValue | null>(null);
 
 function readStored(): TextStyle {
   try {
-    return readTextStyle(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null'));
+    // The old spelling is read once and carried forward, so a style chosen
+    // before the rename survives it.
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
+    return readTextStyle(JSON.parse(raw ?? 'null'));
   } catch {
     return DEFAULT_TEXT_STYLE;
   }
@@ -86,6 +98,7 @@ export function TextStyleProvider({ children }: { children: ReactNode }) {
       setStyle(next);
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        localStorage.removeItem(LEGACY_KEY);
       } catch {
         // Unsaved is still applied for this session.
       }

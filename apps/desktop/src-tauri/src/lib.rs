@@ -168,6 +168,7 @@ pub fn run() {
             capabilities,
             halt::halt_now,
             halt::halt_status,
+            halt::halt_set_working,
             halt::halt_reset,
             halt::set_halt_shortcut,
             show_window,
@@ -288,7 +289,7 @@ pub fn run() {
             let saved: Option<Vec<String>> = storage::storage_get(
                 handle.clone(),
                 handle.state::<StorageState>(),
-                "atlas.allowedFolders".to_string(),
+                allowed_folders::STORAGE_KEY.to_string(),
             )
             .ok()
             .flatten()

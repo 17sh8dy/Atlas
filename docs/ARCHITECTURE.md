@@ -513,6 +513,97 @@ way input's blanket `confirm` was.
 | A cloud provider exists only because a person configured one, checked by reading the source | `cloud-providers-stay-opt-in.test.ts` | A unit test of the registry would pass while a hard-coded provider sat in `useAtlas.ts` waiting to be activated |
 | `run_devtool` takes a closed enum, never a command string | `devtools.rs::DevTool` | A reader can enumerate every program the developer agent will ever run |
 | A dev-agent step may only touch `project`/`git`/`build`/`code`/`test`/`files` | `devagent/loop.ts::DEV_AGENT_DOMAINS` | Cortex proposes each step; it cannot steer the loop into `os.*` or `service.*` just because they exist in the wider catalog |
+| Every command that acts checks the stop first | `halt.rs::check`, enforced by `every_command_that_acts_refuses_while_halted` | The guarantee is only as good as the command that forgot; a source sweep fails the build instead of the field |
+| The stop needs nothing from the engine, the model or the webview | `halt.rs` | It is those that are being stopped — see §7a |
+| Storage keys are lowercase, swept repo-wide | `storage.rs::is_valid_key`, `every_storage_key_literal_in_the_repo_is_one_storage_accepts` | A capital letter is refused silently: `storage_set` errors into a log and `storage_get` reads back as "never saved". It cost three settings before the sweep existed |
+
+---
+
+### 7a. The emergency stop — what it does and does not promise
+
+The stop (`F8` by default, rebindable in Settings → General) is the one control
+that has to work when everything else is busy, wedged, or wrong. It is worth
+being exact about what "stop" means, because it means two different things and
+only one of them is absolute.
+
+**Promise 1 — Atlas issues no new actions. This one is absolute.**
+
+`halt.rs` owns it, deliberately *below* the engine, the planner, the model and
+the chat UI. A stop routed through any of those would be a *request* to stop,
+handled by the machinery you are trying to stop. Instead:
+
+- The latch is an `AtomicBool`, set in sub-millisecond time, and
+  `Halt::check()` sits in front of **every** command that touches the machine
+  — typing, clicking, dragging, launching, writing, renaming, deleting,
+  killing a process, spending money at a cloud provider, even speaking. A
+  command the webview had *already dispatched* still refuses, because the
+  refusal happens in the shell after the message arrives, not in the renderer
+  before it is sent.
+- Queued steps cannot begin. The executor unwinds through `untilHalted`, so a
+  plan abandons whatever it was waiting on — a confirm card nobody answered, a
+  model that never replied, a step ignoring its signal — rather than waiting
+  for it to finish. And if the renderer were somehow to send the next step
+  anyway, the shell would refuse it: two independent guarantees, not one.
+- **Cancellation does not depend on the AI or the chat UI.** No model is
+  consulted, no engine method is awaited, and a wedged or crashed webview
+  changes nothing: the key is registered by a dedicated Win32 thread of its
+  own, and every gate is in the process that owns the hands. The on-screen
+  stop button takes the identical path (`halt_now`), so the two can never
+  disagree about what stopping means.
+- Which commands are exempt — and why each one is — is not a matter of
+  discipline. `every_command_that_acts_refuses_while_halted` reads the source
+  of every `#[tauri::command]` in the shell and fails the build if a new one
+  acts without checking. The exemptions are reads, Atlas's own window,
+  Settings controls the *person* operates, and the stop's own controls, which
+  must work precisely while halted.
+
+The one thing this promise does *not* cover: an action already delivered to
+Windows. A single synthetic input is one `SendInput` batch, queued atomically,
+and nothing can recall events the OS already has. The stop point for input is
+therefore *between* actions — which is exactly where the latch sits.
+
+**Promise 2 — a process Atlas started is terminated. This one is weaker, and
+differently shaped.**
+
+Stopping Atlas from *issuing* actions is instant and complete. Terminating
+something already running is neither, because the process is not Atlas:
+
+| | Stopping Atlas's own actions | Terminating an external process |
+|---|---|---|
+| Mechanism | An atomic latch checked before each action | Ctrl+C on the process's own console, then `TerminateJobObject` |
+| Timing | Immediate — the next action never starts | Up to `GRACEFUL_WINDOW` (400 ms), then forced |
+| Completeness | Total: nothing further is issued | The process is gone, grandchildren included (Job Object) |
+| Side effects | None — the action never happened | **Whatever it already wrote stays written** |
+
+That last row is the distinction that matters. A halted `pnpm build` stops
+building; the files it had already emitted are still on disk, and a half-written
+one stays half-written. A halted `git commit` may already have committed.
+**Halting stops Atlas from doing more. It does not undo.** Nothing in Atlas
+rolls back, and nothing claims to.
+
+Ctrl+C first rather than straight to termination because that is how `cargo`,
+`node` and `pytest` expect to be interrupted — they clean up their own
+temporary state given the chance. A process that has not begun exiting within
+400 ms is not going to, so the whole Job Object goes, which is what takes
+`cmd → pnpm → node → workers` down together instead of orphaning three of them.
+
+**Idle is a no-op, on purpose.**
+
+The stop key is registered system-wide: while Atlas runs, that key is swallowed
+in every application. So a press with nothing to stop does nothing at all — no
+latch, no "halted" banner, no window pulled in front of what you were doing. A
+control that exists to prevent interruptions must not become one. The shell
+cannot work this out alone (a plan mid-flight, an open confirm card and a model
+being waited on are all renderer state), so the surface reports it through
+`halt.setWorking`, and the shell ORs that with its own supervised-process list.
+Both can only fail towards "the key still works": a stale `true` costs an
+idle press that halts, which is simply the old behaviour, and a renderer that
+hung or crashed mid-run is covered by the process list regardless of what it
+last said.
+
+While Atlas *is* working, the key is global in the full sense — it fires
+whichever application has focus, which is the entire point when Atlas is
+driving a window that is not its own.
 
 ---
 

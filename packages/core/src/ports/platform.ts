@@ -558,5 +558,17 @@ export interface Platform {
     setShortcut(shortcut: string): Promise<HaltStatus>;
     /** Every halt, whichever way it was triggered. Resolves to an unsubscribe. */
     onHalt(listener: (event: HaltEvent) => void): Promise<() => void>;
+    /**
+     * Tell the shell whether there is a run in flight.
+     *
+     * The stop key is registered system-wide, so it is swallowed everywhere
+     * Atlas is running — and a press with nothing to stop must therefore do
+     * nothing at all, rather than latch and pull Atlas's window in front of
+     * whatever you were actually doing. Only the surface knows the answer: a
+     * plan mid-flight, an open confirm card and a model being waited on are
+     * all invisible to the shell. Reported on every change, and `false` on
+     * mount, so a reload leaves nothing stale behind.
+     */
+    setWorking(working: boolean): Promise<void>;
   };
 }

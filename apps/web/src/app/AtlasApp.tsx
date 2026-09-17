@@ -246,16 +246,43 @@ function Ready({
   }, [platform, screen]);
 
   /**
+   * Keep the shell told whether there is anything to stop.
+   *
+   * The stop key is registered system-wide: while Atlas runs, that key is
+   * swallowed in every application. A press with nothing in flight must
+   * therefore be a no-op — `halt.rs` checks this before it latches — and the
+   * shell cannot work out the answer on its own, because a plan mid-flight,
+   * an open confirm card and a model being waited on are all renderer state.
+   *
+   * Speaking counts. A reply read aloud is Atlas still doing something to the
+   * room, and the stop is what silences it.
+   *
+   * Reported on every change and, because the effect runs on mount, `false`
+   * as soon as the window loads — so a reload during a run cannot leave the
+   * shell believing Atlas is still busy.
+   */
+  const speaking = voice.state === 'speaking' || voice.state === 'loading';
+  const working = atlas.busy || speaking;
+  useEffect(() => {
+    void platform.halt?.setWorking(working).catch(() => {});
+  }, [platform, working]);
+
+  /**
    * The browser build has no native key, so the default one works while the
    * page has focus. The desktop build must not listen here: Windows delivers
    * the registered key to the shell, and a second handler would halt twice.
    */
   const requestHalt = atlas.requestHalt;
+  const workingRef = useRef(working);
+  workingRef.current = working;
   useEffect(() => {
     if (platform.halt) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== DEFAULT_HALT_SHORTCUT) return;
       e.preventDefault();
+      // Same rule the shell applies: nothing to stop, nothing happens. Read
+      // from a ref so the listener isn't re-bound on every change of it.
+      if (!workingRef.current) return;
       requestHalt();
     };
     window.addEventListener('keydown', onKeyDown);
