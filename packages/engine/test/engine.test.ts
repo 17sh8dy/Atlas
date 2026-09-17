@@ -50,6 +50,7 @@ import { WorkingMemory } from '../src/working-memory';
 import { recordEpisodes } from '../src/episodic';
 import { SimpleIntelligenceRegistry } from '../src/intelligence-registry';
 import { rankMatches, confidentMatch, editDistance } from '../src/text/fuzzy';
+import { correctLeadingVerb } from '../src/text/verb-typo';
 import { stripFiller } from '../src/text/normalize';
 import { resolveSite } from '../src/text/sites';
 
@@ -1122,6 +1123,17 @@ test('episodic: a skill with no message falls back to its label', async () => {
   assert.equal(events[0]?.label, 'Find files');
 });
 
+test('episodic: a readout skill (aloud: false) is recorded by its label, not its raw message', async () => {
+  const h = harness();
+  await h.engine.ask('system status', io(h));
+  const events = await h.memory.episodes();
+  assert.equal(events[0]?.type, 'system.info');
+  assert.equal(events[0]?.label, 'System status');
+  // The metrics themselves stay in the transcript, not duplicated into a
+  // history line meant to read as "what Atlas did".
+  assert.notInclude(events[0]?.label ?? '', 'CPU');
+});
+
 // Collapsing repeats into a count is `MemoryStore`'s job, covered by
 // packages/data's tests — here we only need each successful command to
 // reach `record()` once.
@@ -1912,6 +1924,10 @@ test('math.calculate evaluates arithmetic and rejects nonsense', async () => {
   const h = harness();
   const good = await h.engine.skills.invoke('math.calculate', { expression: '2 + 2 * 3' }, io(h));
   assert.equal(good.data, 8);
+  // The expression is restated in the message, not just the answer — "8."
+  // alone means nothing a minute later, in the transcript or in history.
+  assert.include(good.message ?? '', '2 + 2 * 3');
+  assert.include(good.message ?? '', '8');
   const bad = await h.engine.skills.invoke('math.calculate', { expression: '2 +' }, io(h));
   assert.equal(bad.ok, false);
 });
@@ -3135,6 +3151,84 @@ test('errors: a real question is answered honestly, without blaming a model', as
   assert.notMatch(said, MODEL_EXCUSE);
   assert.match(said, /can't answer that one/i);
   assert.match(said, /search the web/i);
+});
+
+// ---- leading-verb typo correction (text/verb-typo.ts) -----------------------
+//
+// "openn fortnite" and "launh fortnite" used to miss every grammar rule —
+// each one is anchored on a literal verb — and, whenever a provider happened
+// to be configured, land on "I couldn't reach that provider," which is an
+// implementation detail leaking out over a single mistyped letter.
+// `correctLeadingVerb` fixes only the first word, only when exactly one real
+// verb is close enough to be unambiguous, and runs before any grammar rule
+// sees the text — so what happens next, confirmation gates included, is
+// exactly what would have happened had the verb been spelled correctly.
+
+test('typos: an obvious typo in the verb still opens the right app', async () => {
+  const cases = ['openn fortnite', 'open fortnitee', 'launh fortnite', 'launh fortnitee'];
+  for (const phrasing of cases) {
+    const h = harness();
+    await h.engine.ask(phrasing, io(h));
+    assert.deepEqual(h.journal.launched, ['fortnite'], phrasing);
+  }
+});
+
+test('typos: a typo that used to fall through to the provider error no longer does', async () => {
+  const offline = makeProvider({ error: 'offline' });
+  const h = harness(undefined, { provider: offline });
+  await h.engine.ask('openn fortnite', io(h));
+  assert.deepEqual(h.journal.launched, ['fortnite']);
+  // The provider was never even asked — the typo never left tier 1.
+  assert.equal(offline.prompts.length, 0);
+  assert.notMatch(h.said.join(' '), /couldn't reach that provider/);
+});
+
+test('typos: an already-correct verb is never second-guessed', async () => {
+  const h = harness();
+  await h.engine.ask('open fortnite', io(h));
+  assert.deepEqual(h.journal.launched, ['fortnite']);
+});
+
+test('typos: a typo too short to correct safely falls through exactly as before', async () => {
+  // Four letters and under gets no typo budget at all (`typoBudget`) — the
+  // same conservatism `fuzzy.ts` already applies to app names, applied here
+  // to verbs: "og" is a coin flip between "go" and nothing, not a correction.
+  const h = harness();
+  const result = await h.engine.ask('og to my downloads', io(h));
+  assert.lengthOf(h.journal.launched, 0);
+  assert.isFalse(result.ok);
+});
+
+test("typos: a destructive verb, typo'd, still asks before deleting — same gate as spelled correctly", async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  await h.engine.ask('delet D:\\Dev\\old.txt', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.deleted, []);
+});
+
+test("typos: approving a typo'd destructive verb deletes, once confirmed — nothing bypassed the gate", async () => {
+  const h = harness();
+  await h.engine.ask('delet D:\\Dev\\old.txt', io(h));
+  assert.equal(h.confirmsAsked.length, 1);
+  assert.deepEqual(h.journal.deleted, ['D:\\Dev\\old.txt']);
+});
+
+test('verb-typo: declines rather than guessing when two verbs tie', () => {
+  // "mtake" is one edit from both "take" and "make" — verified by brute
+  // force over the real vocabulary, not hand-picked to look plausible.
+  // Guessing here means guessing which of two different actions was meant,
+  // which this module refuses to do.
+  assert.isNull(correctLeadingVerb('mtake fortnite'));
+});
+
+test('verb-typo: only the first word is ever touched', () => {
+  assert.equal(correctLeadingVerb('openn my launh folder'), 'open my launh folder');
+});
+
+test('verb-typo: an exact verb is returned as-is with nothing to correct', () => {
+  assert.isNull(correctLeadingVerb('open fortnite'));
+  assert.isNull(correctLeadingVerb(''));
 });
 
 test('fuzzy: the matcher is shared, not app-specific', () => {
@@ -4476,6 +4570,22 @@ test('smalltalk: replies vary rather than repeating one line forever', () => {
   assert.equal(new Set(three).size, 3);
   // ...but a fresh Phrasing always opens the same way, so this is testable.
   assert.equal(createPhrasing().smallTalk('greeting', 5), three[0]);
+});
+
+test('smalltalk: a role\'s farewell replaces the generic goodbye rotation', () => {
+  const pilot = createPhrasing({ role: 'pilot', userName: 'Sam' });
+  assert.equal(pilot.smallTalk('goodbye', 0), "Standing down, Sam. Call when you're ready.");
+  // A role's farewell is fixed, not rotated — three "bye"s in a row from the
+  // same pilot say the same thing, unlike the generic rotation above.
+  assert.equal(pilot.smallTalk('goodbye', 0), pilot.smallTalk('goodbye', 0));
+});
+
+test('smalltalk: assistant (and no role at all) keeps the original goodbye rotation', () => {
+  const noRole = createPhrasing({ userName: 'Sam' });
+  const assistant = createPhrasing({ role: 'assistant', userName: 'Sam' });
+  const GENERIC = ["See you — Ctrl+Space and I'm back.", 'Bye. I’ll be here.', 'See you.'];
+  assert.include(GENERIC, noRole.smallTalk('goodbye', 0));
+  assert.include(GENERIC, assistant.smallTalk('goodbye', 0));
 });
 
 // --- the guard rail: small talk must never eat an instruction ----------------

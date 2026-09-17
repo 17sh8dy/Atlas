@@ -53,6 +53,23 @@ export function plan(steps: PlanStep | PlanStep[], intent: string, confidence = 
   };
 }
 
+/**
+ * The closed vocabulary of instruction verbs — what makes a message "shaped
+ * like a command" at all, independent of which specific grammar rule (if any)
+ * ends up claiming it. Exported so `text/verb-typo.ts` can offer a correction
+ * against exactly this list rather than keeping a second copy that could
+ * drift from it — "actionable" and "correctable" have to agree on what a verb
+ * is, or a typo'd verb could be recognised as one without being fixable, or
+ * fixed into a word `looksActionable` would not have recognised anyway.
+ */
+export const COMMAND_VERBS = [
+  'open', 'launch', 'start', 'run', 'show', 'find', 'search', 'go', 'take',
+  'close', 'hide', 'set', 'turn', 'enable', 'disable', 'make', 'create',
+  'delete', 'move', 'copy', 'play', 'stop', 'remind', 'save',
+] as const;
+
+const COMMAND_VERB_PATTERN = new RegExp(`\\b(${COMMAND_VERBS.join('|')})\\b`);
+
 /** Openers that make a message a question rather than an instruction. */
 const QUESTION_START =
   /^(what|who|whom|whose|why|how|when|which|where\s+(?:is|are|was|were|can|do|does|did)\b|is|are|was|were|do|does|did|can|could|should|would|will|tell me about|explain|define)\b/;
@@ -219,9 +236,7 @@ export class Grammar {
     if (!t) return false;
     if (QUESTION_START.test(t)) return false;
     if (t.endsWith('?')) return false;
-    return /\b(open|launch|start|run|show|find|search|go|take|close|hide|set|turn|enable|disable|make|create|delete|move|copy|play|stop|remind|save)\b/.test(
-      t,
-    );
+    return COMMAND_VERB_PATTERN.test(t);
   }
 
   size(): number {

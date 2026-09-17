@@ -246,13 +246,13 @@ export function AmbientField({ level, active }: Props) {
       const raw = activeRef.current ? level() : 0;
       smoothed = raw > smoothed ? smoothed + (raw - smoothed) * 0.2 : smoothed * 0.94;
 
-      // Dimmer when the microphone is closed, but not much — and never
-      // absent, because a background that appears and disappears is a flash.
-      // The idle figure sits close to the live one deliberately.
-      // The complaint this answers was about the screen looking empty *before*
-      // anything is happening, and a field you can only see once you are
-      // already talking does not answer it.
-      const presence = (activeRef.current ? 0.7 : 0.5) + smoothed * 0.4;
+      // Dimmer when the microphone is closed — quiet enough to read as "off",
+      // never zero, because a background that appears and disappears is a
+      // flash rather than a state. Deliberately a wide gap from the active
+      // figure now: the room should stay calm until Atlas is actually
+      // listening or responding, and get more alive only then — not visually
+      // busy by default before anything has happened.
+      const presence = (activeRef.current ? 0.72 : 0.22) + smoothed * 0.4;
 
       ctx.clearRect(0, 0, width, height);
 

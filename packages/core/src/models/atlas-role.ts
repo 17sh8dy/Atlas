@@ -50,6 +50,15 @@ export interface AtlasRoleMeta {
    * approximating it.
    */
   greeting(atlasName: string, userName?: string): string;
+  /**
+   * The sign-off `smallTalk('goodbye', ...)` reaches for instead of its
+   * generic rotation. Optional and absent on `assistant` on purpose — the
+   * same reason `assistant` has no distinct greeting variation: the default
+   * role changes nothing about how Atlas already talked. A role picks up a
+   * farewell only when it is deliberately given one, never by falling back
+   * to a generated tone.
+   */
+  farewell?(userName?: string): string;
 }
 
 export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
@@ -68,6 +77,8 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
     feeling: 'Capable, proactive, focused.',
     greeting: (_atlasName, userName) =>
       userName ? `We're ready, ${userName}. What's the objective?` : "We're ready. What's the objective?",
+    farewell: (userName) =>
+      userName ? `Standing down, ${userName}. Call when you're ready.` : "Standing down. Call when you're ready.",
   },
   coPilot: {
     icon: '✈️',
@@ -75,6 +86,8 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
     feeling: 'Works alongside you.',
     greeting: (_atlasName, userName) =>
       userName ? `I'm with you, ${userName}. What should we tackle?` : "I'm with you. What should we tackle?",
+    farewell: (userName) =>
+      userName ? `Signing off, ${userName} — shout if you need me.` : 'Signing off — shout if you need me.',
   },
   companion: {
     icon: '🤝',
@@ -82,6 +95,7 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
     feeling: 'Friendly, conversational.',
     greeting: (_atlasName, userName) =>
       userName ? `Hey ${userName}! What are you working on?` : 'Hey! What are you working on?',
+    farewell: (userName) => (userName ? `Catch you later, ${userName}!` : 'Catch you later!'),
   },
   navigator: {
     // Not the same compass as Pilot's — this one is about finding things,
@@ -92,6 +106,10 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
     feeling: 'Guides you and helps you find things.',
     greeting: (_atlasName, userName) =>
       userName ? `Where should we go, ${userName}?` : 'Where should we go?',
+    farewell: (userName) =>
+      userName
+        ? `I'll be here when you're ready to move again, ${userName}.`
+        : "I'll be here when you're ready to move again.",
   },
   partner: {
     icon: '🧠',
@@ -99,6 +117,8 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
     feeling: 'Collaborative, problem-solving.',
     greeting: (_atlasName, userName) =>
       userName ? `Let's figure it out, ${userName}.` : "Let's figure it out.",
+    farewell: (userName) =>
+      userName ? `Good session, ${userName}. I'm around when you need me.` : "Good session. I'm around when you need me.",
   },
   operator: {
     icon: '🛠️',
@@ -106,6 +126,7 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
     feeling: 'Task-focused and efficient.',
     greeting: (_atlasName, userName) =>
       userName ? `Ready, ${userName}. What's the task?` : "Ready. What's the task?",
+    farewell: (userName) => (userName ? `Standing by, ${userName}.` : 'Standing by.'),
   },
 };
 

@@ -67,6 +67,14 @@ test('the CSS only activates under the enhanced attribute, and rides the token t
   assert.notMatch(source, /\.atlas-enhance[^{]*\{[^}]*transition:[^}]*\d+ms/);
 });
 
+test('the Home backdrop only renders under Enhanced Effects', () => {
+  const source = read('../src/effects/HomeBackdrop.tsx');
+  assert.include(source, 'useEnhancedEffects');
+  // `active` already folds in reduced motion and the stored preference — the
+  // backdrop must gate on it, not re-derive its own copy of that logic.
+  assert.match(source, /if \(reduced \|\| !visible \|\| !enhanced\) return null;/);
+});
+
 test('the marker class is opt-in on real interactive elements, not the generic Surface panel', () => {
   const button = read('../../../packages/ui/src/components/Button.tsx');
   assert.include(button, 'atlas-enhance');

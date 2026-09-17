@@ -312,10 +312,13 @@ export function createCoreSkills(
       expression: { type: 'string', required: true, description: 'the arithmetic expression' },
     },
     run(args) {
-      const result = evaluateExpression(String(args.expression));
-      if (result === null)
-        return { ok: false, error: `I couldn't work out "${String(args.expression)}".` };
-      return { ok: true, message: `🧮 ${result}.`, data: result };
+      const expression = String(args.expression);
+      const result = evaluateExpression(expression);
+      if (result === null) return { ok: false, error: `I couldn't work out "${expression}".` };
+      // Restates the expression rather than just the answer — "84." means
+      // nothing on its own a minute later, in the transcript or in Recent
+      // Activity; "12 * 7 = 84." does.
+      return { ok: true, message: `🧮 ${expression} = ${result}.`, data: result };
     },
   });
 

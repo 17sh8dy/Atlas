@@ -63,8 +63,9 @@ export function Appearance() {
           <div>
             <h2 className="text-foreground text-sm font-medium">Enhanced Effects</h2>
             <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
-              Adds a subtle lift, glow and cursor-tracked highlight to buttons and cards. Off by
-              default — the standard interface is already finished without it.
+              Adds a subtle lift, glow and cursor-tracked highlight to buttons and cards, plus a
+              faint moving backdrop on Home. Off by default — the standard interface is already
+              finished without it.
               {enabled && !active && (
                 <span className="text-foreground-subtle block">
                   {' '}

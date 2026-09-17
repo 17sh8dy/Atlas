@@ -43,3 +43,23 @@ test('no two roles share an icon or a label', () => {
   assert.equal(new Set(ATLAS_ROLES.map((r) => ATLAS_ROLE_META[r].icon)).size, ATLAS_ROLES.length);
   assert.equal(new Set(ATLAS_ROLES.map((r) => ATLAS_ROLE_META[r].label)).size, ATLAS_ROLES.length);
 });
+
+test('assistant has no farewell — the default role changes nothing about how Atlas already talked', () => {
+  assert.isUndefined(ATLAS_ROLE_META[DEFAULT_ATLAS_ROLE].farewell);
+});
+
+test('every non-default role has a usable, distinct farewell, with and without a name', () => {
+  const nonDefault = ATLAS_ROLES.filter((r) => r !== DEFAULT_ATLAS_ROLE);
+  const withNames: string[] = [];
+  for (const role of nonDefault) {
+    const farewell = ATLAS_ROLE_META[role].farewell;
+    assert.isDefined(farewell, `${role} has no farewell`);
+    const withName = farewell!('Sam');
+    const withoutName = farewell!();
+    assert.isAbove(withName.length, 0, `${role} produced an empty farewell with a name`);
+    assert.isAbove(withoutName.length, 0, `${role} produced an empty farewell without one`);
+    assert.include(withName, 'Sam', `${role}'s farewell doesn't use the name it was given`);
+    withNames.push(withName);
+  }
+  assert.equal(new Set(withNames).size, nonDefault.length, 'two roles produced the same farewell');
+});

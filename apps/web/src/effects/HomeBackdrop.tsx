@@ -26,6 +26,13 @@
  *   * **It only exists on Home.** Mounted by Home's empty state, so it is gone
  *     the moment a conversation starts. A backdrop behind a wall of text is
  *     noise; behind an empty screen it is atmosphere.
+ *   * **It only exists under Enhanced Effects.** A moving field of threads is
+ *     exactly the "lift, glow and motion on top of the finished interface"
+ *     Enhanced Effects (`app/effects.tsx`) already exists to gate — the
+ *     standard Home is the plain greeting and Recent Activity on their own,
+ *     with none of this. Someone who wants the extra atmosphere still gets it
+ *     by turning that one setting on; nobody else pays for it, in cycles or
+ *     in visual noise, by default.
  *
  * ── Why it is turned down this far ──────────────────────────────────────────
  * The defaults that ship with the component are built to be seen on a demo
@@ -53,6 +60,7 @@
  */
 
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { useEnhancedEffects } from '../app/effects';
 
 const WebThreads = lazy(() => import('./vendor/WebThreads'));
 
@@ -108,10 +116,13 @@ function usePrefersReducedMotion(): boolean {
 export function HomeBackdrop() {
   const visible = useDocumentVisible();
   const reduced = usePrefersReducedMotion();
+  const { active: enhanced } = useEnhancedEffects();
 
-  // Both are hard gates rather than adjustments: nothing renders, so there is
-  // no canvas, no WebGL context and no animation frame.
-  if (reduced || !visible) return null;
+  // All hard gates rather than adjustments: nothing renders, so there is no
+  // canvas, no WebGL context and no animation frame. `enhanced` already
+  // folds in reduced-motion (see `EffectsProvider`), so `reduced` here is
+  // only load-bearing for the case where Enhanced Effects itself is off.
+  if (reduced || !visible || !enhanced) return null;
 
   return (
     <div

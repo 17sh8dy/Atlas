@@ -195,7 +195,14 @@ export function NovaSwitcher({ current }: { current: string }) {
                 <span
                   className={cn(
                     'bg-surface text-foreground-muted grid h-7 w-7 shrink-0 place-items-center rounded-md',
-                    isCurrent && 'text-accent',
+                    // The active row reads as "on", the same state every other flat
+                    // indicator in the app (toggles, focus rings, the plain — not
+                    // gradient-surface — buttons) paints with `primary`, not the
+                    // separate `accent` token. Sunset/Ocean's `accent` is a second,
+                    // deliberately different hue for gradients only (see
+                    // `accents.ts`); used flat here it was the one control in the
+                    // whole app that didn't track the chosen accent colour.
+                    isCurrent && 'text-primary',
                   )}
                 >
                   <Icon className="h-4 w-4" aria-hidden="true" />
@@ -203,7 +210,7 @@ export function NovaSwitcher({ current }: { current: string }) {
                 <span className="flex min-w-0 flex-col gap-px">
                   <span className="text-foreground text-[13px] font-semibold">{p.label}</span>
                   <span
-                    className={cn('text-foreground-subtle text-[11px]', isCurrent && 'text-accent')}
+                    className={cn('text-foreground-subtle text-[11px]', isCurrent && 'text-primary')}
                   >
                     {isCurrent ? "You're here" : p.tagline}
                   </span>
@@ -217,7 +224,7 @@ export function NovaSwitcher({ current }: { current: string }) {
                   key={p.id}
                   role="menuitem"
                   aria-current="true"
-                  className="bg-accent/10 flex cursor-default items-center gap-2.5 rounded-md p-2"
+                  className="bg-primary/10 flex cursor-default items-center gap-2.5 rounded-md p-2"
                 >
                   {body}
                 </span>

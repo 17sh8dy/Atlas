@@ -25,8 +25,17 @@ export function recordEpisodes(bus: Bus, memory: Memory, skills: SkillRegistry):
     if (payload.mode !== 'command') return;
     for (const stepOutcome of payload.outcome.outcomes) {
       if (!stepOutcome.ok) continue;
+      const skill = skills.get(stepOutcome.skill);
+      // `aloud: false` already marks a message as data rather than narration
+      // (see `Skill.aloud`) — a raw metrics dump or a generated secret reads
+      // as noise in a timeline the same way it would read as noise spoken
+      // aloud. Its own `label` ("System status", "Generate a password") is
+      // what belongs in a history of *what Atlas did*; the reading itself
+      // stays exactly where it was said, in the transcript.
       const label =
-        stepOutcome.message?.trim() || skills.get(stepOutcome.skill)?.label || stepOutcome.skill;
+        skill?.aloud === false
+          ? skill.label
+          : stepOutcome.message?.trim() || skill?.label || stepOutcome.skill;
       void memory.record(stepOutcome.skill, label);
     }
   });

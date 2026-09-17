@@ -71,13 +71,16 @@ export function NovaAllProducts({ open, onClose, current, currentLabel, products
                   <span
                     className={cn(
                       'bg-surface-raised text-foreground-muted mb-3 grid h-10 w-10 shrink-0 place-items-center rounded-md',
-                      isCurrent && 'bg-background text-accent',
+                      // See NovaSwitcher.tsx: `primary`, not the separate `accent`
+                      // token, is what every other flat "this is active" state in
+                      // the app tracks.
+                      isCurrent && 'bg-background text-primary',
                     )}
                   >
                     <Icon className="h-5 w-5" aria-hidden="true" />
                   </span>
                   <span className="text-foreground block text-sm font-bold">{label}</span>
-                  <span className={cn('text-foreground-subtle block text-xs', isCurrent && 'text-accent')}>
+                  <span className={cn('text-foreground-subtle block text-xs', isCurrent && 'text-primary')}>
                     {isCurrent ? "You're here" : p.tagline}
                   </span>
                 </>
@@ -91,7 +94,7 @@ export function NovaAllProducts({ open, onClose, current, currentLabel, products
                   <span
                     key={p.id}
                     style={style}
-                    className={cn(cardClass, 'border-accent/40 bg-accent/10 cursor-default')}
+                    className={cn(cardClass, 'border-primary/40 bg-primary/10 cursor-default')}
                   >
                     {body}
                   </span>

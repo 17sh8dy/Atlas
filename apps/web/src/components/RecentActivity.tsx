@@ -44,9 +44,9 @@ export function RecentActivity({
   const recent = episodes.slice(-VISIBLE).reverse();
 
   return (
-    <section className="w-full max-w-md">
-      <p className="text-foreground-subtle mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide">
-        <Icons.Activity className="h-3 w-3" />
+    <section className="w-full max-w-lg">
+      <p className="text-foreground-subtle mb-2.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide">
+        <Icons.Activity className="h-3.5 w-3.5" />
         Recent activity
       </p>
 
@@ -66,9 +66,9 @@ export function RecentActivity({
       ) : (
         <ul className="border-border bg-surface/40 divide-border divide-y overflow-hidden rounded-xl border">
           {recent.map((event) => (
-            <li key={event.at} className="flex items-center gap-3 px-4 py-2.5">
-              <span className="bg-foreground-subtle/50 h-1.5 w-1.5 shrink-0 rounded-full" />
-              <span className="text-foreground min-w-0 flex-1 truncate text-sm">
+            <li key={event.at} className="flex items-center gap-3 px-4 py-3">
+              <span className="bg-foreground-subtle/50 h-2 w-2 shrink-0 rounded-full" />
+              <span className="text-foreground min-w-0 flex-1 truncate text-base">
                 {event.label}
                 {event.count && event.count > 1 && (
                   <span className="text-foreground-subtle"> · ×{event.count}</span>

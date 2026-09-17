@@ -138,8 +138,8 @@ export function VoiceScreen({
             {live
               ? handsFree
                 ? 'Just talk. Atlas answers, then listens again.'
-                : 'Talk, then wait. Press the circle to listen again.'
-              : 'Press the circle to open the microphone.'}
+                : 'Talk, then wait. Press to listen again.'
+              : 'Press to start listening.'}
           </p>
         </div>
       </div>

@@ -13,7 +13,7 @@
  * without confusion.
  */
 
-import type { VoiceProfile } from '@atlas/core';
+import type { AtlasRole, VoiceProfile } from '@atlas/core';
 import { ATLAS_ROLE_META, DEFAULT_ATLAS_ROLE } from '@atlas/core';
 import type { SmallTalkKind } from './text/smalltalk';
 
@@ -117,7 +117,7 @@ export function createPhrasing(profile: VoiceProfile = {}): Phrasing {
     },
 
     smallTalk: (kind, actionCount) => {
-      const options = SMALL_TALK[kind]({ atlasName, userName, actionCount });
+      const options = SMALL_TALK[kind]({ atlasName, userName, actionCount, role: profile.role });
       return options[turn(kind) % options.length] as string;
     },
   };
@@ -159,6 +159,7 @@ interface SmallTalkContext {
   atlasName: string;
   userName: string | undefined;
   actionCount: number;
+  role: AtlasRole | undefined;
 }
 
 /**
@@ -190,7 +191,14 @@ const SMALL_TALK: Record<SmallTalkKind, (c: SmallTalkContext) => readonly string
 
   thanks: () => ['Any time.', "You're welcome.", 'No trouble at all.'],
 
-  goodbye: () => ["See you — Ctrl+Space and I'm back.", 'Bye. I’ll be here.', 'See you.'],
+  // A role's own farewell replaces the generic rotation entirely, the same
+  // way `Phrasing.greeting()` replaces the opening line — `assistant` (and no
+  // role at all) has none, so it keeps saying exactly what it always did.
+  goodbye: ({ userName, role }) => {
+    const farewell = role && role !== DEFAULT_ATLAS_ROLE ? ATLAS_ROLE_META[role].farewell : undefined;
+    if (farewell) return [farewell(userName)];
+    return ["See you — Ctrl+Space and I'm back.", 'Bye. I’ll be here.', 'See you.'];
+  },
 
   identity: ({ atlasName, actionCount }) => [
     `I'm ${atlasName} — an assistant that runs entirely on this machine. I can ` +
