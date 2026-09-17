@@ -1309,6 +1309,97 @@ in one sitting, not a quiet renumber.
 
 ---
 
+## Toward 1.0.0 — settings copy, and the reachability debt (2026-09-17)
+
+Two lists. The first is Brandon's, from reading the settings screens. The
+second is what an honest audit of "can Atlas actually do what it says"
+turned up — the fixed half is already done and described below it.
+
+### 1. Settings copy that promises too much
+
+The problem with all three is the same: they are written as permanent
+guarantees about the future, and the future is not ours to promise. A
+statement that stops being true is worse than a weaker one that stays true.
+
+- **Account → "Atlas does not need an account"** — and the body's "all of it
+  runs signed out, **and always will**." Today's truth is that nothing
+  requires an account. "Always will" is a forward promise about a product
+  that has barely shipped. Rewrite as a present-tense fact about what is
+  true now, not a vow.
+- **Account → "Your memory stays here"** — "Atlas does not sync what it
+  remembers about you, signed in or not." Same shape, and this one is
+  likelier to change: sync is a reasonable thing to want, and the paragraph
+  currently forecloses it in the user's mind. Say what is true today, and say
+  that if it ever changes it will be something you turn on, never something
+  that happens because an account exists.
+- **Intelligence → "it needs no account or key"** (Cortex) is fine and
+  factual. The page around it is not: it presents Cortex, cloud providers and
+  the "nothing above is required" footnote as three peers, and it reads as
+  unfinished because **Brandon is undecided whether Cortex stays at all** —
+  [[Nova Intelligence]] may replace the Navigator Engine's reasoning layer.
+  Do not restructure this page until that decision is made; rewriting it
+  twice is worse than leaving it once. The decision is the blocker, not the
+  markup.
+
+### 2. What Atlas says it can do, versus what it can
+
+Audited 2026-09-17 by sweeping every skill's advertised `examples` against
+the grammar, and by running the live Rust tests against this machine.
+
+**The native layer is real.** All 21 live tests pass against real hardware:
+the mouse really moves (`GetCursorPos` measured after `SendInput`), keys
+really fire, the UI Automation tree really walks the foreground window, the
+screen really captures to a real PNG, windows really enumerate. Nothing in
+`platform.rs`, `input.rs`, `uia.rs`, `window.rs` or `screen.rs` is a stub.
+
+**What was not real was the reachability.** A capability you cannot ask for
+does not exist, and 24 of the phrasings Atlas *prints to the user as
+examples* reached nothing. The intended route for those was the AI planner —
+but Atlas is built to be fully useful with no provider connected, and on this
+machine Cortex is switched on with nothing listening on its port. So the
+rule, now enforced by `advertised-examples.test.ts`: **the AI tier may make a
+phrasing better understood; it may never be the only thing that makes a
+documented one work.**
+
+Fixed in this pass:
+
+| Was broken | Now |
+|---|---|
+| Store/UWP apps invisible — "open Calculator" failed, as did Settings, Paint, Photos, Snipping Tool, Terminal, Clock, Camera, Sticky Notes, Mail, Maps | `shell:AppsFolder` enumerated via COM; **56 more apps**, 226 → 282 |
+| Mouse unreachable: no rule for click, move or drag | `click at 500, 300`, `right-click at …`, `double click at …`, `move the mouse to …`, `drag from … to …` |
+| The whole `uia.*` pack unreachable — and its examples named controls ("the save button") that the skills could not accept, since they only took the numeric path `uia.tree` prints | Skills take a `control` **name**, resolved against a freshly-read tree (exact → automationId → access-key-stripped → contains, enabled first). Grammar for activate/expand/collapse/set/type-into |
+| `calculate 200 / 8 + 1` understood by nothing, while `200/8+1` worked | A lone `/` between spaces was matching the file-path detector, putting the whole grammar into path-safe mode |
+| `where is the mouse` — question-shaped, so filtered out | opted in via `questionSafe` |
+| 3 of 4 environment-variable skills unreachable | get / set / delete / deleteSystem all have rules; system scope matched first so it cannot be mistaken for the per-user one |
+| `window.move` (both forms) and per-window screenshots unreachable | `move the X window to 0, 0`, `resize the X window to 800 by 600`, `take a screenshot of the X window` |
+
+Still owed, and recorded in the test's own `NOT_YET_REACHABLE` and
+`REACHES_ANOTHER_SKILL` lists rather than here, so they cannot rot:
+
+- **Six phrasings need conversational referents** — "format this json",
+  "decode this jwt", "most common words in this" all mean *the clipboard*;
+  "read that article" means *the last search result*. That is a real feature
+  (a notion of what "this" and "that" point at), not a missing regex, which
+  is why none of them got a bodged rule. `turn it down a bit` needs a sense
+  of degree. `where are my screenshots` is question-shaped and `files.find`
+  is not question-safe for it.
+- **Five examples reach the wrong skill**, which is worse than reaching none
+  — a confident wrong action instead of an honest miss. Two are genuine
+  misfires worth fixing before 1.0.0: `open the first result and summarize
+  it` goes to `app.open` and hunts for an application called "the first
+  result", and `convert 0xff to decimal` is claimed by unit conversion.
+
+Not started, and the honest gap in the "operate any app" story:
+
+- **Finding a control on screen without naming its window.** "click play"
+  cannot work today and deliberately does not guess — clicking wherever the
+  pointer happens to sit would be worse than not understanding. Doing it
+  properly means searching the foreground window's UIA tree by name, which
+  the resolver added above already does; what is missing is the decision
+  about *which* window, and that is a design question, not a regex.
+
+---
+
 ## Deliberately not doing
 
 - **A general `exec`.** Discussed and rejected in ARCHITECTURE §6.1.

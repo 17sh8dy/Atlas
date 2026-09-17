@@ -74,8 +74,17 @@ const COMMAND_VERB_PATTERN = new RegExp(`\\b(${COMMAND_VERBS.join('|')})\\b`);
 const QUESTION_START =
   /^(what|who|whom|whose|why|how|when|which|where\s+(?:is|are|was|were|can|do|does|did)\b|is|are|was|were|do|does|did|can|could|should|would|will|tell me about|explain|define)\b/;
 
-/** Windows drive paths, UNC paths, and POSIX absolute paths. */
-const LOOKS_LIKE_PATH = /(^|\s)(?:[a-z]:[\\/]|\\\\|~?\/)[^\s]*/i;
+/**
+ * Windows drive paths, UNC paths, and POSIX absolute paths.
+ *
+ * The trailing `+` is not cosmetic. As `*` it allowed zero characters after
+ * the slash, so a lone `/` between spaces counted as a path — and
+ * `calculate 200 / 8 + 1` therefore went into path-safe mode and reached no
+ * rule at all, while the same sum written `200/8+1` worked. Arithmetic with a
+ * spaced division was silently not understood. A slash with nothing after it
+ * is not a path on any platform Atlas runs on.
+ */
+const LOOKS_LIKE_PATH = /(^|\s)(?:[a-z]:[\\/]|\\\\|~?\/)[^\s]+/i;
 
 /**
  * "open chrome AND search youtube for fortnite" / "... THEN ...". Matched

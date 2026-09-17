@@ -1126,10 +1126,15 @@ export function createExtraGrammar(): GrammarRule[] {
 
     // ---- input --------------------------------------------------------------
     //
-    // Only the one-shot phrasings people actually type in a single sentence.
-    // Anything needing coordinates ("click at 500, 300") has no natural
-    // one-liner grammar and is left to the AI planner, which is exactly the
-    // case that tier exists for.
+    // Originally only the phrasings with no coordinates in them, on the
+    // reasoning that "click at 500, 300" is what the AI-planner tier exists
+    // for. That reasoning had a hole in it: the AI tier needs a provider, and
+    // Atlas is built to be fully useful with none — so on a machine with
+    // nothing configured, every mouse skill was unreachable while the
+    // capability list went on advertising "click at 500, 300" as an example
+    // of something you could say. A phrasing an action *documents as its own
+    // example* has to work without a model. These rules are those examples,
+    // verbatim.
 
     {
       name: 'pressNamedKeyOrHotkey',
@@ -1173,6 +1178,318 @@ export function createExtraGrammar(): GrammarRule[] {
         const m = raw.match(/^\s*type\s+(["'“].+?["'”])\s*[?.!]*$/i);
         if (!m?.[1]) return null;
         return plan(step('input.typeText', { text: stripQuotes(m[1]) }), 'type-text');
+      },
+    },
+
+    {
+      name: 'moveMouse',
+      order: -6.64,
+      test(lower) {
+        // "move the mouse to 500, 300" — and the same without "the", and with
+        // a space instead of a comma, because both are what people type.
+        const m = lower.match(
+          /^\s*move\s+(?:the\s+)?(?:mouse|cursor|pointer)\s+to\s+(-?\d+)\s*(?:,|\s)\s*(-?\d+)\s*[?.!]*$/,
+        );
+        if (!m) return null;
+        return plan(
+          step('input.moveMouse', { x: Number(m[1]), y: Number(m[2]) }),
+          'move-mouse',
+        );
+      },
+    },
+
+    {
+      name: 'clickAt',
+      order: -6.63,
+      test(lower) {
+        // "click at 500, 300", "right-click at …", "double click at …".
+        // "at" stays required: "click play" is a request to find something on
+        // screen and press it, which is a different, much larger feature — and
+        // quietly clicking wherever the pointer happens to sit would be a
+        // worse answer than not understanding the sentence.
+        const m = lower.match(
+          /^\s*(?:(left|right|middle|double)[\s-]*)?click\s+(?:at\s+)?\(?(-?\d+)\s*(?:,|\s)\s*(-?\d+)\)?\s*[?.!]*$/,
+        );
+        if (!m) return null;
+        const kind = m[1];
+        return plan(
+          step('input.click', {
+            x: Number(m[2]),
+            y: Number(m[3]),
+            button: kind === 'right' || kind === 'middle' ? kind : 'left',
+            double: kind === 'double',
+          }),
+          'click-at',
+        );
+      },
+    },
+
+    {
+      name: 'dragBetweenPoints',
+      order: -6.62,
+      test(lower) {
+        const m = lower.match(
+          /^\s*drag\s+(?:from\s+)?\(?(-?\d+)\s*(?:,|\s)\s*(-?\d+)\)?\s+to\s+\(?(-?\d+)\s*(?:,|\s)\s*(-?\d+)\)?\s*[?.!]*$/,
+        );
+        if (!m) return null;
+        return plan(
+          step('input.drag', {
+            fromX: Number(m[1]),
+            fromY: Number(m[2]),
+            toX: Number(m[3]),
+            toY: Number(m[4]),
+          }),
+          'drag',
+        );
+      },
+    },
+
+    {
+      name: 'cursorPosition',
+      order: -6.61,
+      // "where is the mouse" is question-shaped, and the grammar skips rules
+      // for questions unless they say otherwise — the protection that keeps
+      // "what is the capital of Peru?" from being run as a command. This one
+      // is only ever a question, so it has to opt in or it can never fire.
+      questionSafe: ['cursor-position'],
+      test(lower) {
+        if (
+          !/^\s*(?:where(?:'s| is)?\s+(?:the\s+)?(?:mouse|cursor|pointer)|(?:mouse|cursor)\s+position)\s*[?.!]*$/.test(
+            lower,
+          )
+        ) {
+          return null;
+        }
+        return plan(step('input.cursorPosition', {}), 'cursor-position');
+      },
+    },
+
+    {
+      name: 'switchToWindow',
+      order: -6.545,
+      test(lower) {
+        // "switch to discord" — distinct from "open discord", which launches.
+        // Switching is for something already running, so it goes to
+        // window.focus and says nothing about starting anything.
+        // Only "switch to", never "go to": "go to youtube" is web
+        // navigation and has meant that far longer than this rule has
+        // existed. Claiming it here focused a window instead of opening a
+        // site — a regression three existing tests caught immediately.
+        const m = lower.match(
+          /^\s*switch\s+(?:back\s+)?to\s+(?:the\s+)?(.+?)(?:\s+window)?\s*[?.!]*$/,
+        );
+        if (!m?.[1]) return null;
+        const name = m[1].trim();
+        if (!name || name.length > 60) return null;
+        return plan(step('window.focus', { name }), 'focus-window');
+      },
+    },
+
+    {
+      name: 'moveOrResizeWindow',
+      order: -6.54,
+      test(lower) {
+        // "move the notepad window to 0, 0"
+        const moved = lower.match(
+          /^\s*move\s+(?:the\s+)?(.+?)\s+window\s+to\s+\(?(-?\d+)\s*(?:,|\s)\s*(-?\d+)\)?\s*[?.!]*$/,
+        );
+        if (moved) {
+          return plan(
+            step('window.move', {
+              name: moved[1]!.trim(),
+              x: Number(moved[2]),
+              y: Number(moved[3]),
+            }),
+            'move-window',
+          );
+        }
+
+        // "resize the notepad window to 800 by 600" — and "800x600".
+        const sized = lower.match(
+          /^\s*resize\s+(?:the\s+)?(.+?)\s+window\s+to\s+(\d+)\s*(?:by|x|\*|,)\s*(\d+)\s*[?.!]*$/,
+        );
+        if (sized) {
+          return plan(
+            step('window.move', {
+              name: sized[1]!.trim(),
+              width: Number(sized[2]),
+              height: Number(sized[3]),
+            }),
+            'resize-window',
+          );
+        }
+        return null;
+      },
+    },
+
+    {
+      name: 'screenshotOfWindow',
+      order: -6.535,
+      test(lower) {
+        // Before the plain-screenshot rule, which would otherwise capture the
+        // whole screen and ignore the window that was actually asked for.
+        const m = lower.match(
+          /^\s*(?:take\s+)?(?:a\s+)?(?:screenshot|screen\s*shot|capture|screengrab)\s+of\s+(?:the\s+)?(.+?)\s+window\s*[?.!]*$/,
+        );
+        if (!m?.[1]) return null;
+        return plan(step('screen.captureWindow', { window: m[1].trim() }), 'capture-window');
+      },
+    },
+
+    // ---- environment variables ----------------------------------------------
+    //
+    // `environment.list` had a rule; reading, setting and removing one did
+    // not, so three of this pack's four skills could only be reached by an
+    // AI planner. A variable name is the one argument, and it is matched as
+    // an UPPER_SNAKE token rather than free text so that "remove the FOO
+    // environment variable" cannot be read as a request to delete a file.
+
+    {
+      name: 'environmentVariable',
+      order: -6.53,
+      pathSafe: true,
+      questionSafe: ['env-get'],
+      test(_lower, raw) {
+        const NAME = '([A-Za-z_][A-Za-z0-9_]*)';
+
+        const get = raw.match(
+          new RegExp(`^\\s*what(?:'s| is)\\s+(?:my\\s+|the\\s+)?${NAME}\\s+set\\s+to\\s*[?.!]*$`, 'i'),
+        );
+        if (get?.[1]) return plan(step('environment.get', { name: get[1] }), 'env-get');
+
+        // System-wide first: it is the narrower phrasing, and the per-user
+        // rule below would otherwise claim it and quietly change the wrong
+        // scope — the one mistake in this pack that needs an admin to undo.
+        const delSystem = raw.match(
+          new RegExp(
+            `^\\s*(?:remove|delete|unset)\\s+the\\s+system\\s+environment\\s+variable\\s+${NAME}(?:\\s+for\\s+(?:every|all)\\s+users?)?\\s*[?.!]*$`,
+            'i',
+          ),
+        );
+        if (delSystem?.[1]) {
+          return plan(step('environment.deleteSystem', { name: delSystem[1] }), 'env-delete-system');
+        }
+
+        const del = raw.match(
+          new RegExp(
+            `^\\s*(?:remove|delete|unset)\\s+(?:my\\s+|the\\s+)?${NAME}\\s+environment\\s+variable\\s*[?.!]*$`,
+            'i',
+          ),
+        );
+        if (del?.[1]) return plan(step('environment.delete', { name: del[1] }), 'env-delete');
+
+        const set = raw.match(
+          new RegExp(`^\\s*set\\s+(?:my\\s+|the\\s+)?${NAME}\\s+to\\s+(.+?)\\s*[?.!]*$`, 'i'),
+        );
+        if (set?.[1] && set[2]) {
+          // An all-caps name is what tells this apart from "set the search
+          // field in the notepad window to hello", which is a UIA sentence.
+          if (set[1] !== set[1].toUpperCase()) return null;
+          return plan(
+            step('environment.set', { name: set[1], value: stripQuotes(set[2].trim()) }),
+            'env-set',
+          );
+        }
+        return null;
+      },
+    },
+
+    // ---- operating another app's controls -----------------------------------
+    //
+    // These were the whole `uia.*` pack's only route once the AI planner was
+    // ruled out, and there wasn't one: every skill here advertised an example
+    // naming a control ("the save button"), the skills only accepted the
+    // numeric path `uia.tree` prints, and no grammar rule matched either. The
+    // skills now take a `control` name; these are the sentences that reach it.
+    //
+    // "in the <name> window" is the shared tail. It stays required rather than
+    // defaulting to the foreground window: acting on whatever happens to be in
+    // front, when the sentence did not say so, is the kind of guess that types
+    // into the wrong application.
+
+    {
+      name: 'uiaTree',
+      order: -6.59,
+      questionSafe: ['uia-tree'],
+      test(lower) {
+        const m =
+          lower.match(/^\s*(?:inspect|examine)\s+(?:the\s+)?(.+?)\s+window\s*[?.!]*$/) ??
+          lower.match(
+            /^\s*what\s+controls\s+(?:does|has)\s+(?:the\s+)?(.+?)\s+window\s+(?:have|got)\s*[?.!]*$/,
+          ) ??
+          lower.match(/^\s*(?:list|show)\s+(?:the\s+)?controls\s+in\s+(?:the\s+)?(.+?)\s+window\s*[?.!]*$/);
+        if (!m?.[1]) return null;
+        return plan(step('uia.tree', { window: m[1].trim() }), 'uia-tree');
+      },
+    },
+
+    {
+      name: 'uiaFocusedElement',
+      order: -6.58,
+      questionSafe: ['uia-focused'],
+      test(lower) {
+        if (!/^\s*what\s+(?:control|element|field)\s+(?:has|is\s+in)\s+focus(?:ed)?\s*[?.!]*$/.test(lower)) {
+          return null;
+        }
+        return plan(step('uia.focusedElement', {}), 'uia-focused');
+      },
+    },
+
+    {
+      name: 'uiaTypeIntoControl',
+      order: -6.575,
+      test(_lower, raw) {
+        // Before `uiaInvoke`, because "type X into Y" also begins with a verb
+        // that rule's "activate the … " shape would otherwise not claim — and
+        // before `typeText`, whose bare `type "…"` would swallow the whole
+        // line including the destination.
+        const m = raw.match(
+          /^\s*type\s+(["'“].+?["'”])\s+(?:in|into)\s+(?:the\s+)?(.+?)\s+in\s+(?:the\s+)?(.+?)\s+window\s*[?.!]*$/i,
+        );
+        if (!m) return null;
+        return plan(
+          step('uia.typeInto', {
+            window: m[3]!.trim(),
+            control: m[2]!.trim(),
+            text: stripQuotes(m[1]!),
+          }),
+          'uia-type-into',
+        );
+      },
+    },
+
+    {
+      name: 'uiaSetValue',
+      order: -6.57,
+      test(_lower, raw) {
+        const m = raw.match(
+          /^\s*set\s+(?:the\s+)?(.+?)\s+in\s+(?:the\s+)?(.+?)\s+window\s+to\s+(.+?)\s*[?.!]*$/i,
+        );
+        if (!m) return null;
+        return plan(
+          step('uia.setValue', {
+            window: m[2]!.trim(),
+            control: m[1]!.trim(),
+            value: stripQuotes(m[3]!.trim()),
+          }),
+          'uia-set-value',
+        );
+      },
+    },
+
+    {
+      name: 'uiaInvokeOrExpand',
+      order: -6.56,
+      test(lower) {
+        const m = lower.match(
+          /^\s*(activate|press|push|toggle|select|expand|collapse)\s+(?:the\s+)?(.+?)\s+in\s+(?:the\s+)?(.+?)\s+window\s*[?.!]*$/,
+        );
+        if (!m) return null;
+        const verb = m[1]!;
+        const args = { window: m[3]!.trim(), control: m[2]!.trim() };
+        if (verb === 'expand') return plan(step('uia.expand', args), 'uia-expand');
+        if (verb === 'collapse') return plan(step('uia.collapse', args), 'uia-collapse');
+        return plan(step('uia.invoke', args), 'uia-invoke');
       },
     },
 

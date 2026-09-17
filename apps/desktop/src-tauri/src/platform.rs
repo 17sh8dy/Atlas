@@ -301,24 +301,119 @@ pub fn running_processes(limit: Option<usize>) -> Vec<ProcessEntry> {
     procs
 }
 
-/// Installed applications, from the Start Menu shortcuts.
+/// Installed applications, as the person could launch them themselves.
 ///
-/// Reading the shortcut folders rather than the registry keeps this to things
-/// the user can already see and launch themselves — Atlas surfaces what's
-/// there, it doesn't discover anything hidden.
+/// Four sources, and the order is the priority order: whoever names an app
+/// first keeps the name, and the rest only fill gaps.
+///
+///  1. **Start Menu and Desktop shortcuts** — the nicest names, and a plain
+///     file read.
+///  2. **Steam** and 3. **Epic** manifests — games often have no shortcut at
+///     all, and a launcher URL is a better target than an executable anyway.
+///  4. **The Apps folder** (`shell:AppsFolder`), which is what the Start menu
+///     itself lists. This is last because it is the fallback, but it is the
+///     one that closes the biggest hole: **Store/UWP apps have no shortcut
+///     file anywhere**, so without it "open Calculator" — or Settings, Paint,
+///     Photos, Snipping Tool, Terminal, Clock, Camera, Sticky Notes, Mail,
+///     Maps — simply answered that no such app is installed, on a machine
+///     where every one of them is. Measured on the development machine: 226
+///     shortcuts against 269 entries in the Apps folder.
+///
+/// Every source reads what the user can already see and launch by hand. Atlas
+/// surfaces what is there; it discovers nothing hidden and installs nothing.
 #[tauri::command]
 pub fn list_apps() -> Vec<AppEntry> {
     let mut out: Vec<AppEntry> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
 
-    // Order matters: shortcuts have the nicest names, so they claim a name
-    // first and the game launchers fill in what has no shortcut.
     collect_shortcuts(&mut out, &mut seen);
     collect_steam(&mut out, &mut seen);
     collect_epic(&mut out, &mut seen);
+    collect_apps_folder(&mut out, &mut seen);
 
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out
+}
+
+/// The prefix that marks a target as an app identity rather than a path.
+///
+/// A Store app has no file to open: it is addressed by its Application User
+/// Model ID (`Microsoft.WindowsCalculator_8wekyb3d8bbwe!App`), which only the
+/// shell can resolve. Keeping the whole `shell:AppsFolder\…` string as the
+/// target means `AppEntry` stays one flat shape — a string the launcher knows
+/// how to open — rather than growing a kind tag that every layer above would
+/// have to learn about.
+const APPS_FOLDER_PREFIX: &str = "shell:AppsFolder\\";
+
+/// Everything the Start menu lists, including Store apps, via the shell.
+///
+/// `shell:AppsFolder` is a virtual folder, so this is COM rather than a
+/// directory walk: bind it as an item, enumerate its children, and ask each
+/// one for two names — what to show a person, and how to address it. Bound
+/// directly against the `windows` crate, the same way `uia.rs` binds UI
+/// Automation and `services.rs` binds `ShellExecuteEx`.
+///
+/// Failure here is quiet on purpose. The Apps folder is the last and least
+/// important source; a machine where the shell refuses to enumerate it should
+/// still get the 226 apps the first three sources found, not an error.
+fn collect_apps_folder(out: &mut Vec<AppEntry>, seen: &mut Vec<String>) {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Com::{
+        CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{
+        IEnumShellItems, IShellItem, SHCreateItemFromParsingName, BHID_EnumItems,
+        SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING,
+    };
+
+    // Same apartment discipline as `uia.rs`'s `ComGuard`: thread-affine, and
+    // uninitialised only if this call is what initialised it.
+    let owned = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_ok();
+
+    let result = (|| -> Result<(), windows::core::Error> {
+        let folder: IShellItem =
+            unsafe { SHCreateItemFromParsingName(&HSTRING::from("shell:AppsFolder"), None) }?;
+        let items: IEnumShellItems = unsafe { folder.BindToHandler(None, &BHID_EnumItems) }?;
+
+        loop {
+            let mut fetched = [const { None }; 1];
+            let mut count = 0u32;
+            // S_FALSE (fewer items than asked for) is not an error HRESULT, so
+            // the end of the enumeration arrives as `count == 0`, not as `Err`.
+            unsafe { items.Next(&mut fetched, Some(&mut count)) }?;
+            if count == 0 {
+                break;
+            }
+            let Some(item) = fetched[0].take() else { break };
+
+            // NORMALDISPLAY is "Calculator". PARENTRELATIVEPARSING is the
+            // AUMID, which is the only thing that will actually launch it.
+            let Ok(name) = (unsafe { item.GetDisplayName(SIGDN_NORMALDISPLAY) }) else {
+                continue;
+            };
+            let Ok(aumid) = (unsafe { item.GetDisplayName(SIGDN_PARENTRELATIVEPARSING) }) else {
+                continue;
+            };
+            let name = unsafe { name.to_string() }.unwrap_or_default();
+            let aumid = unsafe { aumid.to_string() }.unwrap_or_default();
+            if name.is_empty() || aumid.is_empty() || is_shortcut_noise(&name.to_lowercase()) {
+                continue;
+            }
+            push_app(out, seen, name, format!("{APPS_FOLDER_PREFIX}{aumid}"));
+        }
+        Ok(())
+    })();
+
+    if let Err(e) = result {
+        crate::diagnostics::log_diagnostic(
+            "list_apps".to_string(),
+            format!("the Apps folder could not be enumerated, so Store apps are missing: {e}"),
+        );
+    }
+
+    if owned {
+        unsafe { CoUninitialize() };
+    }
 }
 
 /// Lowercase alphanumerics only, so "SteelSeries GG" and "steelseries.gg" are
@@ -539,7 +634,35 @@ pub fn launch_app(id: String) -> Result<bool, String> {
     let Some(app) = apps.into_iter().find(|a| a.id == id) else {
         return Err(format!("No installed app with id “{id}”."));
     };
+    if app.target.starts_with(APPS_FOLDER_PREFIX) {
+        return launch_app_identity(&app.target);
+    }
     opener_open(&app.target)
+}
+
+/// Open a Store app by the identity `collect_apps_folder` recorded.
+///
+/// Through Explorer, which is the shell's own documented way in and the same
+/// thing double-clicking the Start menu tile does. The argument is never user
+/// input: it is a string this process built from its own enumeration two lines
+/// above, and `launch_app` has already matched it against that list — the
+/// "one of these known applications, never whatever I say" boundary the
+/// command's doc comment describes is unchanged by this path.
+fn launch_app_identity(target: &str) -> Result<bool, String> {
+    let mut cmd = std::process::Command::new("explorer.exe");
+    cmd.arg(target);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    // Explorer returns immediately and reports its own exit code rather than
+    // the app's, so a spawn that succeeded is as much as can honestly be
+    // checked here.
+    match cmd.spawn() {
+        Ok(_) => Ok(true),
+        Err(e) => Err(format!("Windows couldn't start that app: {e}")),
+    }
 }
 
 // ---- file and folder operations --------------------------------------------
@@ -857,6 +980,80 @@ pub fn open_system_tool(id: String) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
+    /// The hole this closed, stated as the thing a person would actually type.
+    ///
+    /// A Store app has no `.lnk` anywhere on disk, so before `collect_apps_folder`
+    /// existed "open Calculator" answered that no such app is installed — on a
+    /// machine where Calculator, Settings, Paint, Photos, Snipping Tool,
+    /// Terminal and a dozen others all ship with Windows. This is a live test
+    /// against the real shell for that reason: the failure it guards is
+    /// entirely about what is really on the machine, and a fake Apps folder
+    /// would have passed happily the whole time the real one was never read.
+    ///
+    /// Asserted as "at least a few of these", not all of them, because which
+    /// inbox apps exist varies by Windows edition and by what has been
+    /// uninstalled.
+    #[test]
+    #[ignore = "live: enumerates this machine's real Start menu"]
+    fn store_apps_with_no_shortcut_are_still_found() {
+        let apps = list_apps();
+        assert!(!apps.is_empty(), "no applications found at all");
+
+        let inbox = [
+            "calculator", "settings", "paint", "photos", "snippingtool",
+            "terminal", "clock", "camera", "stickynotes", "maps",
+        ];
+        let found: Vec<&str> = inbox
+            .iter()
+            .copied()
+            .filter(|want| apps.iter().any(|a| a.id == *want))
+            .collect();
+
+        assert!(
+            found.len() >= 3,
+            "expected several inbox Store apps to be listed, found {found:?} among {} apps",
+            apps.len()
+        );
+
+        // And each one has to be addressable, not merely named: a listing that
+        // cannot launch is the same bug wearing a different coat.
+        for id in &found {
+            let app = apps.iter().find(|a| a.id == *id).unwrap();
+            assert!(
+                app.target.starts_with(APPS_FOLDER_PREFIX) || Path::new(&app.target).exists(),
+                "{} has an unlaunchable target: {}",
+                app.name,
+                app.target
+            );
+        }
+    }
+
+    /// Whatever the sources, the result has to behave like one list: no two
+    /// entries answering to the same name, and every entry addressable.
+    #[test]
+    #[ignore = "live: enumerates this machine's real Start menu"]
+    fn the_merged_list_has_no_duplicate_ids_and_no_empty_targets() {
+        let apps = list_apps();
+        let mut ids: Vec<&str> = apps.iter().map(|a| a.id.as_str()).collect();
+        ids.sort_unstable();
+        let before = ids.len();
+        ids.dedup();
+        assert_eq!(before, ids.len(), "two apps share an id, so one is unreachable");
+
+        for app in &apps {
+            assert!(!app.name.trim().is_empty(), "an app with no name");
+            assert!(!app.target.trim().is_empty(), "{} has no target", app.name);
+        }
+    }
+
+    /// The security property `launch_app` rests on, which the new path must
+    /// not weaken: an id that is not in the list opens nothing.
+    #[test]
+    fn an_app_id_that_is_not_installed_is_refused() {
+        let err = launch_app("definitelynotaninstalledapp".to_string()).unwrap_err();
+        assert!(err.contains("No installed app"), "unexpected refusal: {err}");
+    }
+
     use super::*;
 
     /// The home folder expands to its six well-known subfolders — the exact
