@@ -309,3 +309,51 @@ describe('reading pages', () => {
     expect(r.prompts[0]!.match(/--- END OF EVIDENCE ---/g)).toHaveLength(1);
   });
 });
+
+describe('Wikipedia as the backup', () => {
+  const WIKI: WebSearchResult = {
+    title: 'Fortnite',
+    url: 'https://en.wikipedia.org/wiki/Fortnite',
+    snippet: 'Fortnite is an online video game developed by Epic Games.',
+  };
+
+  test('no key and DuckDuckGo blocked: the question still gets an answer, sourced from Wikipedia', async () => {
+    const r = rig({
+      keySaved: false,
+      providers: {
+        duckduckgo: () => {
+          throw new Error(
+            "blocked: The search engine wants to confirm this isn't automated traffic.",
+          );
+        },
+        wikipedia: () => [WIKI],
+      },
+    });
+    await r.run('What season of Fortnite is it?');
+    expect(r.asked.map((a) => a.provider)).toEqual(['duckduckgo', 'wikipedia']);
+
+    const said = r.said.join(' ');
+    expect(said).toContain('via Wikipedia');
+    expect(said).toMatch(/encyclopedia/);
+    expect(said).not.toMatch(/blocked|captcha|api key|error/i);
+    // the model was told what kind of source it has
+    expect(r.prompts[0]).toContain('retrieved');
+    expect(r.prompts[0]).toContain('en.wikipedia.org');
+    expect(r.prompts[0]).toMatch(/encyclopedia/);
+  });
+
+  test('what Wikipedia is asked has the recency padding removed', async () => {
+    const r = rig({
+      keySaved: false,
+      providers: {
+        duckduckgo: () => {
+          throw new Error('blocked: captcha');
+        },
+        wikipedia: () => [WIKI],
+      },
+    });
+    await r.run('What season of Fortnite is it?');
+    const wikiQuery = r.asked.find((a) => a.provider === 'wikipedia')!.query;
+    expect(wikiQuery).toBe('Fortnite season');
+  });
+});

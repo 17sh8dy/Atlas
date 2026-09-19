@@ -274,6 +274,14 @@ export function verifyEvidence(
   }
 
   if (ABOUT_NOW.has(category)) {
+    // An encyclopedia is a good source for what something IS and a slow one
+    // for what is true this week. Said whenever it is all there is.
+    if (evidence.length && evidence.every((e) => e.provider === 'wikipedia')) {
+      notes.push(
+        'These come from an encyclopedia, which can lag behind current events — ' +
+          'check a live source for anything time-sensitive.',
+      );
+    }
     const times = evidence
       .map((e) => (e.publishedDate ? Date.parse(e.publishedDate) : NaN))
       .filter((n) => Number.isFinite(n));

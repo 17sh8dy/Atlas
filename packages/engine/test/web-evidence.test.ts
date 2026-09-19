@@ -223,3 +223,20 @@ describe('the packet, the prompt, the footer', () => {
     expect(f).toContain('2026-09-19');
   });
 });
+
+describe('encyclopedia-only answers', () => {
+  test('an answer built only from Wikipedia says it may lag, for questions about now', () => {
+    const wiki = [ev('en.wikipedia.org', 'Fortnite is a game.', { provider: 'wikipedia' })];
+    expect(verifyEvidence(wiki, 'release', NOW).notes.join(' ')).toMatch(/encyclopedia/);
+  });
+
+  test('not said when a live source is among them, or when the question is not about now', () => {
+    const mixed = [
+      ev('en.wikipedia.org', 'x', { provider: 'wikipedia' }),
+      ev('fortnite.gg', 'y', { provider: 'tavily' }),
+    ];
+    expect(verifyEvidence(mixed, 'release', NOW).notes.join(' ')).not.toMatch(/encyclopedia/);
+    const wiki = [ev('en.wikipedia.org', 'x', { provider: 'wikipedia' })];
+    expect(verifyEvidence(wiki, null, NOW).notes.join(' ')).not.toMatch(/encyclopedia/);
+  });
+});

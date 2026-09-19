@@ -38,16 +38,18 @@ function viaPlatform(
   label: string,
   ready: () => Promise<boolean>,
   legacy?: () => ((query: string) => Promise<WebSearchResult[]>) | undefined,
+  prepare: (query: string) => string = (q) => q,
 ): SearchProvider {
   return {
     id,
     label,
     isAvailable: ready,
     async search(query, options) {
+      const prepared = prepare(query);
       try {
-        if (platform.searchWebWith) return await platform.searchWebWith(id, query, options);
+        if (platform.searchWebWith) return await platform.searchWebWith(id, prepared, options);
         const plain = legacy?.();
-        if (plain) return await plain(query);
+        if (plain) return await plain(prepared);
         return [];
       } catch (e) {
         throw classifySearchError(e);
@@ -75,10 +77,55 @@ export function duckDuckGoProvider(platform: Platform): SearchProvider {
   );
 }
 
-/** Tavily first when a key exists, DuckDuckGo otherwise or when Tavily cannot answer. */
+const MONTH_YEAR =
+  /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d\d\b/gi;
+const NOW_WORDS = /\b(?:current(?:ly)?|latest|newest|today|right now|now)\b/gi;
+
+/**
+ * What to ask an encyclopedia. The query rewriter adds "September 2026" and
+ * "latest" so a news index prefers fresh pages; Wikipedia's search requires
+ * every word to match, so those same words would return nothing. The subject
+ * is what an article is titled after, so that is what is left.
+ */
+export function encyclopediaQuery(query: string): string {
+  const stripped = query
+    .replace(MONTH_YEAR, ' ')
+    .replace(NOW_WORDS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped.length >= 3 ? stripped : query;
+}
+
+/**
+ * Keyless, official-API knowledge. Last in line on purpose: it is an
+ * encyclopedia, good for "what is X" and slow to learn what happened this
+ * week, so it backs the others up rather than leading. An answer built from
+ * it says so (see `verifyEvidence`).
+ */
+export function wikipediaProvider(platform: Platform): SearchProvider {
+  return viaPlatform(
+    platform,
+    'wikipedia',
+    'Wikipedia',
+    async () => Boolean(platform.searchWebWith),
+    undefined,
+    encyclopediaQuery,
+  );
+}
+
+/**
+ * Tavily first when a key exists; DuckDuckGo when it does not or cannot
+ * answer; Wikipedia when neither can. Nothing above the manager knows this
+ * order.
+ */
 export function createSearchManager(
   platform: Platform,
   extra: SearchProvider[] = [],
 ): SearchManager {
-  return new SearchManager([tavilyProvider(platform), duckDuckGoProvider(platform), ...extra]);
+  return new SearchManager([
+    tavilyProvider(platform),
+    duckDuckGoProvider(platform),
+    wikipediaProvider(platform),
+    ...extra,
+  ]);
 }

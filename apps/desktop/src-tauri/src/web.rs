@@ -110,6 +110,7 @@ pub async fn web_search_with(
     let out = match provider.as_str() {
         "duckduckgo" => ddg_search(&query).await,
         "tavily" => tavily_search(&query, topic.as_deref()).await,
+        "wikipedia" => wikipedia_search(&query).await,
         _ => Err(SearchErr::new("error", "That isn't a search provider Atlas knows.")),
     };
     out.map_err(|e| e.tagged())
@@ -120,7 +121,7 @@ pub async fn web_search_with(
 #[tauri::command]
 pub fn web_search_provider_ready(provider: String) -> Result<bool, String> {
     match provider.as_str() {
-        "duckduckgo" => Ok(true),
+        "duckduckgo" | "wikipedia" => Ok(true),
         "tavily" => Ok(crate::secrets::read_secret(TAVILY_SECRET_ID)?.is_some()),
         _ => Ok(false),
     }
@@ -258,6 +259,110 @@ async fn tavily_search(query: &str, topic: Option<&str>) -> Result<Vec<WebSearch
         .await
         .map_err(|_| SearchErr::new("error", "Couldn't read Tavily's reply."))?;
     Ok(parse_tavily_response(&text))
+}
+
+// ---- Wikipedia ------------------------------------------------------------
+
+/// The keyless knowledge backend: Wikipedia's own search API, which is meant
+/// for programs, needs no account and asks only that a client identify
+/// itself (`USER_AGENT` does). It is an encyclopedia, so it answers "what is
+/// X" well and "what happened this week" badly — the engine knows that and
+/// says so on any answer built from it.
+const WIKIPEDIA_API: &str = "https://en.wikipedia.org/w/api.php";
+
+/// `Fortnite (video game)` → `https://en.wikipedia.org/wiki/Fortnite_(video_game)`.
+/// Underscores and the punctuation Wikipedia leaves readable stay as they are.
+fn wikipedia_url(title: &str) -> String {
+    use percent_encoding::AsciiSet;
+    const KEEP: &AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'_')
+        .remove(b'(')
+        .remove(b')')
+        .remove(b',')
+        .remove(b'.')
+        .remove(b'-')
+        .remove(b'\'')
+        .remove(b'!');
+    let slug = title.trim().replace(' ', "_");
+    format!("https://en.wikipedia.org/wiki/{}", utf8_percent_encode(&slug, KEEP))
+}
+
+fn parse_wikipedia_response(body: &str) -> Vec<WebSearchResultDto> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let Some(pages) = v.pointer("/query/pages").and_then(|p| p.as_array()) else {
+        return Vec::new();
+    };
+    // `generator=search` returns pages in no particular order; `index` is the
+    // search rank, and the engine treats earlier results as better.
+    let mut ranked: Vec<(i64, &serde_json::Value)> = pages
+        .iter()
+        .map(|p| (p.get("index").and_then(|i| i.as_i64()).unwrap_or(i64::MAX), p))
+        .collect();
+    ranked.sort_by_key(|(i, _)| *i);
+
+    let mut out = Vec::new();
+    for (_, page) in ranked {
+        let title = page.get("title").and_then(|x| x.as_str()).unwrap_or("").trim();
+        if title.is_empty() {
+            continue;
+        }
+        let extract = page.get("extract").and_then(|x| x.as_str()).unwrap_or("").trim();
+        // A disambiguation page is a list of other pages, not an answer.
+        if extract.contains("may refer to") {
+            continue;
+        }
+        out.push(WebSearchResultDto {
+            title: title.to_string(),
+            url: wikipedia_url(title),
+            snippet: truncate_chars(extract, MAX_SNIPPET_CHARS),
+            published_date: None,
+        });
+        if out.len() >= MAX_RESULTS {
+            break;
+        }
+    }
+    out
+}
+
+async fn wikipedia_search(query: &str) -> Result<Vec<WebSearchResultDto>, SearchErr> {
+    let query = check_query(query)?;
+    let client = http_client().map_err(|e| SearchErr::new("error", e))?;
+    let resp = client
+        .get(WIKIPEDIA_API)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .query(&[
+            ("action", "query"),
+            ("generator", "search"),
+            ("gsrsearch", query),
+            ("gsrnamespace", "0"),
+            ("gsrlimit", "6"),
+            ("prop", "extracts"),
+            ("exintro", "1"),
+            ("explaintext", "1"),
+            ("exlimit", "6"),
+            ("exchars", "700"),
+            ("redirects", "1"),
+            ("format", "json"),
+            ("formatversion", "2"),
+        ])
+        .send()
+        .await
+        .map_err(|_| SearchErr::new("offline", "Couldn't reach Wikipedia — check the connection."))?;
+
+    let status = resp.status();
+    if status.as_u16() == 429 {
+        return Err(SearchErr::new("rate", "Wikipedia is rate-limiting requests right now."));
+    }
+    if !status.is_success() {
+        return Err(SearchErr::new("error", format!("Wikipedia returned {status}.")));
+    }
+    let text = resp
+        .text()
+        .await
+        .map_err(|_| SearchErr::new("error", "Couldn't read Wikipedia's reply."))?;
+    Ok(parse_wikipedia_response(&text))
 }
 
 /// DuckDuckGo's no-JS HTML results page — chosen because it needs no API key
@@ -532,6 +637,57 @@ mod tests {
         assert!(out.err().expect("must be refused").starts_with("error: "));
         assert!(!web_search_provider_ready("evil".into()).unwrap());
         assert!(web_search_provider_ready("duckduckgo".into()).unwrap());
+        assert!(web_search_provider_ready("wikipedia".into()).unwrap());
+    }
+
+    #[test]
+    fn wikipedia_urls_keep_readable_punctuation_and_encode_the_rest() {
+        assert_eq!(wikipedia_url("Fortnite"), "https://en.wikipedia.org/wiki/Fortnite");
+        assert_eq!(
+            wikipedia_url("Fortnite (video game)"),
+            "https://en.wikipedia.org/wiki/Fortnite_(video_game)"
+        );
+        assert_eq!(
+            wikipedia_url("AC/DC"),
+            "https://en.wikipedia.org/wiki/AC%2FDC",
+            "a slash in a title must not become a path separator"
+        );
+        assert!(wikipedia_url("Zürich").contains("Z%C3%BCrich"));
+    }
+
+    #[test]
+    fn parses_wikipedia_in_rank_order_and_drops_disambiguation_pages() {
+        let body = r#"{"query":{"pages":[
+            {"pageid":3,"title":"Third","index":3,"extract":"The third one."},
+            {"pageid":1,"title":"First","index":1,"extract":"The first one."},
+            {"pageid":2,"title":"Mercury","index":2,"extract":"Mercury may refer to:"},
+            {"pageid":4,"title":"","index":4,"extract":"no title"}
+        ]}}"#;
+        let r = parse_wikipedia_response(body);
+        let titles: Vec<&str> = r.iter().map(|x| x.title.as_str()).collect();
+        assert_eq!(titles, vec!["First", "Third"]);
+        assert_eq!(r[0].snippet, "The first one.");
+        assert_eq!(r[0].published_date, None);
+    }
+
+    #[test]
+    fn wikipedia_parsing_survives_garbage() {
+        assert!(parse_wikipedia_response("not json").is_empty());
+        assert!(parse_wikipedia_response("{}").is_empty());
+        assert!(parse_wikipedia_response(r#"{"query":{}}"#).is_empty());
+        assert!(parse_wikipedia_response(r#"{"error":{"code":"x"}}"#).is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore] // hits the real network — run manually with `cargo test -- --ignored`
+    async fn live_wikipedia_returns_real_articles() {
+        let r = web_search_with("wikipedia".into(), "Fortnite video game".into(), None)
+            .await
+            .expect("Wikipedia's API should answer");
+        eprintln!("live Wikipedia: {} results, first = {:?}", r.len(), r.first().map(|x| (&x.title, &x.url)));
+        assert!(!r.is_empty());
+        assert!(r[0].url.starts_with("https://en.wikipedia.org/wiki/"));
+        assert!(!r[0].snippet.is_empty(), "the intro extract should come back with the hit");
     }
 
     #[test]

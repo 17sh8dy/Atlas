@@ -183,6 +183,8 @@ function providerLabelFor(id: string | undefined): string {
       return 'Tavily';
     case 'duckduckgo':
       return 'DuckDuckGo';
+    case 'wikipedia':
+      return 'Wikipedia';
     default:
       return id ?? 'web search';
   }

@@ -139,7 +139,7 @@ export interface WebSearchResult {
  * a crawler of our own) is one new arm natively and one new provider in the
  * engine — nothing above the search manager changes.
  */
-export type SearchProviderId = 'tavily' | 'duckduckgo';
+export type SearchProviderId = 'tavily' | 'duckduckgo' | 'wikipedia';
 
 /** What kind of results a query wants; a hint, and every provider may ignore it. */
 export interface WebSearchOptions {

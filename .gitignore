@@ -19,3 +19,6 @@ apps/desktop/src-tauri/gen/
 #   pnpm --filter @atlas/desktop voices
 # which downloads, verifies the exact byte sizes, and unpacks into place.
 apps/desktop/src-tauri/vendor/
+
+# Local build output copied next to the desktop app (27 MB binary)
+apps/desktop/Atlas.exe

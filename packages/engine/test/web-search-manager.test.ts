@@ -6,7 +6,12 @@ import {
   SearchManager,
   type SearchProvider,
 } from '../src/web/search-manager';
-import { classifySearchError, createSearchManager } from '../src/web/providers';
+import {
+  classifySearchError,
+  createSearchManager,
+  encyclopediaQuery,
+  wikipediaProvider,
+} from '../src/web/providers';
 
 const hit = (title: string): WebSearchResult => ({
   title,
@@ -220,5 +225,79 @@ describe('createSearchManager — the real wiring against a fake platform', () =
   test('a platform that cannot search at all yields none-available', async () => {
     const out = await createSearchManager(platformOf({})).search('q');
     expect(out).toMatchObject({ ok: false, reason: 'none-available' });
+  });
+});
+
+describe('Wikipedia, the keyless knowledge backup', () => {
+  const platformOf = (over: Partial<Platform>): Platform =>
+    ({ id: 'test', capabilities: async () => ({}), ...over }) as Platform;
+
+  test('it is last in line: Tavily, then DuckDuckGo, then Wikipedia', () => {
+    expect(createSearchManager(platformOf({})).order()).toEqual([
+      'tavily',
+      'duckduckgo',
+      'wikipedia',
+    ]);
+  });
+
+  test('no key and DuckDuckGo blocked: Wikipedia answers, and nothing is reported as an error', async () => {
+    const asked: string[] = [];
+    const platform = platformOf({
+      searchProviderReady: async () => false,
+      searchWebWith: async (provider) => {
+        asked.push(provider);
+        if (provider === 'duckduckgo') throw new Error("blocked: confirm this isn't automated");
+        return [hit('wiki')];
+      },
+    });
+    const out = await createSearchManager(platform).search('Fortnite');
+    expect(asked).toEqual(['duckduckgo', 'wikipedia']);
+    expect(out.ok && out.provider).toBe('wikipedia');
+  });
+
+  test('a blocked DuckDuckGo is not asked again for a while, so the next question goes straight to Wikipedia', async () => {
+    const asked: string[] = [];
+    const platform = platformOf({
+      searchProviderReady: async () => false,
+      searchWebWith: async (provider) => {
+        asked.push(provider);
+        if (provider === 'duckduckgo') throw new Error('blocked: captcha');
+        return [hit('wiki')];
+      },
+    });
+    const m = createSearchManager(platform);
+    await m.search('one');
+    await m.search('two');
+    expect(asked).toEqual(['duckduckgo', 'wikipedia', 'wikipedia']);
+  });
+});
+
+describe('encyclopediaQuery', () => {
+  test.each([
+    ['Fortnite current season September 2026', 'Fortnite season'],
+    ['Apex Legends latest September 2026', 'Apex Legends'],
+    ['Lakers game last night September 2026', 'Lakers game last night'],
+    ['2026 FIFA World Cup', '2026 FIFA World Cup'],
+    ['black hole', 'black hole'],
+  ])('%s -> %s', (input, want) => {
+    expect(encyclopediaQuery(input)).toBe(want);
+  });
+
+  test('never reduces a query to nothing', () => {
+    expect(encyclopediaQuery('now')).toBe('now');
+  });
+
+  test('the cleaned query is what reaches Wikipedia', async () => {
+    const sent: string[] = [];
+    const platform = {
+      id: 'test',
+      capabilities: async () => [],
+      searchWebWith: async (_p: string, q: string) => {
+        sent.push(q);
+        return [hit('wiki')];
+      },
+    } as unknown as Platform;
+    await wikipediaProvider(platform).search('Fortnite current season September 2026', {});
+    expect(sent).toEqual(['Fortnite season']);
   });
 });
