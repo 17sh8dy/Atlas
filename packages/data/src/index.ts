@@ -21,13 +21,16 @@ export { readSpeechPreferences, writeSpeechPreferences } from './speech-preferen
 export { readExecutionMode, writeExecutionMode } from './execution-mode-preference';
 export { readListeningPreferences, writeListeningPreferences } from './listening-preferences';
 export {
-  readCortexSettings,
-  writeCortexEnabled,
-  writeCortexBaseUrl,
+  readLocalAiSettings,
+  writeLocalModelsEnabled,
+  writeLocalModelsBaseUrl,
+  writeNovaIntelligenceEnabled,
+  writeNovaIntelligenceBaseUrl,
   readActiveProvider,
   writeActiveProvider,
-} from './cortex-settings';
-export type { CortexSettings } from './cortex-settings';
+  DEFAULT_LOCAL_AI_SETTINGS,
+} from './local-ai-settings';
+export type { LocalAiSettings, EndpointSettings } from './local-ai-settings';
 export { readCloudProviders, writeCloudProviders } from './cloud-provider-settings';
 
 /** The storage implementation for the given platform. */

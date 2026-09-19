@@ -4,7 +4,7 @@
  * A skill like any other, the same shape `devagent-skill.ts` established:
  * registered, capability-gated, risk-rated, and reached by the grammar, by
  * `planWithAI`, or directly. What it does inside `run()` is genuinely
- * different from every other skill (it calls Cortex itself and drives its
+ * different from every other skill (it calls the selected model itself and drives its
  * own inner `Executor`), but from the registry's point of view it is one
  * action with one argument. See `../uiagent/loop.ts`'s module doc for the
  * mechanism and why this task's `allow` check is an explicit skill-id set

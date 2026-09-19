@@ -3,7 +3,7 @@
 //! ## What this is, and what it deliberately is not
 //!
 //! Atlas's whole thesis is that it works with nothing connected (see
-//! `docs/ARCHITECTURE.md` §1). Cortex (`intelligence.rs`) is the local
+//! `docs/ARCHITECTURE.md` §1). Local models (`intelligence.rs`) are the local
 //! answer to "the engine wants to reason about something it doesn't know."
 //! This file is the **opt-in** second answer, for someone who wants stronger
 //! conversation quality than a local model gives and is willing to send
@@ -37,7 +37,7 @@
 //!
 //! ## Not streaming, on purpose, for now
 //!
-//! Cortex streams (`intelligence.rs::ask_cortex_stream`); this doesn't yet.
+//! Local models stream (`intelligence.rs::ask_local_model_stream`); this doesn't yet.
 //! Brandon's own brief for this pass was to "prioritize a clean
 //! provider-management foundation rather than trying to fully integrate
 //! every provider immediately" — three real, correct, non-streaming
@@ -93,7 +93,7 @@ fn validate_prompt(prompt: &str) -> Result<(), String> {
 /// a self-hosted proxy) with no shared default worth guessing — required,
 /// explicitly. `Anthropic`/`Gemini` name one real service each, so an empty
 /// value falls back to it, the same as `intelligence.rs::validate_base_url`
-/// does for Cortex's own endpoint.
+/// does for the local model endpoint.
 fn resolve_base_url(kind: CloudProviderKind, base_url: &str) -> Result<String, String> {
     let trimmed = base_url.trim().trim_end_matches('/');
     if !trimmed.is_empty() {

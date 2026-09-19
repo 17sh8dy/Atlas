@@ -4,7 +4,7 @@
  *
  * ── What this file replaces ─────────────────────────────────────────────────
  * Until 2026-09-11 this file was `no-other-cloud-ai.test.ts`, guaranteeing
- * "Cortex is the only cloud AI, full stop." Brandon reversed that decision
+ * "the one local model is the only AI, full stop." Brandon reversed that decision
  * explicitly, asking for OpenAI-compatible/Anthropic/Gemini providers a
  * person can add themselves — see `docs/ARCHITECTURE.md` §6.3 and
  * `cloud_intelligence.rs`'s module doc. Deleting the old guard outright would
@@ -12,8 +12,9 @@
  * policy it enforced; this file keeps that discipline and checks the new
  * policy instead:
  *
- *   1. Cortex is still registered unconditionally, exactly once — cloud
- *      providers are *additional*, never a replacement.
+ *   1. The local models and Nova Intelligence are registered from one
+ *      place, each exactly once — cloud providers are *additional*, never a
+ *      replacement.
  *   2. A cloud provider only ever exists because a person configured one —
  *      the registration loop iterates a runtime list, there is no hard-coded
  *      provider the way `ask_claude`/`ask_openai` once were.
@@ -101,22 +102,60 @@ test('online-voice symbols removed in an earlier pass have not come back', () =>
   assert.deepEqual(offenders, [], `These were removed on purpose:\n${offenders.join('\n')}`);
 });
 
-test('Cortex is still registered unconditionally, exactly once', () => {
-  const wiring = readFileSync(join(REPO_ROOT, 'apps/web/src/atlas/useAtlas.ts'), 'utf8');
-  const cortexRegistrations = wiring.match(/intelligence\.register\(createCortexProvider\(/g) ?? [];
-  assert.lengthOf(cortexRegistrations, 1, 'Cortex must be registered exactly once, unconditionally');
+const INTELLIGENCE_WIRING = 'apps/web/src/atlas/buildIntelligence.ts';
+
+test('local models and Nova Intelligence are each registered from one place, exactly once', () => {
+  const wiring = readFileSync(join(REPO_ROOT, INTELLIGENCE_WIRING), 'utf8');
+  // The catalogued models come from the fixed catalogue in one loop…
+  const catalogue = wiring.match(
+    /for \(const profile of LOCAL_MODEL_PROFILES\)\s*\{\s*registry\.register\(createLocalModelProvider\(profile,/g,
+  );
+  assert.lengthOf(catalogue ?? [], 1, 'the catalogued local models must be registered by one loop');
+  // …any other installed model by one more, and Nova Intelligence once.
+  assert.lengthOf(
+    wiring.match(/registry\.register\(createNovaIntelligenceProvider\(/g) ?? [],
+    1,
+    'Nova Intelligence must be registered exactly once',
+  );
+  // And nothing registers a provider anywhere else in the app.
+  const app = readFileSync(join(REPO_ROOT, 'apps/web/src/atlas/useAtlas.ts'), 'utf8');
+  assert.notMatch(app, /\.register\(create\w*Provider/, 'providers are registered in buildIntelligence only');
+});
+
+test('the intelligence wiring is handed no way to act on the machine', () => {
+  // The models are the conversation layer. If this file ever imports the
+  // executor, the skill registry or the platform, a model has been given a
+  // route to act that skips Atlas's permissions and confirmations.
+  const wiring = readFileSync(join(REPO_ROOT, INTELLIGENCE_WIRING), 'utf8');
+  const engineImports = [...wiring.matchAll(/import \{([^}]*)\} from '@atlas\/engine'/g)].flatMap((m) =>
+    m[1]!.split(',').map((x) => x.trim()).filter(Boolean),
+  );
+  assert.deepEqual(engineImports, ['SimpleIntelligenceRegistry']);
+  for (const forbidden of ['Executor', 'SkillRegistry', 'createCoreSkills', 'platform.', 'invoke(']) {
+    assert.notInclude(wiring, forbidden, `${INTELLIGENCE_WIRING} must not reference ${forbidden}`);
+  }
+});
+
+test('nothing in Atlas refers to the old bridge any more', () => {
+  const needle = ['cor', 'tex'].join('');
+  const offenders: string[] = [];
+  for (const file of FILES) {
+    if (rel(file).startsWith('docs/')) continue;
+    if (executableSource(file).toLowerCase().includes(needle)) offenders.push(rel(file));
+  }
+  assert.deepEqual(offenders, [], `The old bridge was removed on purpose: ${offenders.join(', ')}`);
 });
 
 test('a cloud provider is only ever registered from a runtime, user-owned list', () => {
-  const wiring = readFileSync(join(REPO_ROOT, 'apps/web/src/atlas/useAtlas.ts'), 'utf8');
-  // The whole guarantee: no `intelligence.register(createCloudProvider({...}))`
+  const wiring = readFileSync(join(REPO_ROOT, INTELLIGENCE_WIRING), 'utf8');
+  // The whole guarantee: no `registry.register(createCloudProvider({...}))`
   // with a literal object — only ever a loop over something the user built,
-  // named `cloudProviders` so this stays connected to the prop actually
+  // named `cloudProviders` (on the setup object) so this stays connected to the prop actually
   // threaded down from Settings rather than some other array that happened
   // to be lying around.
   assert.match(
     wiring,
-    /for \(const config of cloudProviders\)\s*\{\s*intelligence\.register\(createCloudProvider\(config\)\);/,
+    /for \(const config of setup\.cloudProviders\)\s*\{\s*registry\.register\(createCloudProvider\(config\)\);/,
     'a cloud provider must come from iterating a runtime list, never a hard-coded registration',
   );
   const hardCoded = wiring.match(/createCloudProvider\(\{/);
@@ -172,7 +211,7 @@ test('the required Nova/Atlas disclosure is actually shown, not just planned', (
   assert.include(ui, 'own valid access and API keys');
 });
 
-test('a cloud provider is inert until both enabled and selected, same as Cortex', () => {
+test('a cloud provider is inert until both enabled and selected, same as a local model', () => {
   // `SimpleIntelligenceRegistry.active()` already treats a registered-but-
   // unconfigured provider as nothing selected (see its own coverage in
   // engine.test.ts); this pins the fact that a cloud provider's

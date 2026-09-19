@@ -30,7 +30,7 @@ import type {
   Storage,
   VoiceProfile,
 } from '@atlas/core';
-import type { CortexSettings } from '@atlas/data';
+import type { LocalAiRuntime } from '../atlas/buildIntelligence';
 import type { SkillRegistry } from '@atlas/engine';
 import { General } from './settings/General';
 import { Appearance } from './settings/Appearance';
@@ -52,7 +52,7 @@ interface Props {
   onExecutionModeChange(mode: ExecutionMode): void;
   voiceProfile: VoiceProfile;
   onVoiceProfileChange(): void;
-  cortex: CortexSettings;
+  localAi: LocalAiRuntime;
   activeProviderId: string | null;
   cloudProviders: CloudProviderConfig[];
   onProviderChange(): void;
@@ -103,7 +103,7 @@ export function Settings({
   onExecutionModeChange,
   voiceProfile,
   onVoiceProfileChange,
-  cortex,
+  localAi,
   activeProviderId,
   cloudProviders,
   onProviderChange,
@@ -177,7 +177,7 @@ export function Settings({
             <TabsContent value="intelligence">
               <Intelligence
                 storage={storage}
-                cortex={cortex}
+                localAi={localAi}
                 activeProviderId={activeProviderId}
                 cloudProviders={cloudProviders}
                 onProviderChange={onProviderChange}

@@ -218,22 +218,58 @@ execution — `Engine.planWithAI`/`Executor` never ask which provider is
 active; they validate a plan against the registry the same way regardless of
 who proposed it. A provider is conversation-only, by construction.
 
-**Cortex is always registered, unconditionally, and runs on this machine.**
-`platform/src/providers.ts` calls `ask_cortex_stream` in `intelligence.rs`,
-registered through `SimpleIntelligenceRegistry`
-(`engine/src/intelligence-registry.ts`). There is no key field for it,
-because there is nothing to authenticate to — the only stored settings are
-whether it's on and where it listens (`data/src/cortex-settings.ts`).
-**Cortex streams for real** (2026-09-11): `ask_cortex_stream` reads Cortex's
-own SSE endpoint (`/v1/ask/stream` — Cortex's `OllamaBackend.ask_stream`
-reads Ollama's NDJSON stream token-by-token) and forwards each delta as an
-`atlas://intelligence/{streamId}` event, resolving with the complete answer
-once Cortex's own `done` event says so.
+**Three kinds of provider, one rule: each is inert until the user turns it on.**
+`apps/web/src/atlas/buildIntelligence.ts` is the one place providers are
+registered, through `SimpleIntelligenceRegistry`
+(`engine/src/intelligence-registry.ts`):
+
+- **Local models** (2026-09-19) run on this machine through Ollama.
+  `packages/core/src/models/local-model.ts` is the catalogue — **Qwen3-8B**
+  (`qwen3:8b`, the default, everyday conversation, thinking off so a home PC
+  answers in seconds), **Qwen3-30B-A3B** (`qwen3:30b`, deeper reasoning) and
+  **Qwen3-Coder-30B-A3B-Instruct** (`qwen3-coder:30b`, coding). The two 30B
+  models are optional ~19 GB downloads; nothing assumes a PC can run them.
+  Each is its own provider with its own id, and its `ask()` puts *its own*
+  Ollama tag on the wire (`apps/web/test/model-routing.test.ts` proves it for
+  every model, and through the real `Engine`). Any other model Ollama reports
+  is registered too, so what is installed is usable without a code change.
+  `platform/src/providers.ts` calls `ask_local_model_stream` in
+  `intelligence.rs`, which streams Ollama's `/api/chat` NDJSON and forwards only
+  `message.content` as `atlas://intelligence/{streamId}` events — a thinking
+  model's reasoning is never shown, stored or logged.
+- **Nova Intelligence** is Nova's own from-scratch model, served by its own
+  local process (`NovaIntelligence/phase4_nova/server.py`) over a small SSE
+  protocol. It is experimental — it continues text but cannot hold a
+  conversation or follow instructions yet — and Settings says so.
+- **Cloud providers**, below.
+
+There is no key field for the local ones, because there is nothing to
+authenticate to; the only stored settings are whether each is on and where it
+listens (`data/src/local-ai-settings.ts`). Which provider is in use is
+`resolveActiveProviderId` (`core/src/models/local-model.ts`): a pick that still
+exists wins; one that does not (a removed cloud provider, an id from an older
+version) is treated as no pick, never as a failure; with none, turning local
+models on means Qwen3-8B, and with everything off Atlas simply runs on its
+own tiers.
+
+**The old Cortex bridge is gone** (2026-09-19). It was a separate Python server
+sitting between Atlas and Ollama, speaking a private protocol; Atlas now talks
+to Ollama directly. `cloud-providers-stay-opt-in.test.ts` scans the source and
+fails if the old bridge's name ever reappears in code.
+
+**Models are the conversation layer, never the control layer.** Nothing in
+`intelligence.rs` or `buildIntelligence.ts` can run a command, touch a file or
+press a key — `intelligence.rs` carries a test that fails if such code appears
+in it, and a guard test checks the registry wiring imports no executor, skill
+registry or platform. PowerShell, window control, files, permissions and
+confirmations are Atlas's own deterministic skills, which never ask which model
+is selected. Choosing a different model changes how Atlas talks and reasons,
+never what it may do.
 
 **Zero or more cloud providers may additionally be registered — never
-instead of Cortex, never without a person configuring one.** Reversed on
+instead of the local models, never without a person configuring one.** Reversed on
 2026-09-11, deliberately, on Brandon's own instruction: from 2026-08-23 to
-then, Cortex really was the only one, Claude/ChatGPT having been deleted for
+then, one local model really was the only one, Claude/ChatGPT having been deleted for
 being an unwanted, always-on privacy story (below). That reasoning wasn't
 wrong; it was superseded by the person who set it asking for the opposite —
 strong local-first defaults, one opt-in door for someone who wants a cloud
@@ -254,11 +290,11 @@ door narrow:
    `#[tauri::command]` at all; the only caller is `cloud_intelligence.rs`,
    building one outbound request. `CloudProviderConfig` (`@atlas/core`) —
    the shape that *does* go through the plain `Storage` port, alongside
-   Cortex's own settings — has no field that could hold one.
+   the local-model settings — has no field that could hold one.
    `cloud-providers-stay-opt-in.test.ts` (below) checks both halves of that
    by reading the source, not by trusting the design.
 3. **A cloud provider's `isConfigured()` is that provider's own `enabled`
-   flag, the same shape Cortex's toggle already used** — adding one doesn't
+   flag, the same shape a local model's toggle uses** — adding one doesn't
    activate it, and `SimpleIntelligenceRegistry.active()` already treats a
    registered-but-unconfigured provider as nothing selected.
 4. **The required disclosure is shown before anyone has even added a
@@ -268,11 +304,11 @@ door narrow:
 
 Cloud providers are non-streaming for now (`ask()` calls `onDone` once) —
 `Engine.converseWithProvider` already degrades a non-streaming provider
-cleanly, the exact property that made Cortex's own streaming upgrade a
+cleanly, the exact property that made streaming a local model a
 config-only change rather than an engine rewrite; adding cloud streaming
 later is the same shape of change, confined to `cloud_intelligence.rs`.
 
-**The Cortex endpoint is loopback-only, enforced in Rust.**
+**The local-model endpoints are loopback-only, enforced in Rust.**
 `validate_base_url` accepts `127.0.0.1`, `localhost` and `::1` and nothing
 else, parsing the host rather than substring-matching it
 (`localhost.evil.com` is refused) — cloud providers are, by contrast,
@@ -442,8 +478,8 @@ to PNG), but "understanding" what's in them is deliberately left to UI
 Automation's bounding rectangles, which already say what and where a control
 is more reliably than pixel guessing would. A vision-based `screen.describe`
 was planned and then dropped once it became clear the intelligence port
-(`core/ports/intelligence.ts`) is Cortex-only and text-prompt-only — `ask`
-has no channel for an image, and Cortex itself has no vision model. Building
+(`core/ports/intelligence.ts`) is text-prompt-only — `ask`
+has no channel for an image, and the local models are text models. Building
 a "describe" skill on top of that would have been exactly the kind of
 placeholder function this project refuses to ship; it waits for a real
 vision-capable provider to exist. See Phase 12 in `ROADMAP.md` for what that
@@ -468,7 +504,7 @@ documented exception: npm and pnpm ship as `.cmd` files on Windows, which
 `cmd.exe /C` — the reason the script-name slot is validated twice rather than
 once. See `devtools.rs`'s module doc for the full reasoning.
 
-**The agent loop adds no second door to action.** Each iteration asks Cortex
+**The agent loop adds no second door to action.** Each iteration asks the selected model
 for exactly one next step, validates it against the registry exactly like
 `planWithAI` does, and runs it through a second `Executor` instance built from
 the *same* `SkillRegistry` — so guard, confirm, risk and the content policy
@@ -476,7 +512,7 @@ all apply to a dev-agent step exactly as they do to any other plan. What is
 genuinely new is bounding the *loop*, not the step: `MAX_DEV_ITERATIONS`
 (mirroring `attemptGoal`'s `MAX_ATTEMPTS`, sized for a real task rather than
 one skill's ladder), a fixed set of domains a step may touch
-(`project`/`git`/`build`/`code`/`test`/`files` — Cortex cannot steer it into
+(`project`/`git`/`build`/`code`/`test`/`files` — the model cannot steer it into
 `os.*` just because that domain exists elsewhere in the catalog), and a rule
 that the identical failed call is never retried — proposing it again ends the
 task with an explanation rather than spinning.
@@ -508,11 +544,11 @@ way input's blanket `confirm` was.
 | Network calls happen in Rust, never as a webview `fetch()` | `web.rs` | Outside the CSP entirely; same narrow-command shape as everything else |
 | `fetch_page` refuses loopback/private/link-local targets | `web.rs::is_safe_fetch_target` | A manipulated search result shouldn't be able to make Atlas probe the user's own LAN |
 | Retrieved page content is framed as untrusted reference material, never instructions | `engine/research.ts` | The whole security boundary for what a search result or fetched page can make Atlas do: read it, never obey it |
-| Cortex's endpoint is loopback-only | `intelligence.rs::validate_base_url` | Host is parsed, not substring-matched, so `localhost.evil.com` is refused. Otherwise the endpoint setting is a route off the machine |
-| Cortex needs no key; a cloud provider's key never reaches `storage.json` or the renderer | `providers.ts`, `cortex-settings.ts`, `secrets.rs` | A credential Atlas doesn't hold in the open is a credential that can't leak from there |
+| The local-model endpoints are loopback-only | `intelligence.rs::validate_base_url` | Host is parsed, not substring-matched, so `localhost.evil.com` is refused. Otherwise the endpoint setting is a route off the machine |
+| Local models need no key; a cloud provider's key never reaches `storage.json` or the renderer | `providers.ts`, `local-ai-settings.ts`, `secrets.rs` | A credential Atlas doesn't hold in the open is a credential that can't leak from there |
 | A cloud provider exists only because a person configured one, checked by reading the source | `cloud-providers-stay-opt-in.test.ts` | A unit test of the registry would pass while a hard-coded provider sat in `useAtlas.ts` waiting to be activated |
 | `run_devtool` takes a closed enum, never a command string | `devtools.rs::DevTool` | A reader can enumerate every program the developer agent will ever run |
-| A dev-agent step may only touch `project`/`git`/`build`/`code`/`test`/`files` | `devagent/loop.ts::DEV_AGENT_DOMAINS` | Cortex proposes each step; it cannot steer the loop into `os.*` or `service.*` just because they exist in the wider catalog |
+| A dev-agent step may only touch `project`/`git`/`build`/`code`/`test`/`files` | `devagent/loop.ts::DEV_AGENT_DOMAINS` | The model proposes each step; it cannot steer the loop into `os.*` or `service.*` just because they exist in the wider catalog |
 | Every command that acts checks the stop first | `halt.rs::check`, enforced by `every_command_that_acts_refuses_while_halted` | The guarantee is only as good as the command that forgot; a source sweep fails the build instead of the field |
 | The stop needs nothing from the engine, the model or the webview | `halt.rs` | It is those that are being stopped — see §7a |
 | Storage keys are lowercase, swept repo-wide | `storage.rs::is_valid_key`, `every_storage_key_literal_in_the_repo_is_one_storage_accepts` | A capital letter is refused silently: `storage_set` errors into a log and `storage_get` reads back as "never saved". It cost three settings before the sweep existed |
@@ -662,7 +698,7 @@ Consent is the feature, and it is expressed in the UI rather than in a setting:
 
 ### Nothing can see the images, and nothing pretends to
 
-`IntelligenceProvider.ask` takes a string. Cortex is a text model. The cloud
+`IntelligenceProvider.ask` takes a string. The local models are text models. The cloud
 providers in `cloud_intelligence.rs` post a text-only body. **There is therefore
 no send path for a capture to travel down**, and this is a property of the code
 rather than a policy: a screenshot is shown, it is a referent for Atlas's own
@@ -746,9 +782,9 @@ Honest uncertainty, recorded rather than buried:
   file is more sensitive than the rest of it today for the same reason as
   before; this time because the sensitive value lives somewhere else
   entirely, not because it doesn't exist.
-- **Atlas has no working model until Cortex serves `/v1/ask`.** The seam is
+- **Atlas has no working model until a local model is installed and Ollama is running.** The seam is
   real and tested against a fake provider, and the deterministic tiers —
   grammar, planner, small talk, web search — cover everything they always
-  did. But an open-ended question with Cortex stopped gets an honest "I can't
+  did. But an open-ended question with no model running gets an honest "I can't
   answer that from what's on this machine" rather than an answer. That is the
   accepted cost of the removal, not an oversight.

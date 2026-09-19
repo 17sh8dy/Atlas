@@ -34,7 +34,6 @@ import {
 import {
   readActiveProvider,
   readCloudProviders,
-  readCortexSettings,
   readExecutionMode,
   readListeningPreferences,
   readSpeechPreferences,
@@ -43,7 +42,7 @@ import {
   writeListeningPreferences,
   writeSpeechPreferences,
 } from '@atlas/data';
-import type { CortexSettings } from '@atlas/data';
+import { loadLocalAiRuntime, type LocalAiRuntime } from '../atlas/buildIntelligence';
 import { Icons, Spinner, cn } from '@atlas/ui';
 import { TitleBar } from '../components/TitleBar';
 import { Conversation } from '../pages/Conversation';
@@ -64,7 +63,7 @@ type Screen = 'conversation' | 'settings' | 'voice';
 interface Loaded {
   capabilities: CapabilityName[];
   voiceProfile: VoiceProfile;
-  cortex: CortexSettings;
+  localAi: LocalAiRuntime;
   activeProviderId: string | null;
   cloudProviders: CloudProviderConfig[];
   speech: SpeechPreferences;
@@ -83,7 +82,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       // which degrades to a conversational Atlas rather than a broken one.
       platform.capabilities().catch(() => [] as CapabilityName[]),
       readVoiceProfile(storage).catch(() => ({}) as VoiceProfile),
-      readCortexSettings(storage).catch(() => ({ enabled: false, baseUrl: '' })),
+      loadLocalAiRuntime(storage),
       readActiveProvider(storage).catch(() => undefined),
       readCloudProviders(storage).catch(() => [] as CloudProviderConfig[]),
       readSpeechPreferences(storage).catch(() => DEFAULT_SPEECH),
@@ -96,7 +95,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       ([
         capabilities,
         voiceProfile,
-        cortex,
+        localAi,
         activeProviderId,
         cloudProviders,
         speech,
@@ -108,7 +107,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
           setLoaded({
             capabilities,
             voiceProfile,
-            cortex,
+            localAi,
             activeProviderId: activeProviderId ?? null,
             cloudProviders,
             speech,
@@ -139,7 +138,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       storage={storage}
       capabilities={loaded.capabilities}
       voiceProfile={loaded.voiceProfile}
-      cortex={loaded.cortex}
+      localAi={loaded.localAi}
       activeProviderId={loaded.activeProviderId}
       cloudProviders={loaded.cloudProviders}
       speech={loaded.speech}
@@ -158,7 +157,7 @@ function Ready({
   storage,
   capabilities,
   voiceProfile,
-  cortex,
+  localAi,
   activeProviderId,
   cloudProviders,
   speech,
@@ -173,7 +172,7 @@ function Ready({
   storage: Storage;
   capabilities: CapabilityName[];
   voiceProfile: VoiceProfile;
-  cortex: CortexSettings;
+  localAi: LocalAiRuntime;
   activeProviderId: string | null;
   cloudProviders: CloudProviderConfig[];
   speech: SpeechPreferences;
@@ -217,7 +216,7 @@ function Ready({
     capabilities,
     storage,
     voiceProfile,
-    cortex,
+    localAi,
     activeProviderId,
     cloudProviders,
     speechForScreen,
@@ -858,7 +857,7 @@ function Ready({
             onExecutionModeChange={onExecutionModeChange}
             voiceProfile={voiceProfile}
             onVoiceProfileChange={onVoiceProfileChange}
-            cortex={cortex}
+            localAi={localAi}
             activeProviderId={activeProviderId}
             cloudProviders={cloudProviders}
             onProviderChange={onProviderChange}

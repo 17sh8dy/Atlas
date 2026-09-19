@@ -1,32 +1,32 @@
 /**
- * `IntelligenceProvider`s: **Cortex** always, plus whichever cloud providers
- * a person has opted into and configured.
+ * `IntelligenceProvider`s: local models, Nova Intelligence, and whichever
+ * cloud providers a person has opted into and configured.
  *
- * This file used to export `createClaudeProvider` and `createOpenAIProvider`
- * for exactly two hard-coded cloud providers, both since deleted. It is not
- * back to that: `createCloudProvider` takes a `CloudProviderConfig` and
- * builds one provider from it, so the *number* of cloud providers is a
- * runtime fact (however many the user has added) rather than a fixed export
- * list. Cortex is still the only one wired in unconditionally — see
- * `useAtlas.ts`'s registration order — and Atlas still works completely with
- * every cloud provider absent or disabled.
+ * ── Intelligence, not control ───────────────────────────────────────────────
+ * A provider is the conversation and reasoning layer. It takes text and
+ * returns text; it cannot act. What Atlas *does* — PowerShell, window
+ * control, files — belongs to its skills and executor, which do not consult a
+ * provider to decide what is permitted. Choosing a different provider changes
+ * how Atlas talks and reasons and nothing about what it may do.
+ *
+ * ── The model that is asked is the model that was chosen ────────────────────
+ * Each local model is its own provider with its own id, and its `ask()` sends
+ * that model's Ollama tag — nothing shared, nothing looked up later. So
+ * "which model answered" is a property of which provider is active, and
+ * `providers.test.ts` checks that each one puts its own tag on the wire.
  *
  * ── "Configured" means enabled, not authenticated ───────────────────────────
- * Cortex has no key to check, so `isConfigured()` reports whether the user
- * has turned it *on* — a real preference they set — and reachability is
- * discovered at call time instead. A cloud provider's `isConfigured()` is the
- * same shape for the same reason: whether the person switched it on, not
- * whether the key happens to be valid right now — that maps onto the
- * `offline`/error sentinels `ask()` already reports per call.
+ * A local model has no key to check, so `isConfigured()` reports whether the
+ * user has turned local models *on* — a real preference they set — and
+ * whether the server is up, or the model pulled, is discovered at call time
+ * and reported precisely (see `explainLocalFailure`). A cloud provider's
+ * `isConfigured()` is the same shape for the same reason.
  *
- * ── Streaming, and where it stops ───────────────────────────────────────────
- * Cortex streams (`streamCortex`, below) — real token-by-token delivery
- * through `ask_cortex_stream` and the `atlas://intelligence/{streamId}` event
- * channel. Cloud providers do not yet: `createCloudProvider`'s `ask()` calls
- * `onDone` once. `Engine.converseWithProvider` already degrades cleanly for a
- * non-streaming provider, so this is a complete, correct provider today, not
- * a placeholder — see `cloud_intelligence.rs`'s module doc for why this pass
- * stopped there.
+ * ── Streaming ───────────────────────────────────────────────────────────────
+ * Local models and Nova Intelligence stream token by token through the
+ * `atlas://intelligence/{streamId}` event channel. Cloud providers do not yet:
+ * `createCloudProvider`'s `ask()` calls `onDone` once, and
+ * `Engine.converseWithProvider` degrades cleanly for a non-streaming provider.
  *
  * Tauri-only, like the rest of this package. A browser build gets no
  * providers at all rather than ones that throw — "capability absence is
@@ -39,32 +39,29 @@ import type {
   CloudProviderConfig,
   CloudProviderTestResult,
   IntelligenceProvider,
+  LocalModelProfile,
   ProviderStreamHandlers,
 } from '@atlas/core';
 import { invoke } from '@tauri-apps/api/core';
 
-/** Where Cortex listens when nothing says otherwise. Mirrors `DEFAULT_BASE_URL`. */
-export const CORTEX_DEFAULT_BASE_URL = 'http://127.0.0.1:8765';
+/** Where Ollama listens when nothing says otherwise. Mirrors `OLLAMA_DEFAULT_URL`. */
+export const OLLAMA_DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
+/** Where Nova Intelligence's server listens. Mirrors `NOVA_DEFAULT_URL`. */
+export const NOVA_INTELLIGENCE_DEFAULT_BASE_URL = 'http://127.0.0.1:8766';
 
-export interface CortexOptions {
-  /** False until the user turns Cortex on in Settings. */
-  enabled: boolean;
-  /** Loopback only — the Rust side refuses anything else. */
-  baseUrl?: string;
-}
+export const NOVA_INTELLIGENCE_PROVIDER_ID = 'nova-intelligence';
 
 /**
- * Streams one call to `ask_cortex_stream` and turns
- * `atlas://intelligence/{streamId}` events into `onDelta` calls. The
- * subscription is opened *before* `invoke`, the same ordering
- * `transcribeSpeech`'s caller and the old Claude/OpenAI streaming code both
- * needed — `listen` resolves asynchronously, so a fast first delta can beat
+ * Streams one native call and turns `atlas://intelligence/{streamId}` events
+ * into `onDelta` calls. The subscription is opened *before* `invoke`, because
+ * `listen` resolves asynchronously and a fast first delta could otherwise beat
  * a subscription started after the command was already sent.
  */
-async function streamCortex(
-  baseUrl: string,
-  prompt: string,
+async function streamNative(
+  command: string,
+  args: Record<string, unknown>,
   handlers: ProviderStreamHandlers,
+  explain: (reason: string) => string,
   signal?: HaltSignal,
 ): Promise<void> {
   const streamId = crypto.randomUUID();
@@ -77,25 +74,49 @@ async function streamCortex(
     unlisten = await listen<string>(`atlas://intelligence/${streamId}`, (event) => {
       handlers.onDelta(event.payload);
     });
-    const text = await invoke<string>('ask_cortex_stream', { baseUrl, prompt, streamId });
+    const text = await invoke<string>(command, { ...args, streamId });
     handlers.onDone(text);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    // `offline` is the exact sentinel `ask_cortex`/`ask_cortex_stream` both
-    // return for a refused connection — passed through rather than
-    // rewritten, because the engine already knows what to say for it.
-    handlers.onError(reason === 'offline' ? 'offline' : reason);
+    // `offline` is the sentinel the engine already knows how to phrase.
+    handlers.onError(reason === 'offline' ? 'offline' : explain(reason));
   } finally {
     unlisten?.();
   }
 }
 
-export function createCortexProvider(options: CortexOptions): IntelligenceProvider {
-  const baseUrl = options.baseUrl?.trim() || CORTEX_DEFAULT_BASE_URL;
+// ---------------------------------------------------------------------------
+// Local models (Ollama)
+// ---------------------------------------------------------------------------
+
+export interface LocalModelOptions {
+  /** False until the user turns local models on in Settings. */
+  enabled: boolean;
+  /** Loopback only — the Rust side refuses anything else. */
+  baseUrl?: string;
+}
+
+/** What a person should do about a failure, in the words they would use. */
+export function explainLocalFailure(label: string, tag: string, reason: string): string {
+  if (reason.startsWith('model-missing:')) {
+    return `${label} isn't installed yet. In a terminal, run:  ollama pull ${tag}`;
+  }
+  return reason;
+}
+
+/**
+ * One local model as one provider. `profile.ollamaTag` and `profile.think` are
+ * read here, once, and are what every `ask()` puts on the wire.
+ */
+export function createLocalModelProvider(
+  profile: Pick<LocalModelProfile, 'id' | 'label' | 'ollamaTag' | 'think'>,
+  options: LocalModelOptions,
+): IntelligenceProvider {
+  const baseUrl = options.baseUrl?.trim() || OLLAMA_DEFAULT_BASE_URL;
 
   return {
-    id: 'cortex',
-    label: 'Cortex',
+    id: profile.id,
+    label: profile.label,
     isConfigured: () => options.enabled,
     isLocal: () => true,
     ask(prompt: string, handlers: ProviderStreamHandlers, askOptions?: { signal?: HaltSignal }) {
@@ -103,16 +124,73 @@ export function createCortexProvider(options: CortexOptions): IntelligenceProvid
         handlers.onError('not-configured');
         return;
       }
-      void streamCortex(baseUrl, prompt, handlers, askOptions?.signal);
+      void streamNative(
+        'ask_local_model_stream',
+        { baseUrl, model: profile.ollamaTag, prompt, think: profile.think ?? null },
+        handlers,
+        (reason) => explainLocalFailure(profile.label, profile.ollamaTag, reason),
+        askOptions?.signal,
+      );
     },
   };
 }
 
-/** Whether Cortex is answering right now. Never throws; false is a fine answer. */
-export async function isCortexReachable(baseUrl?: string): Promise<boolean> {
+export interface InstalledLocalModel {
+  /** Ollama's own name for it, e.g. `qwen3:8b`. */
+  name: string;
+  sizeBytes: number;
+}
+
+/**
+ * The models Ollama has on disk, or `null` when it is not running. `null` and
+ * `[]` are different answers — "not running" and "running, nothing pulled" —
+ * and Settings words them differently. Never throws.
+ */
+export async function listInstalledLocalModels(
+  baseUrl?: string,
+): Promise<InstalledLocalModel[] | null> {
   try {
-    return await invoke<boolean>('cortex_reachable', {
-      baseUrl: baseUrl?.trim() || CORTEX_DEFAULT_BASE_URL,
+    return await invoke<InstalledLocalModel[]>('local_models_installed', {
+      baseUrl: baseUrl?.trim() || OLLAMA_DEFAULT_BASE_URL,
+    });
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nova Intelligence
+// ---------------------------------------------------------------------------
+
+export function createNovaIntelligenceProvider(options: LocalModelOptions): IntelligenceProvider {
+  const baseUrl = options.baseUrl?.trim() || NOVA_INTELLIGENCE_DEFAULT_BASE_URL;
+
+  return {
+    id: NOVA_INTELLIGENCE_PROVIDER_ID,
+    label: 'Nova Intelligence',
+    isConfigured: () => options.enabled,
+    isLocal: () => true,
+    ask(prompt: string, handlers: ProviderStreamHandlers, askOptions?: { signal?: HaltSignal }) {
+      if (!options.enabled) {
+        handlers.onError('not-configured');
+        return;
+      }
+      void streamNative(
+        'ask_nova_intelligence_stream',
+        { baseUrl, prompt },
+        handlers,
+        (reason) => reason,
+        askOptions?.signal,
+      );
+    },
+  };
+}
+
+/** Whether Nova Intelligence is answering right now. Never throws; false is a fine answer. */
+export async function isNovaIntelligenceReachable(baseUrl?: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>('nova_intelligence_reachable', {
+      baseUrl: baseUrl?.trim() || NOVA_INTELLIGENCE_DEFAULT_BASE_URL,
     });
   } catch {
     return false;

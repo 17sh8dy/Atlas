@@ -1,8 +1,8 @@
 /**
  * A cloud model provider — optional, user-configured, never required.
  *
- * Atlas's engine and Cortex both work with nothing connected; this is the
- * second, opt-in escalation someone can add if they want stronger
+ * Atlas's engine and its local models both work with nothing connected; this
+ * is the opt-in escalation someone can add if they want stronger
  * conversation quality than a local model gives and are willing to send
  * their own questions to their own account. See `docs/ARCHITECTURE.md` §6.3
  * for the full reasoning and the disclosure this requires in the UI.

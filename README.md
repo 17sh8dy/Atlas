@@ -104,7 +104,7 @@ are all built and working. Do It mode now asks only about genuinely
 consequential actions, never about the mechanism used to perform them — a
 click, a keystroke and typed text run immediately; deleting, shutting down or
 closing something still confirms. Ordinary conversation is deliberately stiff
-until a local model lands behind Cortex — see
+until you turn on a local model (Settings → Intelligence; Qwen3-8B is the default) — see
 [`docs/ROADMAP.md`](docs/ROADMAP.md) for exactly what's done, what's next
 (Phase 11's remaining eight groups), and what's deliberately not built yet.
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) explains why any of it is

@@ -22,7 +22,7 @@
  * composer as a thumbnail, in the transcript as what was sent. It is not
  * carried in order to be sent anywhere. Nothing in this build can interpret an
  * image: the intelligence port is `ask(prompt: string, …)` with no image
- * channel, and Cortex is a text model. `VisionContext` below is the shape a
+ * channel, and the local models are text models. `VisionContext` below is the shape a
  * provider would have to satisfy, declared so the seam is real and typed
  * rather than imagined — see `docs/ARCHITECTURE.md` §9.
  */
@@ -175,7 +175,7 @@ export function formatBytes(bytes: number): string {
  * What a vision-capable provider would have to accept.
  *
  * Declared, and deliberately unimplemented. Nothing in this build can read an
- * image: `IntelligenceProvider.ask` takes a string, Cortex is a text model,
+ * image: `IntelligenceProvider.ask` takes a string, the local models are text models,
  * and the cloud providers in `cloud_intelligence.rs` post a text-only body. A
  * capture therefore stays on this machine — it is shown, it is a referent for
  * Atlas's own skills, and it is never sent anywhere.

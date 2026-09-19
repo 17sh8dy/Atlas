@@ -7,9 +7,9 @@
  *
  * ⚠️ There is deliberately no "describe what's on screen" skill here. That
  * would need a vision-capable model, and this codebase's intelligence port
- * (`packages/core/src/ports/intelligence.ts`) is Cortex-only, text-prompt-only
- * — `ask(prompt: string, ...)` has no channel for an image at all, and Cortex
- * itself is a text model. Building a "describe" skill on top of that would be
+ * (`packages/core/src/ports/intelligence.ts`) is text-prompt-only
+ * — `ask(prompt: string, ...)` has no channel for an image at all, and the local
+ * models are text models. Building a "describe" skill on top of that would be
  * exactly the placeholder-function shape this project's own rule refuses:
  * capture is real and works today; description waits for a real
  * vision-capable provider to exist, and is written up as deferred in

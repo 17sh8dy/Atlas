@@ -118,7 +118,7 @@ test('no active provider stops immediately without ever asking anything', async 
 
   assert.isFalse(report.ok);
   assert.equal(report.stoppedBecause, 'no-provider');
-  assert.match(ctx.said[0], /cortex/i);
+  assert.match(ctx.said[0], /AI model/i);
 });
 
 test('the exact same failed call is never retried — the loop stops and says why', async () => {

@@ -12,8 +12,17 @@ import { createWebPlatform } from './web';
 
 export { createTauriPlatform, isTauri } from './tauri';
 export { createWebPlatform } from './web';
-export { createCortexProvider, isCortexReachable, CORTEX_DEFAULT_BASE_URL } from './providers';
-export type { CortexOptions } from './providers';
+export {
+  createLocalModelProvider,
+  createNovaIntelligenceProvider,
+  listInstalledLocalModels,
+  isNovaIntelligenceReachable,
+  explainLocalFailure,
+  OLLAMA_DEFAULT_BASE_URL,
+  NOVA_INTELLIGENCE_DEFAULT_BASE_URL,
+  NOVA_INTELLIGENCE_PROVIDER_ID,
+} from './providers';
+export type { LocalModelOptions, InstalledLocalModel } from './providers';
 export {
   createCloudProvider,
   saveProviderSecret,

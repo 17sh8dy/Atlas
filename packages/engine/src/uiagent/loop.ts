@@ -97,7 +97,7 @@ export async function runUiTask(
       extraInstruction:
         'read uia.tree before every click to get current, real control paths — a path from an earlier read may no longer be valid; prefer app.open to bring the target application to the front before looking for anything in it',
       noProviderMessage:
-        'Driving another app needs Cortex connected — turn it on in Settings → Intelligence, then ask again.',
+        'Driving another app needs an AI model connected — turn one on in Settings → Intelligence, then ask again.',
     },
     deps,
     ctx,

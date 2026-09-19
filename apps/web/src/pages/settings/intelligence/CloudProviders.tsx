@@ -2,7 +2,7 @@
  * Cloud model providers — optional, user-configured, never required.
  *
  * ── Why this exists, and what it must never become ──────────────────────────
- * Atlas's whole thesis is "works with nothing connected"; Cortex is the local
+ * Atlas's whole thesis is "works with nothing connected"; local models are the on-device
  * escalation for open-ended reasoning. This is the *second*, opt-in
  * escalation for someone who wants stronger conversation quality than a
  * local model gives and is willing to send their own questions to their own
@@ -189,7 +189,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
         <h2 className="text-foreground text-sm font-medium">Cloud Models</h2>
       </div>
       <p className="text-foreground-muted mb-3 text-xs leading-relaxed">
-        Optional. If Cortex isn't enough for a particular conversation, you can connect your own
+        Optional. If a local model isn't enough for a particular conversation, you can connect your own
         account at a cloud provider for stronger quality — Atlas's own tools, coding, permissions
         and desktop actions never depend on this and keep working exactly the same either way.
       </p>

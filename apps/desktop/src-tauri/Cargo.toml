@@ -35,11 +35,11 @@ open = "5"
 # files.delete sends to the OS recycle bin rather than calling fs::remove_*
 # directly — meaningfully safer for a confirm-gated destructive action.
 trash = "3"
-# web_search / fetch_page (web.rs), ask_cortex / cloud_intelligence.rs.
+# web_search / fetch_page (web.rs), ask_local_model_stream (intelligence.rs) / cloud_intelligence.rs.
 # Network calls happen here, in Rust, never as a webview `fetch()` — so
 # they're outside the CSP entirely and go through the same narrow-validated
 # -command shape as everything else in this file.
-# `stream` — Cortex's SSE stream (intelligence.rs) is read incrementally via
+# `stream` — a local model's reply stream (intelligence.rs) is read incrementally via
 # `bytes_stream()` rather than buffered whole, so the first token can reach
 # the renderer before the model has finished the answer.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "multipart", "stream"] }

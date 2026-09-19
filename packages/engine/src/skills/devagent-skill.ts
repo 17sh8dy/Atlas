@@ -3,8 +3,8 @@
  *
  * A skill like any other: registered, capability-gated, risk-rated, and
  * reached by the grammar, by `planWithAI`, or directly. What it does inside
- * `run()` is genuinely different from every other skill (it calls Cortex
- * itself and drives its own inner `Executor`), but from the registry's point
+ * `run()` is genuinely different from every other skill (it calls the
+ * selected model itself and drives its own inner `Executor`), but from the registry's point
  * of view it is one action with two arguments — which is exactly what keeps
  * it from becoming a second, competing execution path. See
  * `../devagent/loop.ts`'s module doc for the mechanism.

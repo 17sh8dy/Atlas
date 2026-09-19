@@ -45,7 +45,7 @@ export async function runDevTask(
       extraInstruction:
         'use the project folder above for any path/cwd argument unless a prior step told you a different one',
       noProviderMessage:
-        'Dev tasks need Cortex connected — turn it on in Settings → Intelligence, then ask again.',
+        'Dev tasks need an AI model connected — turn one on in Settings → Intelligence, then ask again.',
     },
     deps,
     ctx,

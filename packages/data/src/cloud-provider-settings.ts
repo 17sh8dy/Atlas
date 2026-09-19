@@ -1,7 +1,7 @@
 /**
  * Cloud provider *configuration* — never the key.
  *
- * Same `MemoryStore`-backed `Fact` pattern `cortex-settings.ts` already
+ * Same `MemoryStore`-backed `Fact` pattern `local-ai-settings.ts` already
  * uses: one subject, holding the whole list as a JSON string, because a
  * handful of provider configs is small enough that "replace the list" is
  * simpler to reason about than per-provider keys that could drift out of
@@ -28,7 +28,7 @@ export async function readCloudProviders(storage: Storage): Promise<CloudProvide
   } catch {
     // A corrupted or hand-edited value reads as "no providers configured"
     // rather than breaking Settings — the same fail-closed instinct
-    // `readCortexSettings` applies to a malformed `enabled` value.
+    // `readLocalAiSettings` applies to a malformed `enabled` value.
     return [];
   }
 }

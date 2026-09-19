@@ -31,12 +31,10 @@ import type {
 } from '@atlas/core';
 import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH } from '@atlas/core';
 import { MemoryStore } from '@atlas/data';
-import type { CortexSettings } from '@atlas/data';
-import { createCortexProvider, createCloudProvider } from '@atlas/platform';
+import { buildIntelligence, DEFAULT_LOCAL_AI_RUNTIME, type LocalAiRuntime } from './buildIntelligence';
 import {
   Engine,
   Grammar,
-  SimpleIntelligenceRegistry,
   SkillRegistry,
   WorkingMemory,
   createCoreGrammar,
@@ -205,7 +203,7 @@ export function useAtlas(
   capabilities: readonly CapabilityName[],
   storage: Storage,
   voiceProfile: VoiceProfile = {},
-  cortex: CortexSettings = { enabled: false, baseUrl: '' },
+  localAi: LocalAiRuntime = DEFAULT_LOCAL_AI_RUNTIME,
   activeProviderId: string | null = null,
   /** Zero or more opt-in cloud providers — see `docs/ARCHITECTURE.md` §6.3. Never required. */
   cloudProviders: readonly CloudProviderConfig[] = [],
@@ -361,27 +359,18 @@ export function useAtlas(
     grammar.addMany(createCoreGrammar(working));
     grammar.addMany(createExtraGrammar());
 
-    // One provider, registered unconditionally. `isConfigured()` is false
-    // until Cortex is switched on, and `active()` already treats
-    // "selected but unconfigured" as nothing selected (see
-    // SimpleIntelligenceRegistry), so there is no separate gate needed here
-    // the way skills need `needs: [...]`.
-    //
-    // This is the only registration in the app, and the only place a second
-    // one could be added. It is deliberately a single line: Cortex is the
-    // only path off the deterministic tiers, and everything above still
-    // works completely when it is off.
-    const intelligence = new SimpleIntelligenceRegistry();
-    intelligence.register(createCortexProvider(cortex));
-    // Zero or more, entirely by the user's own hand — nothing here enables
-    // one, `config.enabled` still gates `isConfigured()` per provider, the
-    // same as Cortex's own switch. See providers.ts's module doc.
-    for (const config of cloudProviders) {
-      intelligence.register(createCloudProvider(config));
-    }
-    intelligence.setActive(activeProviderId);
+    // The models Atlas can talk to, and which one is in use — see
+    // `buildIntelligence`. This is the conversation and reasoning layer only:
+    // skills, the executor and permissions are built around it and never
+    // consult which provider is active. Everything is inert until the user
+    // switches it on, and Atlas works completely with all of it off.
+    const { registry: intelligence } = buildIntelligence({
+      localAi,
+      activeProviderId,
+      cloudProviders,
+    });
 
-    // The developer agent needs `intelligence` (to call Cortex itself) and
+    // The developer agent needs `intelligence` (to ask the selected model itself) and
     // `skills` (to validate/run each step it proposes) both already built,
     // which is why this registration sits after them rather than beside the
     // other `createXSkills(platform)` calls above.
@@ -421,7 +410,7 @@ export function useAtlas(
     phrasing,
     voiceProfile,
     working,
-    cortex,
+    localAi,
     activeProviderId,
     cloudProviders,
     isPreapproved,

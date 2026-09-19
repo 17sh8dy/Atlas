@@ -1,6 +1,6 @@
 /**
  * The shared core of every bounded observe-act-replan loop in Atlas: propose
- * one action from Cortex, run it through the real executor, fold what
+ * one action from the selected model, run it through the real executor, fold what
  * actually happened back into the next prompt, repeat until done, blocked,
  * or out of budget.
  *
@@ -29,7 +29,7 @@
  *    skill's own strategy ladder, applied here to a whole task.
  *  - `config.maxIterations` bounds the whole task, the same shape
  *    `MAX_ATTEMPTS` bounds a single skill's ladder.
- *  - The exact same failed call (skill + args) is never retried — if Cortex
+ *  - The exact same failed call (skill + args) is never retried — if the model
  *    proposes it again, the loop stops and says so, rather than spinning.
  *  - A user declining a confirm step ends the task immediately, the same
  *    rule `Executor.run` already applies within one plan.
@@ -130,7 +130,7 @@ export interface AgentTaskConfig {
    * nothing to add.
    */
   extraInstruction?: string;
-  /** Shown when Cortex isn't connected. */
+  /** Shown when no model is connected. */
   noProviderMessage: string;
 }
 
@@ -288,7 +288,7 @@ export async function runAgentTask(
     if (!reply) {
       return finish(
         steps.some((s) => s.ok),
-        "I lost the connection to Cortex partway through — here's what I'd done so far.",
+        "I lost the connection to the AI model partway through — here's what I'd done so far.",
         'no-provider',
       );
     }

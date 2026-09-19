@@ -3,7 +3,7 @@
  * how loud.
  *
  * Same `MemoryStore`-backed `Fact` pattern as `preferences.ts` and
- * `cortex-settings.ts` — subject-keyed, `kind: 'preference'` — rather than a
+ * `local-ai-settings.ts` — subject-keyed, `kind: 'preference'` — rather than a
  * fourth place that settings can live. Several modules sharing one store is
  * the reason "where is that setting saved?" still has a single answer.
  *

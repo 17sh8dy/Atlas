@@ -904,7 +904,8 @@ mod tests {
             // Reads — nothing changes on the machine.
             "allowed_folders", "windows_compatibility", "detect_project", "dir_tree",
             "read_diagnostics", "folder_size", "largest_files", "list_environment_variables",
-            "cortex_reachable", "kokoro_status", "kokoro_voices", "transcribe_speech",
+            "local_models_installed", "nova_intelligence_reachable", "web_search_with",
+            "web_search_provider_ready", "kokoro_status", "kokoro_voices", "transcribe_speech",
             "network_adapters", "wifi_status", "wifi_networks", "network_reachable",
             "search_files", "system_info", "running_processes", "list_apps", "read_text_file",
             "path_info", "list_dir", "known_folder", "capture_window", "capture_screen",
