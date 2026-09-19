@@ -51,12 +51,14 @@ import { Executor } from './planner/executor';
 import { SkillRegistry } from './skills/registry';
 import { createPhrasing, type Phrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
-import { buildAugmentedPrompt, formatSourcesFooter, needsWebSearch, runSearch } from './research';
+import { routeQuestion } from './web/router';
+import { gatherEvidence } from './web/pipeline';
+import { buildEvidencePrompt, formatEvidenceFooter } from './web/evidence';
 import { refusalFor, screenRequest } from './safety/content-policy';
 import { normalizeRequest } from './text/normalize';
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
-import type { ActivityEvent } from './planner/executor';
+import { reporterFor, type ActivityEvent } from './planner/executor';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -413,7 +415,7 @@ export class Engine {
 
   /**
    * Free-form answering. Before falling back to a plain reply, a question
-   * that smells like it needs current information (see `needsWebSearch`)
+   * that smells like it needs current information (see `routeQuestion`)
    * gets a search first — this is what makes "what happened in the latest
    * Fortnite update?" work, since no model's training data has that.
    */
@@ -427,29 +429,69 @@ export class Engine {
     const searchSkill = this.skills.get('research.search');
     const canSearch = searchSkill ? this.skills.isAvailable(searchSkill) : false;
 
-    if (canSearch && needsWebSearch(text)) {
+    const decision = routeQuestion(text);
+    if (canSearch && decision.search) {
       // Only render the raw result rows when there's no model to turn them
       // into an actual answer — with a provider, the synthesized reply plus
       // its sources footer *is* the answer, and showing both would be noise.
-      const searchCtx: SkillContext = provider ? { ...ctx, showResults: undefined } : ctx;
-      const results = await untilHalted(runSearch(text, this.skills, searchCtx), signal);
+      // Likewise pages are only read when something will use what they say.
+      //
+      // A chat question has no plan step to hang progress on, so this makes
+      // one: a parent line in the activity panel, with the search, the page
+      // reads and the source check nested beneath it. Observable actions only
+      // — the query, the sites, the counts — never what Atlas made of them.
+      const emit = (event: ActivityEvent) => this.bus.emit('activity:step', event);
+      const parent = (state: ActivityEvent['state'], detail?: string) =>
+        emit({
+          index: 0,
+          total: 1,
+          skill: 'research.web',
+          label: 'Looking this up online',
+          detail,
+          state,
+          at: Date.now(),
+        });
+      const searchCtx: SkillContext = {
+        ...ctx,
+        showResults: provider ? undefined : ctx.showResults,
+        activity: reporterFor(0, 1, 'research.web', emit),
+      };
+      parent('running', decision.reason);
+      let research;
+      try {
+        research = await untilHalted(
+          gatherEvidence(text, decision, this.skills, searchCtx, { read: Boolean(provider) }),
+          signal,
+        );
+      } catch (err) {
+        parent('failed');
+        throw err;
+      }
+      parent(
+        research.status === 'ok' ? 'done' : 'failed',
+        research.status === 'ok'
+          ? `${research.packet.evidence.length} sources · ${research.packet.verification.agreement}`
+          : research.status === 'no-results'
+            ? 'nothing found'
+            : 'search unavailable',
+      );
 
-      if (results.length) {
+      if (research.status === 'ok') {
         if (provider) {
           return this.converseWithProvider(
             provider,
-            buildAugmentedPrompt(text, results),
+            buildEvidencePrompt(research.packet),
             io,
             signal,
-            formatSourcesFooter(results),
+            formatEvidenceFooter(research.packet),
           );
         }
         io.say(
-          `Found ${results.length} result${results.length === 1 ? '' : 's'} for that — see below.`,
+          `Found ${research.results.length} result${research.results.length === 1 ? '' : 's'} for that — see below.`,
         );
         return { ok: true, mode: 'chat', text: 'search-results-shown' };
       }
-      // No results, or the search itself failed — fall through below rather
+      // No backend answered, or nothing was found — fall through below rather
       // than a dead end; a stale answer or an honest "I can't" both beat that.
     }
 

@@ -1274,15 +1274,59 @@ export function createCoreSkills(
 
   // ---- the web -------------------------------------------------------------
 
+  /**
+   * Every URL open worth naming a browser for goes through here: resolve
+   * that name against `listApps()` — the exact same resolver `app.open` uses,
+   * so "Brave" is found or reported missing by identical rules — then hand
+   * it the URL directly rather than asking the OS default handler, which
+   * could only ever answer with whichever browser Windows currently prefers.
+   * `browser` omitted or empty is the ordinary, unnamed case and always goes
+   * through `openUrl` untouched.
+   */
+  async function openInBrowser(
+    url: string,
+    browser: string | undefined,
+  ): Promise<{ ok: boolean; error?: string; openedWith?: string }> {
+    const wanted = String(browser ?? '').trim();
+    if (!wanted) {
+      const ok = await platform.openUrl!(url);
+      return ok ? { ok: true } : { ok: false, error: `I couldn't open ${url}.` };
+    }
+    if (!platform.listApps || !platform.openUrlWithApp) {
+      return { ok: false, error: "I can't target a specific browser on this device." };
+    }
+    const apps = await platform.listApps();
+    const { matches } = resolveAppName(apps, wanted);
+    const best = matches[0];
+    if (!best) return { ok: false, error: `I don't see "${wanted}" installed.` };
+    // Same guard `app.open` applies to this resolver's output: a confident
+    // match opens, but a guess with more than one candidate is a question,
+    // not a coin flip picked silently.
+    if (best.rank >= RANK.typo && matches.length > 1) {
+      return { ok: false, error: `More than one installed app could be "${wanted}" — say which one.` };
+    }
+    const ok = await platform.openUrlWithApp(best.app.id, url);
+    return ok
+      ? { ok: true, openedWith: best.app.name }
+      : { ok: false, error: `${best.app.name} wouldn't open that.` };
+  }
+
   skills.push({
     id: 'web.open',
     label: 'Open a link',
     icon: '🌐',
     domain: 'web',
-    description: 'Open an http or https URL in the default browser.',
+    description: 'Open an http or https URL — in a named browser, or the default one.',
     needs: ['fs'],
     risk: 'safe',
-    params: { url: { type: 'string', required: true, description: 'the address' } },
+    examples: ['open youtube on brave'],
+    params: {
+      url: { type: 'string', required: true, description: 'the address' },
+      browser: {
+        type: 'string',
+        description: 'open it in this browser specifically, by name, instead of the default',
+      },
+    },
     async run(args) {
       const url = String(args.url).trim();
       if (!/^https?:\/\//i.test(url)) {
@@ -1290,10 +1334,12 @@ export function createCoreSkills(
         // reaches the user in words rather than as a silent failure.
         return { ok: false, error: 'I only open http and https links.' };
       }
-      const ok = await platform.openUrl!(url);
-      return ok
-        ? { ok: true, message: phrasing.opening(url) }
-        : { ok: false, error: `I couldn't open ${url}.` };
+      const result = await openInBrowser(url, args.browser ? String(args.browser) : undefined);
+      if (!result.ok) return { ok: false, error: result.error };
+      return {
+        ok: true,
+        message: result.openedWith ? `Opening ${url} in ${result.openedWith}.` : phrasing.opening(url),
+      };
     },
   });
 
@@ -1309,14 +1355,24 @@ export function createCoreSkills(
     needs: ['fs'],
     risk: 'safe',
     examples: ['search the web for tide times', 'google the weather'],
-    params: { query: { type: 'string', required: true, description: 'what to search for' } },
+    params: {
+      query: { type: 'string', required: true, description: 'what to search for' },
+      browser: {
+        type: 'string',
+        description: 'open the results in this browser specifically, instead of the default',
+      },
+    },
     async run(args) {
       const query = String(args.query).trim();
       const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-      const ok = await platform.openUrl!(url);
-      return ok
-        ? { ok: true, message: `Searching for ${query}.` }
-        : { ok: false, error: "I couldn't open a search." };
+      const result = await openInBrowser(url, args.browser ? String(args.browser) : undefined);
+      if (!result.ok) return { ok: false, error: result.error };
+      return {
+        ok: true,
+        message: result.openedWith
+          ? `Searching for ${query} in ${result.openedWith}.`
+          : `Searching for ${query}.`,
+      };
     },
   });
 

@@ -23,6 +23,10 @@ export type { EngineIO, EngineOptions, AskOutcome } from './engine';
 
 export { createCoreSkills } from './skills/core-skills';
 export { createWebSearchSkills } from './skills/web-search-skills';
+export { createSearchManager } from './web/providers';
+export { SearchManager, SearchError } from './web/search-manager';
+export type { SearchProvider, SearchOutcome } from './web/search-manager';
+export { routeQuestion } from './web/router';
 export { createUtilitySkills } from './skills/utility-skills';
 export { createTextSkills } from './skills/text-skills';
 export { createCalcSkills } from './skills/calc-skills';
@@ -46,6 +50,15 @@ export type {
   DevTaskStepLog,
   DevTaskStopReason,
 } from './devagent/loop';
+export { createUiAgentSkill } from './skills/uiagent-skill';
+export type { UiAgentSkillOptions } from './skills/uiagent-skill';
+export { runUiTask, MAX_UI_ITERATIONS } from './uiagent/loop';
+export type {
+  UiAgentDeps,
+  UiTaskReport,
+  UiTaskStepLog,
+  UiTaskStopReason,
+} from './uiagent/loop';
 export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
 

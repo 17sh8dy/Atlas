@@ -67,6 +67,7 @@ export function createTauriPlatform(): Platform {
 
     listApps: () => invoke<AppEntry[]>('list_apps'),
     launchApp: (id) => invoke<boolean>('launch_app', { id }),
+    openUrlWithApp: (appId, url) => invoke<boolean>('open_url_with_app', { appId, url }),
 
     systemInfo: () => invoke<SystemSnapshot>('system_info'),
     runningProcesses: (limit) =>
@@ -112,6 +113,14 @@ export function createTauriPlatform(): Platform {
     openSystemTool: (id) => invoke<boolean>('open_system_tool', { id }),
 
     searchWeb: (query) => invoke<WebSearchResult[]>('web_search', { query }),
+    searchWebWith: (provider, query, options) =>
+      invoke<WebSearchResult[]>('web_search_with', {
+        provider,
+        query,
+        topic: options?.topic ?? null,
+      }),
+    searchProviderReady: (provider) =>
+      invoke<boolean>('web_search_provider_ready', { provider }).catch(() => false),
     fetchPage: (url) => invoke<WebPage>('fetch_page', { url }),
 
     notify: async (title, body) => {

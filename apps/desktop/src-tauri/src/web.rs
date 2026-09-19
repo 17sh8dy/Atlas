@@ -32,6 +32,9 @@ pub struct WebSearchResultDto {
     pub title: String,
     pub url: String,
     pub snippet: String,
+    /// As the source reported it; only some backends supply one.
+    #[serde(rename = "publishedDate", skip_serializing_if = "Option::is_none")]
+    pub published_date: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -70,40 +73,191 @@ fn is_anomaly_challenge(html: &str) -> bool {
     html.contains("anomaly-modal") || html.contains("challenge-form")
 }
 
+/// Why a backend refused, as a short tag the engine's search manager acts on
+/// (`packages/engine/src/web/providers.ts`, `classifySearchError`). The tag is
+/// the whole contract: the manager decides how long to leave a backend alone
+/// from it, so a spent quota and a CAPTCHA are told apart here, natively,
+/// where the HTTP status is known, instead of by matching English later.
+struct SearchErr {
+    kind: &'static str,
+    msg: String,
+}
+
+impl SearchErr {
+    fn new(kind: &'static str, msg: impl Into<String>) -> Self {
+        Self { kind, msg: msg.into() }
+    }
+    fn tagged(&self) -> String {
+        format!("{}: {}", self.kind, self.msg)
+    }
+}
+
+/// The key-free default, kept under its original name and message text.
 #[tauri::command]
 pub async fn web_search(query: String) -> Result<Vec<WebSearchResultDto>, String> {
+    ddg_search(&query).await.map_err(|e| e.msg)
+}
+
+/// Search through one *named* backend. An allowlist on purpose — not a way to
+/// point Atlas at an arbitrary URL — so adding a backend is one new arm here
+/// and one provider in the engine, and nothing else changes.
+#[tauri::command]
+pub async fn web_search_with(
+    provider: String,
+    query: String,
+    topic: Option<String>,
+) -> Result<Vec<WebSearchResultDto>, String> {
+    let out = match provider.as_str() {
+        "duckduckgo" => ddg_search(&query).await,
+        "tavily" => tavily_search(&query, topic.as_deref()).await,
+        _ => Err(SearchErr::new("error", "That isn't a search provider Atlas knows.")),
+    };
+    out.map_err(|e| e.tagged())
+}
+
+/// Whether a backend can run right now. For a keyed one that is "is a key
+/// saved" — answered without the key ever leaving this process.
+#[tauri::command]
+pub fn web_search_provider_ready(provider: String) -> Result<bool, String> {
+    match provider.as_str() {
+        "duckduckgo" => Ok(true),
+        "tavily" => Ok(crate::secrets::read_secret(TAVILY_SECRET_ID)?.is_some()),
+        _ => Ok(false),
+    }
+}
+
+fn check_query(query: &str) -> Result<&str, SearchErr> {
     let query = query.trim();
     if query.is_empty() {
-        return Err("Give me something to search for.".into());
+        return Err(SearchErr::new("error", "Give me something to search for."));
     }
     if query.chars().count() > MAX_QUERY_CHARS {
-        return Err("That search is too long.".into());
+        return Err(SearchErr::new("error", "That search is too long."));
     }
+    Ok(query)
+}
 
-    let client = http_client()?;
+async fn ddg_search(query: &str) -> Result<Vec<WebSearchResultDto>, SearchErr> {
+    let query = check_query(query)?;
+    let client = http_client().map_err(|e| SearchErr::new("error", e))?;
     let encoded = utf8_percent_encode(query, NON_ALPHANUMERIC).to_string();
     let url = format!("https://html.duckduckgo.com/html/?q={encoded}");
 
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|_| "Couldn't reach the search engine — check the connection.".to_string())?;
+    let resp = client.get(&url).send().await.map_err(|_| {
+        SearchErr::new("offline", "Couldn't reach the search engine — check the connection.")
+    })?;
     if !resp.status().is_success() {
-        return Err(format!("The search engine returned {}.", resp.status()));
+        return Err(SearchErr::new("error", format!("The search engine returned {}.", resp.status())));
     }
     let body = resp
         .text()
         .await
-        .map_err(|_| "Couldn't read the search results.".to_string())?;
+        .map_err(|_| SearchErr::new("error", "Couldn't read the search results."))?;
 
     if is_anomaly_challenge(&body) {
-        return Err(
-            "The search engine wants to confirm this isn't automated traffic. Try again in a moment.".into(),
-        );
+        return Err(SearchErr::new(
+            "blocked",
+            "The search engine wants to confirm this isn't automated traffic. Try again in a moment.",
+        ));
     }
 
     Ok(parse_search_results(&body))
+}
+
+// ---- Tavily ---------------------------------------------------------------
+
+/// Where the key lives: Windows Credential Manager, through `secrets.rs`,
+/// like every other key in Atlas. It is read here to build one request and
+/// goes nowhere else — not into a log, not into an error message, not back
+/// across the IPC boundary.
+const TAVILY_SECRET_ID: &str = "search-tavily";
+const TAVILY_URL: &str = "https://api.tavily.com/search";
+const MAX_SNIPPET_CHARS: usize = 600;
+
+/// Tavily's documented statuses → the manager's categories. 432 is a plan or
+/// key limit and 433 a pay-as-you-go spending cap: both mean "stop asking for
+/// a while", which is exactly what `quota` does upstream.
+fn classify_tavily_status(status: u16) -> SearchErr {
+    match status {
+        401 => SearchErr::new("auth", "Tavily didn't accept the saved key."),
+        429 => SearchErr::new("rate", "Tavily is rate-limiting requests right now."),
+        432 | 433 => SearchErr::new("quota", "Tavily's search allowance is used up for now."),
+        400 | 422 => SearchErr::new("error", "Tavily rejected that search."),
+        500..=599 => SearchErr::new("error", "Tavily is having trouble right now."),
+        other => SearchErr::new("error", format!("Tavily returned {other}.")),
+    }
+}
+
+fn parse_tavily_response(body: &str) -> Vec<WebSearchResultDto> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let Some(items) = v.get("results").and_then(|r| r.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in items {
+        let url = item.get("url").and_then(|x| x.as_str()).unwrap_or("").trim();
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            continue;
+        }
+        let title = item.get("title").and_then(|x| x.as_str()).unwrap_or("").trim();
+        let content = item.get("content").and_then(|x| x.as_str()).unwrap_or("").trim();
+        let published = item
+            .get("published_date")
+            .and_then(|x| x.as_str())
+            .filter(|d| !d.trim().is_empty())
+            .map(|d| d.trim().to_string());
+        out.push(WebSearchResultDto {
+            title: if title.is_empty() { url.to_string() } else { title.to_string() },
+            url: url.to_string(),
+            snippet: truncate_chars(content, MAX_SNIPPET_CHARS),
+            published_date: published,
+        });
+        if out.len() >= MAX_RESULTS {
+            break;
+        }
+    }
+    out
+}
+
+async fn tavily_search(query: &str, topic: Option<&str>) -> Result<Vec<WebSearchResultDto>, SearchErr> {
+    let query = check_query(query)?;
+    let key = crate::secrets::read_secret(TAVILY_SECRET_ID)
+        .map_err(|e| SearchErr::new("error", e))?
+        .ok_or_else(|| SearchErr::new("auth", "No Tavily key is saved."))?;
+
+    let client = http_client().map_err(|e| SearchErr::new("error", e))?;
+    let body = serde_json::json!({
+        "query": query,
+        "search_depth": "basic",
+        "max_results": MAX_RESULTS,
+        "topic": if topic == Some("news") { "news" } else { "general" },
+        "include_answer": false,
+        "include_raw_content": false,
+        "include_published_date": true,
+    });
+
+    // `bearer_auth` marks the header sensitive, so it is redacted from any
+    // debug output of the request as well.
+    let resp = client
+        .post(TAVILY_URL)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .bearer_auth(&key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|_| SearchErr::new("offline", "Couldn't reach Tavily — check the connection."))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(classify_tavily_status(status.as_u16()));
+    }
+    let text = resp
+        .text()
+        .await
+        .map_err(|_| SearchErr::new("error", "Couldn't read Tavily's reply."))?;
+    Ok(parse_tavily_response(&text))
 }
 
 /// DuckDuckGo's no-JS HTML results page — chosen because it needs no API key
@@ -140,7 +294,7 @@ fn parse_search_results(html: &str) -> Vec<WebSearchResultDto> {
             .map(|s| s.text().collect::<String>().trim().to_string())
             .unwrap_or_default();
 
-        out.push(WebSearchResultDto { title, url: target, snippet });
+        out.push(WebSearchResultDto { title, url: target, snippet, published_date: None });
         if out.len() >= MAX_RESULTS {
             break;
         }
@@ -300,6 +454,87 @@ mod tests {
     }
 
     #[test]
+    fn tavily_statuses_map_to_the_categories_the_manager_acts_on() {
+        assert_eq!(classify_tavily_status(401).kind, "auth");
+        assert_eq!(classify_tavily_status(429).kind, "rate");
+        assert_eq!(classify_tavily_status(432).kind, "quota");
+        assert_eq!(classify_tavily_status(433).kind, "quota");
+        assert_eq!(classify_tavily_status(400).kind, "error");
+        assert_eq!(classify_tavily_status(503).kind, "error");
+        assert_eq!(classify_tavily_status(418).kind, "error");
+    }
+
+    #[test]
+    fn errors_are_tagged_the_way_the_engine_parses_them() {
+        assert_eq!(
+            classify_tavily_status(432).tagged(),
+            "quota: Tavily's search allowance is used up for now."
+        );
+        assert!(classify_tavily_status(401).tagged().starts_with("auth: "));
+    }
+
+    #[test]
+    fn parses_a_tavily_reply_and_keeps_the_published_date() {
+        let body = r#"{"query":"q","results":[
+            {"title":"Fortnite.GG","url":"https://fortnite.gg/","content":"Chapter 6 Season 2.","score":0.9,"published_date":"2026-09-10"},
+            {"title":"","url":"https://example.com/x","content":"No title here"}
+        ],"response_time":1.2}"#;
+        let r = parse_tavily_response(body);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].title, "Fortnite.GG");
+        assert_eq!(r[0].snippet, "Chapter 6 Season 2.");
+        assert_eq!(r[0].published_date.as_deref(), Some("2026-09-10"));
+        assert_eq!(r[1].title, "https://example.com/x", "an untitled hit is titled by its address");
+        assert_eq!(r[1].published_date, None);
+    }
+
+    #[test]
+    fn drops_non_http_links_and_survives_garbage() {
+        let body = r#"{"results":[
+            {"title":"a","url":"javascript:alert(1)","content":"x"},
+            {"title":"b","url":"file:///C:/secret.txt","content":"x"},
+            {"title":"c","url":"https://ok.example/","content":"x"}
+        ]}"#;
+        let r = parse_tavily_response(body);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].url, "https://ok.example/");
+        assert!(parse_tavily_response("not json").is_empty());
+        assert!(parse_tavily_response(r#"{"results":"nope"}"#).is_empty());
+        assert!(parse_tavily_response("{}").is_empty());
+    }
+
+    #[test]
+    fn caps_results_and_snippet_length() {
+        let many: Vec<String> = (0..20)
+            .map(|i| {
+                format!(
+                    r#"{{"title":"t{i}","url":"https://e{i}.example/","content":"{}"}}"#,
+                    "y".repeat(2000)
+                )
+            })
+            .collect();
+        let body = format!(r#"{{"results":[{}]}}"#, many.join(","));
+        let r = parse_tavily_response(&body);
+        assert_eq!(r.len(), MAX_RESULTS);
+        assert!(r[0].snippet.chars().count() <= MAX_SNIPPET_CHARS + 1);
+    }
+
+    #[test]
+    fn queries_are_validated_before_anything_leaves_the_machine() {
+        assert!(check_query("   ").is_err());
+        assert!(check_query(&"x".repeat(MAX_QUERY_CHARS + 1)).is_err());
+        assert_eq!(check_query("  hello  ").ok(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_provider_is_refused_not_dispatched() {
+        let out = web_search_with("evil".into(), "q".into(), None).await;
+        assert!(out.err().expect("must be refused").starts_with("error: "));
+        assert!(!web_search_provider_ready("evil".into()).unwrap());
+        assert!(web_search_provider_ready("duckduckgo".into()).unwrap());
+    }
+
+    #[test]
     fn passes_through_direct_links() {
         assert_eq!(resolve_result_link("https://example.com/"), "https://example.com/");
     }
@@ -380,6 +615,7 @@ mod tests {
     async fn live_search_either_returns_results_or_reports_the_challenge_clearly() {
         match web_search("Rust programming language".to_string()).await {
             Ok(results) => {
+                eprintln!("live DuckDuckGo: {} results, first = {:?}", results.len(), results.first().map(|r| &r.url));
                 assert!(!results.is_empty(), "a non-challenge response should parse to real results");
                 for r in &results {
                     assert!(r.url.starts_with("http"));
@@ -387,6 +623,7 @@ mod tests {
                 }
             }
             Err(msg) => {
+                eprintln!("live DuckDuckGo: refused ({msg})");
                 assert!(
                     msg.contains("automated traffic"),
                     "an unrecognised failure, not the known anomaly page: {msg}"

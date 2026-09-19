@@ -137,7 +137,7 @@ let nextChildId = 1;
  * can nest without the skill knowing anything about nesting — a skill calls
  * `ctx.activity?.step('Querying DuckDuckGo')` and is done.
  */
-function reporterFor(
+export function reporterFor(
   index: number,
   total: number,
   skill: string,
@@ -387,6 +387,7 @@ export class Executor {
         ok: result.ok,
         message: result.message,
         error: result.error,
+        data: result.data,
       });
 
       if (result.ok) {

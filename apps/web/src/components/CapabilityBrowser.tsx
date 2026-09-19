@@ -51,7 +51,7 @@ const CATEGORIES: readonly Category[] = [
   {
     label: 'System',
     icon: Icons.Cpu,
-    domains: ['system', 'apps', 'notifications', 'atlas', 'core'],
+    domains: ['system', 'apps', 'notifications', 'atlas', 'core', 'uiagent'],
   },
   { label: 'Web', icon: Icons.Globe, domains: ['web', 'research'] },
   { label: 'Text', icon: Icons.FileText, domains: ['text', 'clipboard'] },

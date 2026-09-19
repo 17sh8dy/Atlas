@@ -1030,7 +1030,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         const captured = m[3];
         if (!captured) return null;
 
-        const { text, wantsBrowser } = splitBrowserHint(captured);
+        const { text, wantsBrowser, browser } = splitBrowserHint(captured);
         const target = clean(text);
         if (!target || REFERENTIAL.test(target.trim().toLowerCase())) return null;
         // File talk belongs to the file rules, which already had their turn.
@@ -1039,8 +1039,13 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         const site = resolveSite(target);
 
         if (wantsBrowser) {
-          return site
-            ? plan(step('web.open', { url: site.url }), 'open-site')
+          if (site) {
+            return browser
+              ? plan(step('web.open', { url: site.url, browser }), 'open-site')
+              : plan(step('web.open', { url: site.url }), 'open-site');
+          }
+          return browser
+            ? plan(step('web.search', { query: target, browser }), 'web-search')
             : plan(step('web.search', { query: target }), 'web-search');
         }
 

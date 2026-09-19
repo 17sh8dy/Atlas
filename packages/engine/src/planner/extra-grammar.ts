@@ -26,6 +26,18 @@ function quoted(raw: string): boolean {
   return /^["'“‘]/.test(t) && /["'”’]$/.test(t);
 }
 
+/**
+ * "activate|press|push|toggle|select|expand|collapse|click" → the one skill
+ * each actually means. Shared by `uiaInvokeOrExpand` and `uiaInvokeNoWindow`
+ * — the same verb list means the same three-way dispatch either way; only
+ * the args shape (a `window` or not) and confidence differ between them.
+ */
+function planUiaVerb(verb: string, args: Record<string, string>, confidence?: number) {
+  if (verb === 'expand') return plan(step('uia.expand', args), 'uia-expand', confidence);
+  if (verb === 'collapse') return plan(step('uia.collapse', args), 'uia-collapse', confidence);
+  return plan(step('uia.invoke', args), 'uia-invoke', confidence);
+}
+
 export function createExtraGrammar(): GrammarRule[] {
   return [
     // ---- text -------------------------------------------------------------
@@ -1405,7 +1417,16 @@ export function createExtraGrammar(): GrammarRule[] {
     // "in the <name> window" is the shared tail. It stays required rather than
     // defaulting to the foreground window: acting on whatever happens to be in
     // front, when the sentence did not say so, is the kind of guess that types
-    // into the wrong application.
+    // into the wrong application. (Atlas's own window is foreground the
+    // instant a command arrives, which is exactly why "the foreground
+    // window" was never the answer here.)
+    //
+    // `uiaInvokeNoWindow`, just below, is the one exception, and only for the
+    // family of rules that click rather than type: when no window is named
+    // *and* there is exactly one other window open, that is the only
+    // reasonable target and asking "which window?" would be theatre. Two or
+    // more candidates still gets the same disambiguation card `targetWindowId`
+    // already shows for an ambiguous named query — never a guess.
 
     {
       name: 'uiaTree',
@@ -1482,14 +1503,32 @@ export function createExtraGrammar(): GrammarRule[] {
       order: -6.56,
       test(lower) {
         const m = lower.match(
-          /^\s*(activate|press|push|toggle|select|expand|collapse)\s+(?:the\s+)?(.+?)\s+in\s+(?:the\s+)?(.+?)\s+window\s*[?.!]*$/,
+          /^\s*(activate|press|push|toggle|select|expand|collapse|click)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+in\s+(?:the\s+)?(.+?)\s+window\s*[?.!]*$/,
         );
         if (!m) return null;
-        const verb = m[1]!;
         const args = { window: m[3]!.trim(), control: m[2]!.trim() };
-        if (verb === 'expand') return plan(step('uia.expand', args), 'uia-expand');
-        if (verb === 'collapse') return plan(step('uia.collapse', args), 'uia-collapse');
-        return plan(step('uia.invoke', args), 'uia-invoke');
+        return planUiaVerb(m[1]!, args);
+      },
+    },
+
+    // "click play", "press the save button", "toggle mute" — the shape above
+    // minus the window clause. Reaches `uia.invoke`/`expand`/`collapse` with
+    // no `window` argument at all; the skill itself decides from there
+    // (`targetWindowId` in `uia-skills.ts`) — act on the one other window
+    // open, or ask which one when there's more than one. Ordered right after
+    // `uiaInvokeOrExpand` so an explicit "... in the X window" is always
+    // claimed by that rule first; this one only ever sees a sentence that
+    // rule's own regex already declined.
+    {
+      name: 'uiaInvokeNoWindow',
+      order: -6.555,
+      test(lower) {
+        const m = lower.match(
+          /^\s*(activate|press|push|toggle|select|expand|collapse|click)\s+(?:on\s+)?(?:the\s+)?(.+?)\s*[?.!]*$/,
+        );
+        if (!m?.[2]) return null;
+        const args = { control: m[2]!.trim() };
+        return planUiaVerb(m[1]!, args, 0.8);
       },
     },
 

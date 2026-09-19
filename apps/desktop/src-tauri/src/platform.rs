@@ -640,6 +640,63 @@ pub fn launch_app(id: String) -> Result<bool, String> {
     opener_open(&app.target)
 }
 
+/// Open an http(s) URL with a *named* installed app rather than whatever the
+/// OS default handler happens to be.
+///
+/// `open_url` above is the right call when the person didn't ask for a
+/// specific browser — it defers to Windows' own default-handler association,
+/// which is also how "which browser did they mean" stays a non-question the
+/// rest of the time. But once a browser is named outright ("open this on
+/// Brave"), the default handler is the wrong question to ask: it can only
+/// ever answer with whichever browser Windows currently prefers, which may
+/// not be the one that was asked for. So this resolves the *app* by id — the
+/// same trust boundary `launch_app` rests on, never an arbitrary path from
+/// the renderer — and hands it the URL as a plain argument, which every
+/// mainstream desktop browser accepts as "open this page" on launch.
+#[tauri::command]
+pub fn open_url_with_app(app_id: String, url: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("Only http and https links can be opened.".into());
+    }
+    let apps = list_apps();
+    let Some(app) = apps.into_iter().find(|a| a.id == app_id) else {
+        return Err(format!("No installed app with id “{app_id}”."));
+    };
+    // A Store app's "target" is a shell identity Explorer resolves, not an
+    // executable path — there is no argument slot to hand a URL through, the
+    // same limitation `launch_app` already accepts for this class of target.
+    if app.target.starts_with(APPS_FOLDER_PREFIX) {
+        return Err(format!("{} can't be opened straight to a page — try opening it and going there.", app.name));
+    }
+    spawn_hidden(&app.target, &url, &app.name)
+}
+
+/// Spawn `program` with a single argument, suppressing the console window
+/// `CREATE_NO_WINDOW` targets — a no-op for a GUI-subsystem program like a
+/// browser or Explorer, which never allocates one anyway, but the right flag
+/// regardless of which kind of target ends up here. Shared by
+/// `launch_app_identity` (Explorer, a Store app's shell identity) and
+/// `open_url_with_app` (a normal desktop browser, a URL) — spawning is the
+/// only thing they have in common; resolving *what* to spawn stays in each
+/// caller.
+fn spawn_hidden(program: &str, arg: &str, what: &str) -> Result<bool, String> {
+    let mut cmd = std::process::Command::new(program);
+    cmd.arg(arg);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    // Both callers' targets return immediately and report their own exit
+    // code rather than the launched app's, so a spawn that succeeded is as
+    // much as can honestly be checked here.
+    match cmd.spawn() {
+        Ok(_) => Ok(true),
+        Err(e) => Err(format!("Windows couldn't start {what}: {e}")),
+    }
+}
+
 /// Open a Store app by the identity `collect_apps_folder` recorded.
 ///
 /// Through Explorer, which is the shell's own documented way in and the same
@@ -649,20 +706,7 @@ pub fn launch_app(id: String) -> Result<bool, String> {
 /// "one of these known applications, never whatever I say" boundary the
 /// command's doc comment describes is unchanged by this path.
 fn launch_app_identity(target: &str) -> Result<bool, String> {
-    let mut cmd = std::process::Command::new("explorer.exe");
-    cmd.arg(target);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    // Explorer returns immediately and reports its own exit code rather than
-    // the app's, so a spawn that succeeded is as much as can honestly be
-    // checked here.
-    match cmd.spawn() {
-        Ok(_) => Ok(true),
-        Err(e) => Err(format!("Windows couldn't start that app: {e}")),
-    }
+    spawn_hidden("explorer.exe", target, "that app")
 }
 
 // ---- file and folder operations --------------------------------------------
@@ -1052,6 +1096,27 @@ mod tests {
     fn an_app_id_that_is_not_installed_is_refused() {
         let err = launch_app("definitelynotaninstalledapp".to_string()).unwrap_err();
         assert!(err.contains("No installed app"), "unexpected refusal: {err}");
+    }
+
+    /// `open_url_with_app` rests on the exact same boundary — an id that
+    /// isn't installed still opens nothing, regardless of the URL given.
+    #[test]
+    fn open_url_with_app_refuses_an_uninstalled_id() {
+        let err = open_url_with_app(
+            "definitelynotaninstalledapp".to_string(),
+            "https://example.com".to_string(),
+        )
+        .unwrap_err();
+        assert!(err.contains("No installed app"), "unexpected refusal: {err}");
+    }
+
+    /// The other half of the boundary: even a real app id can't be used to
+    /// smuggle a non-http(s) scheme through the argument list.
+    #[test]
+    fn open_url_with_app_refuses_a_non_http_scheme() {
+        let err = open_url_with_app("notepad".to_string(), "file:///C:/secrets.txt".to_string())
+            .unwrap_err();
+        assert!(err.contains("http"), "unexpected refusal: {err}");
     }
 
     use super::*;

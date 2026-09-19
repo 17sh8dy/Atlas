@@ -51,6 +51,7 @@ import {
   createStorageSkills,
   createDevToolsSkills,
   createDevAgentSkill,
+  createUiAgentSkill,
   createWindowSkills,
   createInputSkills,
   createUiaSkills,
@@ -58,6 +59,7 @@ import {
   createTextSkills,
   createUtilitySkills,
   createWebSearchSkills,
+  createSearchManager,
   createPhrasing,
   readAffirmation,
   recordEpisodes,
@@ -322,10 +324,24 @@ export function useAtlas(
   // whenever a skill renders a result list) — see WorkingMemory's doc comment.
   const working = useMemo(() => new WorkingMemory(), []);
 
+  // Which search backends recently refused lives here, not inside the engine
+  // memo below: the engine is rebuilt whenever a provider setting changes, and
+  // a spent Tavily allowance should not be forgotten every time it is.
+  const searchManager = useMemo(() => createSearchManager(platform), [platform]);
+
+  // Saving or removing a search key is exactly when that memory is wrong.
+  // The event's name is owned by Settings' WebSearch section (string, not an
+  // import, so the hook does not depend on a settings page).
+  useEffect(() => {
+    const forget = () => searchManager.reset();
+    window.addEventListener('atlas:search-key-changed', forget);
+    return () => window.removeEventListener('atlas:search-key-changed', forget);
+  }, [searchManager]);
+
   const engine = useMemo(() => {
     const skills = new SkillRegistry({ capabilities: () => capabilities });
     skills.registerMany(createCoreSkills(platform, memory, skills, phrasing));
-    skills.registerMany(createWebSearchSkills(platform));
+    skills.registerMany(createWebSearchSkills(platform, searchManager));
     skills.registerMany(createUtilitySkills());
     skills.registerMany(createTextSkills());
     skills.registerMany(createCalcSkills());
@@ -377,6 +393,16 @@ export function useAtlas(
         getExecutionMode: () => executionModeRef.current,
       }),
     );
+    // Same reasoning, same shape, for the UI-driving agent — see
+    // `packages/engine/src/uiagent/loop.ts`'s module doc.
+    skills.register(
+      createUiAgentSkill({
+        skills,
+        intelligence,
+        phrasing,
+        getExecutionMode: () => executionModeRef.current,
+      }),
+    );
 
     return new Engine({
       skills,
@@ -389,6 +415,7 @@ export function useAtlas(
     });
   }, [
     platform,
+    searchManager,
     capabilities,
     memory,
     phrasing,

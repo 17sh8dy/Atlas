@@ -14,6 +14,8 @@
 
 import type { Platform, ResultRow, Skill } from '@atlas/core';
 import { filterDestinations, isExplicitDestination, refusalFor } from '../safety/content-policy';
+import { createSearchManager } from '../web/providers';
+import type { SearchAttempt, SearchManager } from '../web/search-manager';
 
 /** The bare host, for naming a source without printing a whole URL. */
 function hostOf(url: string): string {
@@ -24,7 +26,28 @@ function hostOf(url: string): string {
   }
 }
 
-export function createWebSearchSkills(platform: Platform): Skill[] {
+/**
+ * What to say, quietly, when a backend could not answer and another did. The
+ * activity panel only — this is never an error in the chat, and an
+ * unconfigured backend (no key) says nothing at all, because being
+ * unconfigured is the normal state and not news.
+ */
+function fallbackNote(attempts: SearchAttempt[], usedLabel: string): string | null {
+  const failed = attempts.find((a) => ['quota', 'auth', 'rate', 'blocked'].includes(a.outcome));
+  if (!failed) return null;
+  const why: Record<string, string> = {
+    quota: `${failed.label}'s allowance is used up for now`,
+    auth: `${failed.label} didn't accept its key`,
+    rate: `${failed.label} is busy`,
+    blocked: `${failed.label} asked for a human check`,
+  };
+  return `${why[failed.outcome]} — used ${usedLabel} instead`;
+}
+
+export function createWebSearchSkills(
+  platform: Platform,
+  manager: SearchManager = createSearchManager(platform),
+): Skill[] {
   return [
     {
       id: 'research.search',
@@ -38,7 +61,15 @@ export function createWebSearchSkills(platform: Platform): Skill[] {
         'search the internet for the latest Fortnite update',
         'research the best current options for a budget laptop',
       ],
-      params: { query: { type: 'string', required: true, description: 'what to search for' } },
+      params: {
+        query: { type: 'string', required: true, description: 'what to search for' },
+        topic: {
+          type: 'string',
+          enum: ['general', 'news'],
+          default: 'general',
+          description: 'news for recent events; a hint some search backends use',
+        },
+      },
       async run(args, ctx) {
         const query = String(args.query).trim();
         if (!query) return { ok: false, error: 'Give me something to search for.' };
@@ -47,20 +78,27 @@ export function createWebSearchSkills(platform: Platform): Skill[] {
         // back. Nothing here reports what Atlas made of any of it.
         const searching = ctx.activity?.step('Searching the web', query);
 
-        let results;
-        try {
-          results = await platform.searchWeb!(query);
-        } catch (e) {
-          const reason = e instanceof Error ? e.message : "I couldn't search the web.";
+        const topic = args.topic === 'news' ? 'news' : 'general';
+        const outcome = await manager.search(query, { topic });
+        if (!outcome.ok) {
+          const reason =
+            outcome.reason === 'none-available'
+              ? "Web search isn't available right now."
+              : "I couldn't get a web search to answer just now.";
           searching?.failed(reason);
           return { ok: false, error: reason };
         }
 
+        let results = outcome.results;
         if (!results.length) {
           searching?.done('No results');
           return { ok: true, message: `No web results for "${query}".` };
         }
-        searching?.done(`${results.length} result${results.length === 1 ? '' : 's'}`);
+        searching?.done(
+          `${results.length} result${results.length === 1 ? '' : 's'} · ${outcome.providerLabel}`,
+        );
+        const note = fallbackNote(outcome.attempts, outcome.providerLabel);
+        if (note) ctx.activity?.note('Search provider', note);
 
         // Requirement 6, accidental exposure: an ordinary query can return
         // something explicit. Dropped here, at the point the results enter
@@ -70,10 +108,7 @@ export function createWebSearchSkills(platform: Platform): Skill[] {
         const beforeFilter = results.length;
         results = filterDestinations(results);
         if (beforeFilter !== results.length) {
-          ctx.activity?.note(
-            'Filtered results',
-            `${beforeFilter - results.length} not shown`,
-          );
+          ctx.activity?.note('Filtered results', `${beforeFilter - results.length} not shown`);
         }
         if (!results.length) {
           return { ok: true, message: `No results I can show you for "${query}".` };

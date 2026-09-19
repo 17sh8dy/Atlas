@@ -653,6 +653,13 @@ function Ready({
    * same module `TitleBar`'s own maximise button already imports — so this is
    * wiring, not a new capability.
    *
+   * The reason it silently did nothing was one layer down from here, though:
+   * Tauri 2 denies any window command not named in
+   * `capabilities/default.json`, and `core:window:allow-is-fullscreen` /
+   * `allow-set-fullscreen` were never added — every press rejected at the
+   * IPC boundary before either line below ever ran, with no visible error
+   * because this handler awaited neither call's rejection.
+   *
    * A plain `window` listener rather than a Tauri event: no Rust side needs
    * to know this happened, and every other keyboard shortcut in this app
    * (Shift+Tab, Escape) is handled the same way, in the renderer.

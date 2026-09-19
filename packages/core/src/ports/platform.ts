@@ -126,7 +126,38 @@ export interface WebSearchResult {
   title: string;
   url: string;
   snippet: string;
+  /** Which provider returned it — set by the search manager, not by the provider's own code. */
+  provider?: string;
+  /** As the source reported it, when it did. Providers differ; never assume it is present or parseable. */
+  publishedDate?: string;
 }
+
+/**
+ * The search backends Atlas knows how to call. A fixed list on purpose: the
+ * native side dispatches on it, so this is an allowlist of named backends
+ * and not a general "make an HTTP request" door. Adding one (SearXNG, Brave,
+ * a crawler of our own) is one new arm natively and one new provider in the
+ * engine — nothing above the search manager changes.
+ */
+export type SearchProviderId = 'tavily' | 'duckduckgo';
+
+/** What kind of results a query wants; a hint, and every provider may ignore it. */
+export interface WebSearchOptions {
+  topic?: 'general' | 'news';
+}
+
+/**
+ * Why a search backend refused, as a category the manager can act on rather
+ * than a message it would have to parse. The native side prefixes its errors
+ * with one of these (see `classifySearchError` in the engine).
+ */
+export type SearchFailureKind =
+  | 'quota' // the plan's allowance is used up: stop asking for a while
+  | 'auth' // the key is missing, wrong or revoked
+  | 'rate' // too many requests right now: brief back-off
+  | 'blocked' // the engine wants a human (a CAPTCHA): back off longer
+  | 'offline' // could not reach it at all
+  | 'error'; // anything else
 
 /** A page's readable text, for when a search snippet alone isn't enough. */
 export interface WebPage {
@@ -167,6 +198,13 @@ export interface Platform {
 
   listApps?(): Promise<AppEntry[]>;
   launchApp?(id: string): Promise<boolean>;
+  /**
+   * Open an http(s) URL with a *named* installed app — resolved against
+   * `listApps()`, the same trust boundary `launchApp` rests on — rather than
+   * whichever browser the OS default-handler association happens to prefer.
+   * `openUrl` stays the right call when no browser was named explicitly.
+   */
+  openUrlWithApp?(appId: string, url: string): Promise<boolean>;
 
   systemInfo?(): Promise<SystemSnapshot>;
   runningProcesses?(limit?: number): Promise<ProcessEntry[]>;
@@ -579,6 +617,21 @@ export interface Platform {
    */
   searchWeb?(query: string): Promise<WebSearchResult[]>;
   fetchPage?(url: string): Promise<WebPage>;
+  /**
+   * Search through one named backend. `searchWeb` above stays as the
+   * key-free default (DuckDuckGo); this is how the engine's search manager
+   * reaches the others. A backend that needs a credential reads it on the
+   * native side — the key never crosses into the renderer. A refusal comes
+   * back as a rejected promise whose message starts with a
+   * `SearchFailureKind` tag, e.g. `quota: …`.
+   */
+  searchWebWith?(
+    provider: SearchProviderId,
+    query: string,
+    options?: WebSearchOptions,
+  ): Promise<WebSearchResult[]>;
+  /** Is this backend usable right now (for a keyed one: is a key saved)? Never returns the key. */
+  searchProviderReady?(provider: SearchProviderId): Promise<boolean>;
 
   /**
    * The emergency stop, when this build has a native one — see

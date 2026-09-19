@@ -98,9 +98,9 @@ pub fn save_secret(provider_id: String, secret: String) -> Result<(), String> {
     result.map_err(|e: WinError| format!("Couldn't save that key: {e}"))
 }
 
-/// Read a stored key back. **The only legitimate caller is
-/// `cloud_intelligence.rs`**, to build one outbound request — see the module
-/// doc. Never exposed as a `#[tauri::command]`, so no path from the renderer
+/// Read a stored key back. **The only legitimate callers are
+/// `cloud_intelligence.rs` and `web.rs`** (the Tavily search key), each to
+/// build one outbound request — see the module doc. Never exposed as a `#[tauri::command]`, so no path from the renderer
 /// can call it at all.
 pub fn read_secret(provider_id: &str) -> Result<Option<String>, String> {
     if !is_valid_provider_id(provider_id) {

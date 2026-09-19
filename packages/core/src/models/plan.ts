@@ -49,6 +49,16 @@ export interface StepOutcome {
   error?: string;
   /** True when the user declined a confirmation. */
   skipped?: boolean;
+  /**
+   * The skill's own structured payload, carried through from `SkillResult.data`
+   * unchanged. Most callers never read this — the chat surface renders from
+   * `message`/`spoken` results instead — but a caller that needs to see what a
+   * read skill actually found, not just whether it succeeded (an
+   * observe-and-replan loop reading `uia.tree`, for one), has nowhere else to
+   * get it: `message` stays empty by convention on exactly the skills whose
+   * payload lives here.
+   */
+  data?: unknown;
 }
 
 export interface PlanOutcome {

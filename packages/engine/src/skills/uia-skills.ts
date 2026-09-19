@@ -30,7 +30,7 @@
  * validated actions.
  */
 
-import type { Platform, ResultRow, Skill, SkillArgs, UiaNode } from '@atlas/core';
+import type { Platform, ResultRow, Skill, SkillArgs, UiaNode, WindowEntry } from '@atlas/core';
 import { resolveWindow, liveWindows } from '../text/windows';
 
 function parsePath(raw: unknown): number[] {
@@ -151,29 +151,82 @@ export function createUiaSkills(platform: Platform): Skill[] {
    * straight back. `skillId`/`args` are only for rebuilding a disambiguation
    * row's action — re-running the *same* skill call with `window` swapped for
    * the exact candidate's `id`, which `resolveWindow` now matches directly.
+   *
+   * An empty `query` — "click play" rather than "click play in the VLC
+   * window" — is not the same thing as a query that failed to match: there
+   * was never a name to test `resolveWindow`'s tiers against, so it takes a
+   * different path here rather than reaching `resolveWindow` and colliding
+   * with `tidyQuery('')`'s own "no query" case. With exactly one other window
+   * open, that is the only reasonable target and there is nothing to gain by
+   * asking. With more than one, this shows the same disambiguation card a
+   * named-but-ambiguous query gets — never a guess between two real
+   * candidates, only ever a default when there was just the one.
    */
+  /**
+   * The disambiguation card itself — a clickable row per candidate window,
+   * each wired to re-invoke the same skill call with `window` filled in.
+   * Shared by both branches of `targetWindowId` below: an omitted `window`
+   * with more than one other window open, and a named-but-ambiguous query.
+   * Only the title/subtitle text differs between them.
+   */
+  function showWindowChoices(
+    windows: readonly WindowEntry[],
+    meta: { title: string; subtitle: string },
+    ctx: { showResults?: (items: ResultRow[], meta?: { title?: string; subtitle?: string }) => void },
+    skillId: string,
+    args: SkillArgs,
+  ): { early: { ok: true; spoken: true; message: '' } } {
+    ctx.showResults?.(
+      windows.slice(0, 12).map((w) => ({
+        title: w.title,
+        subtitle: w.processName,
+        icon: '🪟',
+        payload: w,
+        actions: [{ label: 'Select', skill: skillId, args: { ...args, window: w.id } }],
+      })),
+      meta,
+    );
+    return { early: { ok: true, spoken: true, message: '' } };
+  }
+
   async function targetWindowId(
     query: string,
     ctx: { showResults?: (items: ResultRow[], meta?: { title?: string; subtitle?: string }) => void },
     skillId: string,
     args: SkillArgs,
   ): Promise<{ id: string; title: string } | { early: { ok: boolean; message?: string; error?: string; spoken?: true } }> {
-    const match = resolveWindow(await liveWindows(platform), query);
+    const windows = await liveWindows(platform);
+    const trimmed = query.trim();
+
+    if (!trimmed) {
+      if (windows.length === 0) {
+        return { early: { ok: false, error: "There's nothing else open to do that in." } };
+      }
+      if (windows.length === 1) {
+        const only = windows[0]!;
+        return { id: only.id, title: only.title };
+      }
+      return showWindowChoices(
+        windows,
+        { title: `${windows.length} windows are open`, subtitle: 'Click one, or say which.' },
+        ctx,
+        skillId,
+        args,
+      );
+    }
+
+    const match = resolveWindow(windows, trimmed);
     if (match.kind === 'none') {
-      return { early: { ok: false, error: `I can't find a window called "${query}".` } };
+      return { early: { ok: false, error: `I can't find a window called "${trimmed}".` } };
     }
     if (match.kind === 'many') {
-      ctx.showResults?.(
-        match.candidates.slice(0, 12).map((w) => ({
-          title: w.title,
-          subtitle: w.processName,
-          icon: '🪟',
-          payload: w,
-          actions: [{ label: 'Select', skill: skillId, args: { ...args, window: w.id } }],
-        })),
+      return showWindowChoices(
+        match.candidates,
         { title: `${match.candidates.length} windows match "${query}"`, subtitle: 'Click one, or say which.' },
+        ctx,
+        skillId,
+        args,
       );
-      return { early: { ok: true, spoken: true, message: '' } };
     }
     return { id: match.entry.id, title: match.entry.title };
   }
@@ -268,9 +321,13 @@ export function createUiaSkills(platform: Platform): Skill[] {
     needs: ['ui-automation', 'window-control'],
     // A mechanism, not a consequence — see the file doc comment.
     risk: 'safe',
-    examples: ['activate the save button in the notepad window'],
+    examples: ['activate the save button in the notepad window', 'click play'],
     params: {
-      window: { type: 'string', required: true, description: 'the window, by its title or app name' },
+      window: {
+        type: 'string',
+        description:
+          'the window, by its title or app name — omit it when there is only one other window open',
+      },
       control: CONTROL_PARAM,
       path: { type: 'string', description: 'the control\'s path from uia.tree, e.g. "2,0,1" (empty for the root)' },
     },
@@ -297,7 +354,11 @@ export function createUiaSkills(platform: Platform): Skill[] {
     risk: 'safe',
     examples,
     params: {
-      window: { type: 'string', required: true, description: 'the window, by its title or app name' },
+      window: {
+        type: 'string',
+        description:
+          'the window, by its title or app name — omit it when there is only one other window open',
+      },
       control: CONTROL_PARAM,
       path: { type: 'string', description: 'the control\'s path from uia.tree' },
     },

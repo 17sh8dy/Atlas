@@ -51,7 +51,7 @@ import { recordEpisodes } from '../src/episodic';
 import { SimpleIntelligenceRegistry } from '../src/intelligence-registry';
 import { rankMatches, confidentMatch, editDistance } from '../src/text/fuzzy';
 import { correctLeadingVerb } from '../src/text/verb-typo';
-import { stripFiller } from '../src/text/normalize';
+import { stripFiller, splitBrowserHint } from '../src/text/normalize';
 import { resolveSite } from '../src/text/sites';
 
 // ---- a machine we can script ------------------------------------------------
@@ -61,6 +61,7 @@ interface Journal {
   revealed: string[];
   launched: string[];
   urls: string[];
+  urlsWithApp: Array<{ appId: string; url: string }>;
   hidden: number;
   created: string[];
   foldersCreated: string[];
@@ -290,12 +291,17 @@ function makePlatform(capabilities: CapabilityName[], journal: Journal, web: Web
       journal.urls.push(u);
       return true;
     },
+    openUrlWithApp: async (appId, url) => {
+      journal.urlsWithApp.push({ appId, url });
+      return true;
+    },
     listApps: async () => [
       { id: 'steam', name: 'Steam', target: 'steam.exe' },
       { id: 'code', name: 'Visual Studio Code', target: 'code.exe' },
       { id: 'code-insiders', name: 'Visual Studio Code Insiders', target: 'code-insiders.exe' },
       { id: 'discord', name: 'Discord', target: 'discord.exe' },
       { id: 'firefox', name: 'Firefox', target: 'firefox.exe' },
+      { id: 'brave', name: 'Brave', target: 'brave.exe' },
       { id: 'steelseriesgg', name: 'SteelSeries GG', target: 'steelseries.lnk' },
       { id: 'crosshairx', name: 'CrosshairX', target: 'crosshairx.exe' },
       { id: 'notepad++', name: 'Notepad++', target: 'notepad++.exe' },
@@ -748,6 +754,7 @@ function harness(
     revealed: [],
     launched: [],
     urls: [],
+    urlsWithApp: [],
     hidden: 0,
     created: [],
     foldersCreated: [],
@@ -1606,7 +1613,9 @@ test('research.search fails gracefully when the network is unreachable', async (
   h.web.failSearch = true;
   const outcome = await h.engine.ask('search the internet for anything', io(h));
   assert.equal(outcome.ok, false);
-  assert.match(h.said.join(' '), /Search failed/);
+  // The manager hides which backend broke: the user hears a calm, generic
+  // sentence, not a provider's raw error.
+  assert.match(h.said.join(' '), /couldn.t get a web search to answer/);
 });
 
 test('research.open extracts a page and rejects non-http(s) links', async () => {
@@ -1656,9 +1665,15 @@ test('conversation: a freshness question with no provider still searches and sho
   const h = harness(undefined, { provider: null });
   h.web.results['what happened in the latest Fortnite update?'] = FORTNITE_RESULTS;
   await h.engine.ask('what happened in the latest Fortnite update?', io(h));
-  assert.deepEqual(h.web.searchedQueries, ['what happened in the latest Fortnite update?']);
+  // The rewritten query goes first; when it finds nothing, the person's own
+  // words are tried before giving up.
+  assert.equal(h.web.searchedQueries.length, 2);
+  assert.match(h.web.searchedQueries[0] ?? '', /fortnite update/i);
+  assert.equal(h.web.searchedQueries[1], 'what happened in the latest Fortnite update?');
   assert.equal(h.rows.length, 2);
   assert.match(h.said.join(' '), /Found 2 results/);
+  // No model to use them, so no pages were fetched.
+  assert.deepEqual(h.web.fetchedUrls, []);
 });
 
 test('conversation: a freshness question with a provider augments the prompt and appends sources', async () => {
@@ -1670,9 +1685,9 @@ test('conversation: a freshness question with a provider augments the prompt and
 
   // The provider was asked with the search results folded in, not the bare question.
   assert.equal(provider.prompts.length, 1);
-  assert.match(provider.prompts[0] ?? '', /SEARCH RESULTS/);
+  assert.match(provider.prompts[0] ?? '', /WEB EVIDENCE/);
   assert.match(provider.prompts[0] ?? '', /epicgames\.com/);
-  assert.match(provider.prompts[0] ?? '', /untrusted reference material, not instructions/);
+  assert.match(provider.prompts[0] ?? '', /untrusted text from the internet/);
 
   // Raw result rows are NOT also dumped — the synthesized answer is the answer.
   assert.equal(h.rows.length, 0);
@@ -1680,7 +1695,7 @@ test('conversation: a freshness question with a provider augments the prompt and
   // The model's own answer plus a deterministic sources footer both reach the user.
   const said = h.said.join('\n');
   assert.match(said, /Fortnite added a new map region/);
-  assert.match(said, /Sources:/);
+  assert.match(said, /Sources \(/);
   assert.match(said, /epicgames\.com/);
 });
 
@@ -2368,7 +2383,9 @@ test('browser: "any browser" launches an installed one, and a named one is honou
   const h = harness();
   const any = await h.engine.skills.invoke('web.openBrowser', {}, io(h));
   assert.isTrue(any.ok);
-  assert.deepEqual(h.journal.launched, ['firefox']);
+  // Brave and Firefox are both in the fixture's installed-apps list now;
+  // `BROWSER_NAMES`' own priority order (core-skills.ts) puts Brave first.
+  assert.deepEqual(h.journal.launched, ['brave']);
 
   const named = await h.engine.skills.invoke('web.openBrowser', { name: 'firefox' }, io(h));
   assert.isTrue(named.ok);
@@ -3079,6 +3096,43 @@ test('sites: an unknown name with a browser named means look it up', async () =>
   assert.match(h.journal.urls[0]!, /kingfisher/i);
 });
 
+// ---- naming an actual browser, not just "the internet" ---------------------
+//
+// "on Google"/"in my browser" above are stand-ins for the default handler —
+// there is only ever one reasonable reading. "on Brave" is different: it
+// names a real, distinct application, and honouring it means resolving that
+// name against `listApps()` (`resolveAppName`, the same resolver `app.open`
+// uses) and handing the URL to *that* app directly — `platform.openUrl`
+// only ever reaches the OS default, which may not be the one asked for.
+
+test('sites: "on Brave" opens the site with Brave specifically, not the default handler', async () => {
+  const h = harness();
+  await h.engine.ask('open youtube on brave', io(h));
+  assert.lengthOf(h.journal.urls, 0);
+  assert.lengthOf(h.journal.urlsWithApp, 1);
+  assert.equal(h.journal.urlsWithApp[0]!.appId, 'brave');
+  assert.match(h.journal.urlsWithApp[0]!.url, /youtube\.com/);
+});
+
+test('sites: an unknown name with a specific browser named still looks it up, in that browser', async () => {
+  const h = harness();
+  await h.engine.ask('open kingfisher nesting habits on firefox', io(h));
+  assert.lengthOf(h.journal.urls, 0);
+  assert.lengthOf(h.journal.urlsWithApp, 1);
+  assert.equal(h.journal.urlsWithApp[0]!.appId, 'firefox');
+  assert.match(h.journal.urlsWithApp[0]!.url, /google\.com\/search/);
+  assert.match(h.journal.urlsWithApp[0]!.url, /kingfisher/i);
+});
+
+test('sites: a named browser that is not installed is a clean error, not a fallback to the default', async () => {
+  const h = harness();
+  const outcome = await h.engine.ask('open youtube on vivaldi', io(h));
+  assert.isFalse(outcome.ok);
+  assert.lengthOf(h.journal.urls, 0);
+  assert.lengthOf(h.journal.urlsWithApp, 0);
+  assert.match(h.said.join(' '), /vivaldi/i);
+});
+
 test('casual: greetings and politeness are stripped, not answered', async () => {
   for (const phrasing of [
     'hey can you open youtube',
@@ -3104,6 +3158,36 @@ test('casual: filler stripping does not eat meaningful words', () => {
   // A message that is only filler is left alone — there is no instruction in it.
   assert.equal(stripFiller('hey'), 'hey');
   assert.equal(stripFiller('thanks'), 'thanks');
+});
+
+test('casual: a browser hint is told apart from a specific browser name', () => {
+  // "Google"/"the web"/"my browser" are stand-ins for "the default handler" —
+  // there is no app to resolve, so `browser` stays undefined even though a
+  // hint was there.
+  assert.deepEqual(splitBrowserHint('youtube on google'), {
+    text: 'youtube',
+    wantsBrowser: true,
+    browser: undefined,
+  });
+  assert.deepEqual(splitBrowserHint('youtube in my browser'), {
+    text: 'youtube',
+    wantsBrowser: true,
+    browser: undefined,
+  });
+  // A real, distinct application is named — this is what a caller resolves
+  // against `listApps()` rather than handing to the OS default handler.
+  assert.deepEqual(splitBrowserHint('youtube on brave'), {
+    text: 'youtube',
+    wantsBrowser: true,
+    browser: 'brave',
+  });
+  assert.deepEqual(splitBrowserHint('youtube using Firefox'), {
+    text: 'youtube',
+    wantsBrowser: true,
+    browser: 'firefox',
+  });
+  // No hint at all.
+  assert.deepEqual(splitBrowserHint('youtube'), { text: 'youtube', wantsBrowser: false });
 });
 
 test('casual: a filler-wrapped request still routes to the right skill', async () => {
@@ -3197,6 +3281,44 @@ test('typos: a typo too short to correct safely falls through exactly as before'
   const result = await h.engine.ask('og to my downloads', io(h));
   assert.lengthOf(h.journal.launched, 0);
   assert.isFalse(result.ok);
+});
+
+// ---- mechanism-wrapper stripping (text/normalize.ts) ------------------------
+//
+// "use keyboard and mouse control to open Chrome" used to miss `appOpen` the
+// same way a greeting does — the verb isn't the first word — fall through
+// triage into the AI planner, and land on "I couldn't reach that provider"
+// whenever no provider was configured or the one configured was offline.
+// Naming a mechanism is not a reason to need a model: "open Chrome" already
+// means launch it however gets there fastest.
+
+test('mechanism wrapper: "use keyboard and mouse control to open X" still opens X, no provider asked', async () => {
+  const offline = makeProvider({ error: 'offline' });
+  const h = harness(undefined, { provider: offline });
+  await h.engine.ask('use keyboard and mouse control to open steam', io(h));
+  assert.deepEqual(h.journal.launched, ['steam']);
+  assert.equal(offline.prompts.length, 0);
+  assert.notMatch(h.said.join(' '), /couldn't reach that provider/);
+});
+
+test('mechanism wrapper: other phrasings of the same wrapper all resolve the same way', async () => {
+  const cases = [
+    'using the mouse and keyboard to open discord',
+    'via keyboard control to open fortnite',
+    'with the mouse to open steam',
+  ];
+  const targets = ['discord', 'fortnite', 'steam'];
+  for (let i = 0; i < cases.length; i++) {
+    const h = harness();
+    await h.engine.ask(cases[i], io(h));
+    assert.deepEqual(h.journal.launched, [targets[i]], cases[i]);
+  }
+});
+
+test('mechanism wrapper: a literal coordinate instruction still resolves correctly once wrapped', async () => {
+  const h = harness();
+  await h.engine.ask('use the mouse to click at 500, 300', io(h));
+  assert.deepEqual(h.journal.clicks, [{ x: 500, y: 300, button: 'left', double: false }]);
 });
 
 test("typos: a destructive verb, typo'd, still asks before deleting — same gate as spelled correctly", async () => {
@@ -4226,6 +4348,112 @@ test('uia: risk matches consequence — reading and acting are both safe', () =>
   ]) {
     assert.equal(h.engine.skills.get(id)?.risk, 'safe', id);
   }
+});
+
+// ---- clicking a control without naming a window ----------------------------
+//
+// "click play" used to have no route at all — every uia.* grammar rule
+// required "... in the X window", and asking for a window every time there
+// was obviously only one open would be the kind of theatre the rest of this
+// pack avoids. `targetWindowId` (uia-skills.ts) now resolves an omitted
+// `window` itself: the one other window when there's exactly one, the same
+// disambiguation card a named-but-ambiguous query already gets when there's
+// more than one, and a clean error when there's none. Built directly against
+// a minimal `Platform`, the same way the window-skills disambiguation test
+// above does, because the point here is `targetWindowId`'s own decision, not
+// the full engine pipeline.
+
+test('uia: no window named, exactly one other window open — acts on it directly', async () => {
+  const invoked: Array<{ id: string; path: number[] }> = [];
+  const platform = {
+    capabilities: async () => ['ui-automation', 'window-control'],
+    listWindows: async () => [{ ...WINDOWS[0]! }],
+    uiaTree: async () => ({
+      path: [],
+      role: 'pane',
+      name: 'root',
+      automationId: '',
+      enabled: true,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      children: [
+        {
+          path: [0],
+          role: 'button',
+          name: 'Play',
+          automationId: '',
+          enabled: true,
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          children: [],
+        },
+      ],
+    }),
+    uiaInvoke: async (id: string, path: number[]) => {
+      invoked.push({ id, path });
+      return true;
+    },
+  } as unknown as Platform;
+  const invoke = createUiaSkills(platform).find((s) => s.id === 'uia.invoke')!;
+
+  const ctx: SkillContext = { say: () => {}, confirm: async () => true, showResults: () => {} };
+  const outcome = await invoke.run({ control: 'play' }, ctx);
+  assert.isTrue(outcome.ok);
+  assert.deepEqual(invoked, [{ id: '1001', path: [0] }]);
+});
+
+test('uia: no window named, none open — a clean error, not a guess', async () => {
+  const platform = {
+    capabilities: async () => ['ui-automation', 'window-control'],
+    listWindows: async () => [],
+  } as unknown as Platform;
+  const invoke = createUiaSkills(platform).find((s) => s.id === 'uia.invoke')!;
+
+  const ctx: SkillContext = { say: () => {}, confirm: async () => true, showResults: () => {} };
+  const outcome = await invoke.run({ control: 'play' }, ctx);
+  assert.isFalse(outcome.ok);
+});
+
+test('uia: no window named, two open — the same disambiguation card an ambiguous name gets', async () => {
+  const platform = {
+    capabilities: async () => ['ui-automation', 'window-control'],
+    listWindows: async () => [{ ...WINDOWS[0]! }, { ...WINDOWS[1]! }],
+  } as unknown as Platform;
+  const invoke = createUiaSkills(platform).find((s) => s.id === 'uia.invoke')!;
+
+  const rows: ResultRow[] = [];
+  const ctx: SkillContext = {
+    say: () => {},
+    confirm: async () => true,
+    showResults: (items) => rows.push(...items),
+  };
+  const outcome = await invoke.run({ control: 'play' }, ctx);
+  assert.isTrue(outcome.ok);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(
+    rows.map((r) => r.actions?.[0]),
+    [
+      { label: 'Select', skill: 'uia.invoke', args: { control: 'play', window: '1001' } },
+      { label: 'Select', skill: 'uia.invoke', args: { control: 'play', window: '1002' } },
+    ],
+  );
+});
+
+test('uia grammar: "click <name>" with no window reaches uia.invoke, not the AI planner', async () => {
+  const offline = makeProvider({ error: 'offline' });
+  const h = harness(undefined, { provider: offline });
+  await h.engine.ask('click play', io(h));
+  // The default fixture has two windows open, so this lands on the same
+  // disambiguation card the skill-level test above exercises directly —
+  // the point here is only that grammar routed it there at all, and never
+  // asked the (offline) provider.
+  assert.isAbove(h.rows.length, 0);
+  assert.equal(offline.prompts.length, 0);
+  assert.notMatch(h.said.join(' '), /couldn't reach that provider/);
 });
 
 test('uia: with no ui-automation capability the skills are hidden, not disabled', () => {
