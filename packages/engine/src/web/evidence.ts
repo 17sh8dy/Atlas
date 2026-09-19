@@ -422,3 +422,42 @@ export function formatEvidenceFooter(packet: EvidencePacket): string {
     (extra.length ? `\n${extra.map((x) => `· ${x}`).join('\n')}` : '')
   );
 }
+
+const SNIPPET_CHARS = 220;
+
+/**
+ * What to say when there is evidence but no model to write it up — the model
+ * is not running, or it errored. The search already worked; throwing that away
+ * to print "couldn't reach the provider" would make a working half of Atlas
+ * look broken because the optional half is off.
+ *
+ * Nothing here is generated: the lead line is the claims the sources agreed
+ * on (computed in `verifyEvidence`), the rest is what each source said, cut
+ * at a word boundary, and the footer is the same one a model's answer gets.
+ */
+export function formatEvidenceFallback(packet: EvidencePacket): string {
+  const v = packet.verification;
+  const date = packet.retrievedAt.slice(0, 10);
+  const out: string[] = [
+    `The AI model isn't available right now, so I can't write this up — but the search worked. Here is what ${packet.providerLabel} found (${date}):`,
+  ];
+
+  if (v.agreed.length) {
+    const claims = v.agreed.map((a) => a.replace(' — ', ' (') + ')').join(', ');
+    out.push('', `From the sources: ${claims}.`);
+  } else if (v.agreement === 'conflicting') {
+    out.push('', 'The sources disagree, so I would not rely on any one of them.');
+  }
+
+  out.push('');
+  for (const e of packet.evidence.slice(0, 3)) {
+    const text = e.excerpt.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const cut =
+      text.length > SNIPPET_CHARS
+        ? `${text.slice(0, text.lastIndexOf(' ', SNIPPET_CHARS))}…`
+        : text;
+    out.push(`[${e.id}] ${e.host || e.title}: ${cut}`);
+  }
+  return out.join('\n') + formatEvidenceFooter(packet);
+}

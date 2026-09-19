@@ -53,7 +53,11 @@ import { createPhrasing, type Phrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
 import { routeQuestion } from './web/router';
 import { gatherEvidence } from './web/pipeline';
-import { buildEvidencePrompt, formatEvidenceFooter } from './web/evidence';
+import {
+  buildEvidencePrompt,
+  formatEvidenceFallback,
+  formatEvidenceFooter,
+} from './web/evidence';
 import { refusalFor, screenRequest } from './safety/content-policy';
 import { normalizeRequest } from './text/normalize';
 import { readSmallTalk } from './text/smalltalk';
@@ -484,6 +488,7 @@ export class Engine {
             io,
             signal,
             formatEvidenceFooter(research.packet),
+            formatEvidenceFallback(research.packet),
           );
         }
         io.say(
@@ -509,6 +514,12 @@ export class Engine {
     io: EngineIO,
     signal: HaltSignal,
     sourcesFooter = '',
+    /**
+     * What to say instead of an error if the provider cannot answer. For a
+     * caller that already holds something worth showing (a search's evidence):
+     * a model that is off must not hide work that succeeded without it.
+     */
+    fallback = '',
   ): Promise<AskOutcome> {
     io.typing?.(true);
     return new Promise<AskOutcome>((resolve, reject) => {
@@ -559,6 +570,11 @@ export class Engine {
           if (over) return;
           settle();
           io.typing?.(false);
+          if (fallback) {
+            io.say(fallback);
+            resolve({ ok: true, mode: 'chat', text: fallback });
+            return;
+          }
           // 'not-configured'/'offline' are the two sentinel reasons this
           // interface always understood; anything else is a real provider
           // error (a rejected key, a rate limit) worth showing verbatim
@@ -566,7 +582,7 @@ export class Engine {
           // ProviderStreamHandlers.onError's own doc comment.
           if (reason === 'not-configured') io.say(this.offlineReply());
           else if (reason === 'offline') {
-            io.say("I couldn't reach that provider. It's in Settings → Developer.");
+            io.say("I couldn't reach that provider. It's in Settings → Intelligence.");
           } else io.say(`⚠️ ${reason}`);
           resolve({ ok: false, mode: 'chat', error: reason });
         },

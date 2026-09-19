@@ -49,6 +49,8 @@ function rig(config: {
   keySaved?: boolean;
   pages?: Record<string, WebPage>;
   withModel?: boolean;
+  /** The model is configured but cannot be reached. */
+  modelOffline?: boolean;
 }): Rig {
   const asked: Rig['asked'] = [];
   const fetched: string[] = [];
@@ -82,6 +84,10 @@ function rig(config: {
     isLocal: () => true,
     ask(prompt, handlers) {
       prompts.push(prompt);
+      if (config.modelOffline) {
+        handlers.onError('offline');
+        return;
+      }
       handlers.onDone('It is Chapter 6 Season 2 [1][2].');
     },
   };
@@ -355,5 +361,61 @@ describe('Wikipedia as the backup', () => {
     await r.run('What season of Fortnite is it?');
     const wikiQuery = r.asked.find((a) => a.provider === 'wikipedia')!.query;
     expect(wikiQuery).toBe('Fortnite season');
+  });
+});
+
+describe('the model is off but the search worked', () => {
+  const pages = {
+    'https://fortnite.gg/season': {
+      title: 'Fortnite.GG',
+      url: 'https://fortnite.gg/season',
+      text: 'Fortnite is currently in Chapter 6 Season 2, which launched in June.',
+    },
+    'https://www.ign.com/articles/fortnite-season-2': {
+      title: 'IGN',
+      url: 'https://www.ign.com/articles/fortnite-season-2',
+      text: 'Fortnite Chapter 6 Season 2 brings a new map and weapons to players.',
+    },
+  };
+
+  test('the evidence is shown instead of a "could not reach that provider" dead end', async () => {
+    const r = rig({
+      modelOffline: true,
+      providers: { tavily: () => [FORTNITE_GG, IGN] },
+      pages,
+    });
+    const out = (await r.run('What season of Fortnite is it?')) as { ok: boolean };
+    const said = r.said.join(' ');
+
+    expect(said).not.toMatch(/couldn.t reach that provider|Settings . Developer/);
+    expect(said).toMatch(/AI model isn.t available/);
+    // what the sources agreed on is stated outright, computed not generated
+    expect(said).toMatch(/From the sources: .*season 2/i);
+    expect(said).toContain('https://fortnite.gg/season');
+    expect(said).toMatch(/Sources \(/);
+    expect(out.ok).toBe(true);
+  });
+
+  test('a model that errors for any other reason gets the same treatment', async () => {
+    const r = rig({ providers: { tavily: () => [FORTNITE_GG, IGN] }, pages });
+    // swap in a provider that fails with a real error string
+    (r.engine as unknown as { intelligence: { active(): unknown } }).intelligence = {
+      active: () => ({
+        id: 'x',
+        label: 'x',
+        isConfigured: () => true,
+        isLocal: () => true,
+        ask: (_p: string, h: { onError(reason: string): void }) => h.onError('rate limited'),
+      }),
+    };
+    await r.run('What season of Fortnite is it?');
+    expect(r.said.join(' ')).not.toMatch(/⚠️|rate limited/);
+    expect(r.said.join(' ')).toContain('https://fortnite.gg/season');
+  });
+
+  test('a question that never searched still gets the normal offline message', async () => {
+    const r = rig({ modelOffline: true, providers: { tavily: () => [FORTNITE_GG] } });
+    await r.run('what is the capital of Peru');
+    expect(r.said.join(' ')).toMatch(/couldn.t reach that provider/);
   });
 });

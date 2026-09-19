@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Platform } from '@atlas/core';
 import { Button, Input, Surface } from '@atlas/ui';
 import { deleteProviderSecret, hasProviderSecret, saveProviderSecret } from '@atlas/platform';
+import { describeKeyCheck, readPastedKey, type KeyCheck } from './tavily-key';
 
 /** Where `secrets.rs` files this key: `Atlas:cloudProvider:search-tavily`. */
 const TAVILY_SECRET_ID = 'search-tavily';
@@ -37,6 +38,7 @@ export function WebSearch({ platform }: { platform: Platform }) {
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [check, setCheck] = useState<KeyCheck | null>(null);
 
   const refresh = useCallback(async () => {
     setSaved(await hasProviderSecret(TAVILY_SECRET_ID).catch(() => false));
@@ -51,26 +53,59 @@ export function WebSearch({ platform }: { platform: Platform }) {
 
   const changed = () => window.dispatchEvent(new Event(SEARCH_KEY_CHANGED));
 
-  const save = async () => {
-    const trimmed = key.trim();
-    if (!trimmed) return;
+  /**
+   * Asks Tavily whether the saved key works — one real search. Costs one of the
+   * free searches, and is the only way to tell "saved" from "works": a key
+   * that is stored but wrong looks identical from here until it is used.
+   */
+  const verify = async (note?: string) => {
+    if (!platform.searchWebWith) return;
     setBusy(true);
-    setError(null);
+    setCheck(null);
     try {
-      await saveProviderSecret(TAVILY_SECRET_ID, trimmed);
-      setKey('');
-      await refresh();
-      changed();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      let failure: string | undefined;
+      try {
+        await platform.searchWebWith('tavily', 'Atlas connection test', {});
+      } catch (e) {
+        failure = e instanceof Error ? e.message : String(e);
+      }
+      const result = describeKeyCheck(failure);
+      setCheck(note ? { ...result, message: `${note} ${result.message}` } : result);
     } finally {
       setBusy(false);
     }
   };
 
+  const save = async () => {
+    const pasted = readPastedKey(key);
+    if (!pasted.ok) {
+      setError(pasted.message);
+      setCheck(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setCheck(null);
+    try {
+      await saveProviderSecret(TAVILY_SECRET_ID, pasted.key);
+      setKey('');
+      await refresh();
+      changed();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    } finally {
+      setBusy(false);
+    }
+    await verify(
+      pasted.extracted ? 'Found the key inside what you pasted and saved just that.' : undefined,
+    );
+  };
+
   const remove = async () => {
     setBusy(true);
     setError(null);
+    setCheck(null);
     try {
       await deleteProviderSecret(TAVILY_SECRET_ID);
       await refresh();
@@ -87,9 +122,10 @@ export function WebSearch({ platform }: { platform: Platform }) {
       <h2 className="text-foreground mb-3 text-sm font-medium">Web search</h2>
       <Surface className="flex flex-col gap-3 p-4">
         <p className="text-foreground-muted text-sm">
-          Atlas searches the web with DuckDuckGo — no account or key needed. Adding a{' '}
-          <span className="text-foreground">Tavily</span> key gives cleaner, more reliable results.
-          If the key runs out of free searches, Atlas quietly goes back to DuckDuckGo.
+          Atlas searches the web with DuckDuckGo, and Wikipedia as a backup — no account or key
+          needed. Adding a <span className="text-foreground">Tavily</span> key gives cleaner, more
+          reliable results. If the key runs out of free searches, Atlas quietly goes back to the
+          others.
         </p>
 
         <div className="flex items-center gap-2">
@@ -101,7 +137,7 @@ export function WebSearch({ platform }: { platform: Platform }) {
               Key saved
             </span>
           ) : (
-            <span className="text-foreground-subtle text-xs">not set — using DuckDuckGo</span>
+            <span className="text-foreground-subtle text-xs">not set — using the free engines</span>
           )}
         </div>
 
@@ -127,15 +163,34 @@ export function WebSearch({ platform }: { platform: Platform }) {
             Save
           </Button>
           {saved && (
-            <Button variant="ghost" size="md" disabled={busy} onClick={() => void remove()}>
-              Remove
-            </Button>
+            <>
+              <Button variant="ghost" size="md" disabled={busy} onClick={() => void verify()}>
+                Test key
+              </Button>
+              <Button variant="ghost" size="md" disabled={busy} onClick={() => void remove()}>
+                Remove
+              </Button>
+            </>
           )}
         </div>
 
         {error && (
           <p role="alert" className="text-danger text-xs">
             {error}
+          </p>
+        )}
+        {check && (
+          <p
+            role="status"
+            className={
+              check.tone === 'bad'
+                ? 'text-danger text-xs'
+                : check.tone === 'good'
+                  ? 'text-primary text-xs'
+                  : 'text-foreground-muted text-xs'
+            }
+          >
+            {check.message}
           </p>
         )}
 

@@ -678,6 +678,36 @@ mod tests {
         assert!(parse_wikipedia_response(r#"{"error":{"code":"x"}}"#).is_empty());
     }
 
+    /// Describes the SHAPE of the saved key — never its value.
+    #[test]
+    #[ignore] // reads the real Credential Manager entry
+    fn saved_tavily_key_shape() {
+        let key = crate::secrets::read_secret(TAVILY_SECRET_ID).unwrap().expect("no key saved");
+        eprintln!(
+            "key shape: len={} starts_with_tvly={} has_whitespace={} has_control={} has_quote={} looks_like_url={}",
+            key.chars().count(),
+            key.starts_with("tvly-"),
+            key.chars().any(|c| c.is_whitespace()),
+            key.chars().any(|c| c.is_control()),
+            key.contains('"') || key.contains('\''),
+            key.contains("://"),
+        );
+    }
+
+    /// Uses whatever key is saved in Credential Manager. Prints the outcome
+    /// only — never the key, and never a header.
+    #[tokio::test]
+    #[ignore] // hits the real network and needs a saved key
+    async fn live_tavily_with_the_saved_key() {
+        match web_search_with("tavily".into(), "Fortnite current season".into(), None).await {
+            Ok(r) => {
+                eprintln!("live Tavily: {} results, first = {:?}", r.len(), r.first().map(|x| (&x.title, &x.url)));
+                assert!(!r.is_empty());
+            }
+            Err(tagged) => panic!("live Tavily refused: {tagged}"),
+        }
+    }
+
     #[tokio::test]
     #[ignore] // hits the real network — run manually with `cargo test -- --ignored`
     async fn live_wikipedia_returns_real_articles() {
