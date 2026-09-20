@@ -95,6 +95,19 @@ describe('the default', () => {
     });
   });
 
+  test('a picked model survives Ollama starting after Atlas did', async () => {
+    // Nothing was reported installed at load time, but the pick names a real tag.
+    const built = setup({ localAi: { ...ON, installed: [] }, activeProviderId: 'local:qwen3.5:9b' });
+    expect(built.activeId).toBe('local:qwen3.5:9b');
+    await askActive(built);
+    expect(lastArgs()).toMatchObject({ model: 'qwen3.5:9b' });
+  });
+
+  test('an id from an older version (no tag) still falls back to the default', async () => {
+    const built = setup({ activeProviderId: 'local:qwen3-coder-30b-a3b' });
+    expect(built.activeId).toBe('local:qwen3-8b');
+  });
+
   test('a pick that no longer exists falls back to the default rather than failing', async () => {
     const built = setup({ activeProviderId: 'cloud-that-was-removed' });
     expect(built.activeId).toBe('local:qwen3-8b');

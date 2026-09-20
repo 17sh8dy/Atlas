@@ -12,3 +12,7 @@ test('a real patch number is kept in full', () => {
 test('a version with no patch at all is left alone', () => {
   assert.equal(formatVersion('0.85'), '0.85');
 });
+
+test('1.0.0 is shown in full, so a release reads as a release', () => {
+  assert.equal(formatVersion('1.0.0'), '1.0.0');
+});

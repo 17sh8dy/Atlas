@@ -8,7 +8,12 @@
 //! consistent with `platform.rs` preferring narrow custom commands over
 //! pulling in a store plugin for something this small.
 
-use std::{collections::HashMap, fs, path::PathBuf, sync::Mutex};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use tauri::{AppHandle, Manager};
 
@@ -36,21 +41,46 @@ pub(crate) fn is_valid_key(key: &str) -> bool {
 }
 
 fn load(app: &AppHandle) -> Result<Store, String> {
-    let path = store_path(app)?;
+    load_from(&store_path(app)?)
+}
+
+fn load_from(path: &Path) -> Result<Store, String> {
     if !path.is_file() {
         return Ok(Store::new());
     }
-    let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
     if raw.trim().is_empty() {
         return Ok(Store::new());
     }
-    serde_json::from_str(&raw).map_err(|e| e.to_string())
+    match serde_json::from_str(&raw) {
+        Ok(store) => Ok(store),
+        Err(_) => {
+            // A file that no longer parses (a write cut short by a crash or a
+            // power cut) must not lock every read and write out forever. Keep
+            // it beside the store for anyone who wants to recover by hand, and
+            // start clean.
+            let _ = fs::rename(path, path.with_extension("json.corrupt"));
+            Ok(Store::new())
+        }
+    }
 }
 
 fn save(app: &AppHandle, store: &Store) -> Result<(), String> {
-    let path = store_path(app)?;
+    save_to(&store_path(app)?, store)
+}
+
+fn save_to(path: &Path, store: &Store) -> Result<(), String> {
     let raw = serde_json::to_string_pretty(store).map_err(|e| e.to_string())?;
-    fs::write(&path, raw).map_err(|e| e.to_string())
+    // Written beside the real file and renamed over it: a rename replaces the
+    // old contents whole or not at all, so being killed mid-save (an update
+    // installing, a crash) leaves the previous settings intact rather than a
+    // truncated file.
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, raw).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -100,6 +130,40 @@ pub fn storage_remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("atlas-storage-test-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("storage.json")
+    }
+
+    #[test]
+    fn a_saved_store_reads_back_and_leaves_no_temp_file() {
+        let path = scratch("roundtrip");
+        let mut store = Store::new();
+        store.insert("atlas.theme".into(), serde_json::json!("dark"));
+        save_to(&path, &store).unwrap();
+        save_to(&path, &store).unwrap(); // replacing an existing file works too
+        assert_eq!(load_from(&path).unwrap().get("atlas.theme"), Some(&serde_json::json!("dark")));
+        assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    /// The bug this closed: a store cut off mid-write made every later read
+    /// and write fail, so settings could never be saved again.
+    #[test]
+    fn a_truncated_store_recovers_instead_of_locking_everything_out() {
+        let path = scratch("corrupt");
+        fs::write(&path, r#"{"atlas.theme": "da"#).unwrap();
+        let store = load_from(&path).expect("a corrupt file must not be an error");
+        assert!(store.is_empty());
+        assert!(path.with_extension("json.corrupt").exists(), "the damaged file is kept");
+        // and saving works again straight away
+        let mut fresh = Store::new();
+        fresh.insert("atlas.theme".into(), serde_json::json!("light"));
+        save_to(&path, &fresh).unwrap();
+        assert_eq!(load_from(&path).unwrap().len(), 1);
+    }
 
     #[test]
     fn the_rule_is_lowercase_dot_namespaced_names() {

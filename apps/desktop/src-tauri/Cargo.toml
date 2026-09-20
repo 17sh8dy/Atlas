@@ -1,6 +1,6 @@
 [package]
 name = "atlas-desktop"
-version = "0.85.1"
+version = "1.0.0"
 description = "Atlas — a local-first desktop assistant"
 authors = ["Atlas"]
 edition = "2021"

@@ -76,8 +76,13 @@ interface Loaded {
 
 export function AtlasApp({ platform, storage }: { platform: Platform; storage: Storage }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  // Every settings change starts a reload, and Ollama's probe makes their
+  // durations differ: without this an older, slower reload can finish last and
+  // put stale settings back over the newer ones.
+  const latest = useRef(0);
 
   const reload = useCallback(() => {
+    const mine = ++latest.current;
     let alive = true;
     Promise.all([
       // A platform that can't answer is treated as one that can do nothing,
@@ -105,7 +110,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
         listening,
         executionMode,
       ]) => {
-        if (alive)
+        if (alive && mine === latest.current)
           setLoaded({
             capabilities,
             voiceProfile,

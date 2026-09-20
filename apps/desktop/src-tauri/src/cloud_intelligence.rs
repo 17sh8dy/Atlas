@@ -79,6 +79,16 @@ fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
+/// A request that ran out of time is not one that failed to connect, and
+/// "couldn't reach" would send someone checking their network for nothing.
+fn send_error(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        "That provider took too long to answer.".to_string()
+    } else {
+        "Couldn't reach that provider.".to_string()
+    }
+}
+
 fn validate_prompt(prompt: &str) -> Result<(), String> {
     if prompt.trim().is_empty() {
         return Err("Nothing to ask.".into());
@@ -96,6 +106,9 @@ fn validate_prompt(prompt: &str) -> Result<(), String> {
 /// does for the local model endpoint.
 fn resolve_base_url(kind: CloudProviderKind, base_url: &str) -> Result<String, String> {
     let trimmed = base_url.trim().trim_end_matches('/');
+    // Every request below appends `/v1/...` itself; a base pasted in as
+    // `https://host/v1` would otherwise become `/v1/v1/...` and 404.
+    let trimmed = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
     if !trimmed.is_empty() {
         return Ok(trimmed.to_string());
     }
@@ -177,7 +190,7 @@ async fn ask_openai_compatible(
         })
         .send()
         .await
-        .map_err(|_| "Couldn't reach that provider.".to_string())?;
+        .map_err(|e| send_error(&e))?;
 
     let status = resp.status();
     let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
@@ -234,12 +247,12 @@ async fn ask_anthropic(
         .header("anthropic-version", ANTHROPIC_VERSION)
         .json(&AnthropicRequest {
             model,
-            max_tokens: 1024,
+            max_tokens: 4096,
             messages: [AnthropicMessage { role: "user", content: prompt }],
         })
         .send()
         .await
-        .map_err(|_| "Couldn't reach that provider.".to_string())?;
+        .map_err(|e| send_error(&e))?;
 
     let status = resp.status();
     let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
@@ -307,7 +320,7 @@ async fn ask_gemini(
         })
         .send()
         .await
-        .map_err(|_| "Couldn't reach that provider.".to_string())?;
+        .map_err(|e| send_error(&e))?;
 
     let status = resp.status();
     let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
@@ -401,6 +414,14 @@ mod tests {
         assert_eq!(
             resolve_base_url(CloudProviderKind::Gemini, "  ").unwrap(),
             DEFAULT_GEMINI_BASE
+        );
+    }
+
+    #[test]
+    fn a_pasted_v1_suffix_is_not_doubled() {
+        assert_eq!(
+            resolve_base_url(CloudProviderKind::OpenaiCompatible, "https://api.example.com/v1/").unwrap(),
+            "https://api.example.com"
         );
     }
 

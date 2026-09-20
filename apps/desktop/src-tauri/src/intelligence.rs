@@ -326,13 +326,14 @@ async fn ask_local_model_unraced(
     let channel = format!("atlas://intelligence/{stream_id}");
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
+    let mut partial: Vec<u8> = Vec::new();
     let mut filter = ThinkFilter::new();
     let mut answer = String::new();
     let mut finished = false;
 
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| format!("The model's stream was interrupted: {e}"))?;
-        buffer.push_str(&String::from_utf8_lossy(&bytes));
+        push_utf8(&mut buffer, &mut partial, &bytes);
 
         while let Some(newline) = buffer.find('\n') {
             let line = buffer[..newline].to_string();
@@ -369,6 +370,31 @@ async fn ask_local_model_unraced(
         return Err("The model didn't return any text.".into());
     }
     Ok(answer)
+}
+
+/// Append a network chunk to `buffer` without splitting a multi-byte character.
+///
+/// A chunk boundary can fall in the middle of a character (an accented letter,
+/// an emoji), and decoding each chunk on its own would turn both halves into
+/// U+FFFD and corrupt the JSON line they sit in. The incomplete tail is held in
+/// `partial` until the rest arrives; genuinely invalid bytes are still replaced.
+fn push_utf8(buffer: &mut String, partial: &mut Vec<u8>, chunk: &[u8]) {
+    partial.extend_from_slice(chunk);
+    match std::str::from_utf8(partial) {
+        Ok(text) => {
+            buffer.push_str(text);
+            partial.clear();
+        }
+        Err(e) if e.error_len().is_none() => {
+            let valid = e.valid_up_to();
+            buffer.push_str(std::str::from_utf8(&partial[..valid]).unwrap_or(""));
+            partial.drain(..valid);
+        }
+        Err(_) => {
+            buffer.push_str(&String::from_utf8_lossy(partial));
+            partial.clear();
+        }
+    }
 }
 
 /// One model Ollama has on disk.
@@ -485,11 +511,12 @@ async fn consume_nova_sse(
     let channel = format!("atlas://intelligence/{stream_id}");
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
+    let mut partial: Vec<u8> = Vec::new();
     let mut resolution: Option<Result<String, String>> = None;
 
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| format!("Nova Intelligence's stream was interrupted: {e}"))?;
-        buffer.push_str(&String::from_utf8_lossy(&bytes));
+        push_utf8(&mut buffer, &mut partial, &bytes);
 
         while let Some((end, next_start)) = find_event_boundary(&buffer) {
             let event_text = buffer[..end].to_string();
@@ -586,6 +613,19 @@ mod tests {
     use super::*;
 
     // ---- validation --------------------------------------------------------
+
+    #[test]
+    fn a_character_split_across_chunks_survives() {
+        let text = "café 🍕 done";
+        let whole = text.as_bytes();
+        for cut in 1..whole.len() {
+            let (mut buf, mut part) = (String::new(), Vec::new());
+            push_utf8(&mut buf, &mut part, &whole[..cut]);
+            push_utf8(&mut buf, &mut part, &whole[cut..]);
+            assert_eq!(buf, text, "cut at {cut}");
+            assert!(part.is_empty());
+        }
+    }
 
     #[test]
     fn rejects_an_empty_prompt() {

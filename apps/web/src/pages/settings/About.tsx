@@ -25,7 +25,7 @@ import { AtlasMark, Button, Icons, Switch } from '@atlas/ui';
 import type { Updater } from '../../update/useUpdater';
 
 /**
- * "0.85.0" reads as "0.85" here — a trailing zero patch is Cargo/semver's own
+ * Before 1.0, "0.85.0" reads as "0.85" here — a trailing zero patch is Cargo/semver's own
  * requirement (`Cargo.toml`'s `version` must be a full `major.minor.patch`,
  * and every release so far has left patch at 0), not information anyone
  * reads this page to learn. Anything with a real patch number — "0.85.3" —
@@ -33,7 +33,7 @@ import type { Updater } from '../../update/useUpdater';
  * anything yet.
  */
 export function formatVersion(raw: string): string {
-  return raw.replace(/^(\d+\.\d+)\.0$/, '$1');
+  return raw.replace(/^(0\.\d+)\.0$/, '$1');
 }
 
 /** What the last "Check for updates" found, in words. */

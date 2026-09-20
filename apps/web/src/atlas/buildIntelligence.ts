@@ -104,6 +104,25 @@ export function buildIntelligence(setup: IntelligenceSetup): BuiltIntelligence {
     );
   }
 
+  // Ollama is only asked what it has when Atlas loads. If it was not running
+  // yet then (started after Atlas, or slow to come up), a model the person had
+  // already picked is missing from `installed` and would be silently swapped for
+  // the default. Register it from its own id so the pick survives and any real
+  // problem is reported by name at call time. An installed tag always carries a
+  // `:`, which also keeps ids from older versions (no colon) out of this path.
+  const chosen = setup.activeProviderId;
+  if (chosen && chosen.startsWith('local:') && !registry.get(chosen)) {
+    const tag = chosen.slice('local:'.length);
+    if (tag.includes(':')) {
+      registry.register(
+        createLocalModelProvider(
+          { id: chosen, label: tag, ollamaTag: tag, think: false },
+          localAi.local,
+        ),
+      );
+    }
+  }
+
   registry.register(createNovaIntelligenceProvider(localAi.nova));
 
   // Zero or more, entirely by the user's own hand — nothing here enables one,
