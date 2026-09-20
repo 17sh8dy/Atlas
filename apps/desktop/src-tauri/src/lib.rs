@@ -50,6 +50,8 @@ mod storage;
 mod web;
 #[cfg(windows)]
 mod window;
+#[cfg(windows)]
+pub mod updater;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -141,6 +143,11 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before anything else: how did the last update end, and is this a new
+    // version that has failed to come up? See updater.rs.
+    #[cfg(windows)]
+    updater::startup();
+
     // Ctrl+Space: the summon key. Chosen because it is almost universally free
     // and is already muscle memory for "bring up the thing that helps me".
     let summon_shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
@@ -170,6 +177,14 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             capabilities,
+            updater::updater_fetch_manifest,
+            updater::updater_download,
+            updater::updater_cancel,
+            updater::updater_verify,
+            updater::updater_install,
+            updater::updater_restart,
+            updater::updater_startup_status,
+            updater::updater_confirm_launch,
             halt::halt_now,
             halt::halt_status,
             halt::halt_set_working,

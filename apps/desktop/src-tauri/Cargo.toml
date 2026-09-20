@@ -58,6 +58,8 @@ scraper = "0.20"
 # `default-features = false` keeps every codec but PNG out of the binary.
 image = { version = "0.25", default-features = false, features = ["png"] }
 percent-encoding = "2"
+# updater.rs: SHA-256 of a downloaded installer. Already in the tree via Tauri; this only names it.
+sha2 = "0.10"
 # Kokoro (kokoro.rs) — the refined voice, run in this process rather than
 # shelled out to.
 #
@@ -126,6 +128,11 @@ windows = { version = "0.58", features = [
   # halt.rs: Ctrl+C delivered to a tool's own console — the polite request
   # that comes before terminating its job.
   "Win32_System_Console",
+  # updater.rs: WinVerifyTrust (is the installer code-signed?) and the installer's
+  # own version resource (is it Atlas, and is it the version the manifest says?).
+  "Win32_Security_WinTrust",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_FileSystem",
 ] }
 
 [dev-dependencies]

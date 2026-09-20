@@ -21,7 +21,8 @@
 
 import { useEffect, useState } from 'react';
 import type { Platform, WindowsCompatibility } from '@atlas/core';
-import { AtlasMark, Icons } from '@atlas/ui';
+import { AtlasMark, Button, Icons, Switch } from '@atlas/ui';
+import type { Updater } from '../../update/useUpdater';
 
 /**
  * "0.85.0" reads as "0.85" here — a trailing zero patch is Cargo/semver's own
@@ -35,7 +36,36 @@ export function formatVersion(raw: string): string {
   return raw.replace(/^(\d+\.\d+)\.0$/, '$1');
 }
 
-export function About({ platform, skillCount }: { platform: Platform; skillCount: number }) {
+/** What the last "Check for updates" found, in words. */
+function updateLine(updater: Updater, lastCheck: string | null): string {
+  const s = updater.state;
+  switch (s.status) {
+    case 'checking':
+      return 'Checking…';
+    case 'available':
+      return `Version ${formatVersion(s.manifest.version)} is available.`;
+    case 'downloading':
+    case 'verifying':
+    case 'installing':
+    case 'restarting':
+      return 'Updating…';
+    case 'failed':
+      return s.error;
+    default:
+      return lastCheck ?? 'Atlas checks for updates on its own, and you can check now.';
+  }
+}
+
+export function About({
+  platform,
+  skillCount,
+  updater,
+}: {
+  platform: Platform;
+  skillCount: number;
+  updater?: Updater;
+}) {
+  const [lastCheck, setLastCheck] = useState<string | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const [windows, setWindows] = useState<WindowsCompatibility | null>(null);
 
@@ -85,9 +115,10 @@ export function About({ platform, skillCount }: { platform: Platform; skillCount
           <h2 className="text-foreground text-sm font-medium">Everything stays here</h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
             No account needed, no API key, nothing uploaded. Atlas speaks and listens on this
-            machine, and what it remembers sits in a file on this disk. It reaches the network only
+            machine, and what it remembers sits in a file on this disk. It reaches the network
             when you ask it to — a web search, opening a link, or signing in to the optional Nova
-            Account — and never on its own. Signing in uploads nothing; see Account.
+            Account — and to check for updates, which you can switch off below. Signing in uploads
+            nothing; see Account.
           </p>
         </div>
       </section>
@@ -107,6 +138,47 @@ export function About({ platform, skillCount }: { platform: Platform; skillCount
           </p>
         </div>
       </section>
+
+      {updater?.supported && (
+        <section className="border-border flex items-start gap-3 rounded-xl border px-4 py-3.5">
+          <Icons.Download className="text-primary mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-foreground text-sm font-medium">Updates</h2>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={['checking', 'downloading', 'verifying', 'installing', 'restarting'].includes(
+                  updater.state.status,
+                )}
+                onClick={() =>
+                  void updater.checkNow().then((r) => {
+                    if (r === 'up-to-date') setLastCheck('You’re on the latest version.');
+                    else if (r === 'error') setLastCheck(null);
+                  })
+                }
+              >
+                Check for updates
+              </Button>
+            </div>
+            <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
+              {updateLine(updater, lastCheck)}
+            </p>
+            <div className="mt-2.5 flex items-center justify-between gap-3">
+              <span className="text-foreground-muted text-xs">Check automatically</span>
+              <Switch
+                checked={updater.autoCheck}
+                onCheckedChange={updater.setAutoCheck}
+                aria-label="Check for updates automatically"
+              />
+            </div>
+            <p className="text-foreground-subtle mt-1.5 text-xs leading-relaxed">
+              A check asks GitHub for one small file that lists the newest version. Nothing about
+              you is sent, and nothing is downloaded until you press Update.
+            </p>
+          </div>
+        </section>
+      )}
 
       {platform.id === 'tauri' && (
         <section className="border-border flex items-start gap-3 rounded-xl border px-4 py-3.5">

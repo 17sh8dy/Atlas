@@ -41,6 +41,7 @@ import { Notifications } from './settings/Notifications';
 import { Intelligence } from './settings/Intelligence';
 import { Account } from './settings/Account';
 import { About } from './settings/About';
+import type { Updater } from '../update/useUpdater';
 
 interface Props {
   platform: Platform;
@@ -66,6 +67,7 @@ interface Props {
   /** False in a build without the transcription engine. */
   listeningSupported: boolean;
   onListeningChange(next: Partial<ListeningPreferences>): void;
+  updater: Updater;
 }
 
 /**
@@ -116,6 +118,7 @@ export function Settings({
   listening,
   listeningSupported,
   onListeningChange,
+  updater,
 }: Props) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -188,7 +191,7 @@ export function Settings({
               <Account platform={platform} storage={storage} />
             </TabsContent>
             <TabsContent value="about">
-              <About platform={platform} skillCount={skills.available().length} />
+              <About platform={platform} skillCount={skills.available().length} updater={updater} />
             </TabsContent>
           </div>
         </Tabs>

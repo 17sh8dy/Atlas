@@ -39,10 +39,29 @@ clauses ("open notepad, open calculator and open paint"; connectors: `and`,
 real rule on its own. A browser named first is aimed at the site that follows
 ("open chrome and go to a website" → asks which site → opens it *in Chrome*).
 
+**In-app updates (2026-09-19).** `@atlas/updater` (pure TS: manifest,
+version compare, verification rules, an 9-state service) + `updater.rs`
+(download with progress, SHA-256 / product / version / Authenticode checks,
+backup, a helper process that replaces the running program, automatic
+rollback) + the top-right `UpdateBubble` and Settings → About → Updates.
+Reusable: a second Nova app supplies its own `UpdateBackend` and manifest URL.
+**To ship an update:** build the installer, run
+`node scripts/make-update-manifest.mjs <installer> --note "..."`, create a
+GitHub release `v<version>` and attach the installer **and** `latest.json`.
+Tested by 38 service tests, 13 Rust tests (including the real helper's success,
+failed-installer and wrong-version paths against a sandbox) and the bubble's
+tests — **but never run end to end against a real published release**: no
+release with a manifest exists yet, and the installed build predates the
+updater, so the first update has to be installed by hand once. Not done:
+code-signing (measured and reported, not required), signed manifests (the
+seam exists), delta updates, and a build that cannot start at all cannot roll
+itself back.
+
 ### Still open (the honest list)
 
 - **Not started:** Phase 5 Routines · Phase 9 Awareness · Phase 10 (configurable
-  summon shortcut, autostart, updater, code signing, first-run experience).
+  summon shortcut, autostart, code signing, first-run experience — the
+  updater is built, see above).
 - **Partial:** Phase 11 (2 of 10 skill groups: Storage, Audio, Display, Tasks,
   Users, Firewall, Environment, Windows remain) · Phase 3 (`files.find` still
   walks the disk per query; no background index) · Phase 7 · Phase 8 loose

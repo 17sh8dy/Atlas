@@ -57,6 +57,8 @@ import { useAtlas } from '../atlas/useAtlas';
 import { useSpeech } from '../speech/useSpeech';
 import { useListening } from '../speech/useListening';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { UpdateBubble } from '../components/UpdateBubble';
+import { useUpdater } from '../update/useUpdater';
 
 type Screen = 'conversation' | 'settings' | 'voice';
 
@@ -186,6 +188,8 @@ function Ready({
   // One player for the whole app: Settings previews through it, replies speak
   // through it, and the voice screen's visualiser reads its analyser.
   const voice = useSpeech(platform, speech.volume);
+  // Updates: the service and its timer live here so the bubble and Settings → About share one.
+  const updater = useUpdater(platform, storage);
   const [screen, setScreen] = useState<Screen>('conversation');
   // Settings has no conversation of its own, so opening it has to remember
   // which one it is covering — a voice session and a chat are not the same
@@ -877,6 +881,7 @@ function Ready({
             listening={listeningPrefs}
             listeningSupported={listening.supported}
             onListeningChange={onListeningChange}
+            updater={updater}
           />
         )}
       </div>
@@ -884,6 +889,8 @@ function Ready({
       {/* Outside the screen switch: a share started from the conversation
           must stay controllable after opening Settings, and the picker has to
           be reachable from wherever "share something else" was pressed. */}
+      <UpdateBubble updater={updater} />
+
       <ShareTargetPicker
         open={sharePickerOpen}
         onClose={() => setSharePickerOpen(false)}

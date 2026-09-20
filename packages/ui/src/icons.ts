@@ -78,5 +78,8 @@ export {
   ArrowRight,
   // the capability browser's Developer section (project/git/code/build/test)
   Terminal,
+  // the update bubble
+  Download,
+  TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';

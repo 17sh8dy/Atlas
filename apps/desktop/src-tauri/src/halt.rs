@@ -912,6 +912,12 @@ mod tests {
             "list_displays", "capture_display", "list_services", "service_detail", "uia_tree",
             "uia_focused_element", "web_search", "fetch_page", "speech_voices",
             "cursor_position", "list_windows", "active_window", "capabilities", "has_secret",
+            // The updater acts on Atlas itself, never on the person's machine, and only
+            // when the person presses Update. An emergency stop that cancelled an install
+            // half-way would leave a broken program, so it is deliberately not gated.
+            "updater_fetch_manifest", "updater_download", "updater_cancel", "updater_verify",
+            "updater_install", "updater_restart", "updater_startup_status",
+            "updater_confirm_launch",
             // A live screen share is the one read that keeps happening, so it
             // is the one a stop should end — but the latch is the wrong lever
             // for it. The share is a loop in the renderer, and stopping it

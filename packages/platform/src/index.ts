@@ -12,6 +12,7 @@ import { createWebPlatform } from './web';
 
 export { createTauriPlatform, isTauri } from './tauri';
 export { createWebPlatform } from './web';
+export { createTauriUpdateBackend } from './update-backend';
 export {
   createLocalModelProvider,
   createNovaIntelligenceProvider,

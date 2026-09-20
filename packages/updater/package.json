@@ -1,0 +1,20 @@
+{
+  "name": "@atlas/updater",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Nova desktop updater: manifest, state machine and ports. Knows nothing about Atlas, React or Tauri.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@atlas/config": "workspace:*",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
