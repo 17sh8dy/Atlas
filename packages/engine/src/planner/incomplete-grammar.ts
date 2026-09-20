@@ -71,6 +71,13 @@ const REQUESTS: Incomplete[] = [
     skill: 'time.timer',
   },
 
+  // ---- going somewhere ----
+  {
+    name: 'website',
+    body: String.raw`(?:go\s+to|goto|visit|browse\s+to|open|navigate\s+to)\s+(?:(?:a|an|the|some|any)\s+)?(?:(?:web\s*)?site|web\s*page|website|page|link|url)`,
+    skill: 'web.open',
+  },
+
   // ---- looking things up ----
   {
     name: 'search-web',

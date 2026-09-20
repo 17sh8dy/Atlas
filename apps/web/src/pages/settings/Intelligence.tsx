@@ -23,7 +23,7 @@
  */
 
 import { LOCAL_MODEL_PROFILES, localModelIdForTag, resolveActiveProviderId } from '@atlas/core';
-import type { CloudProviderConfig, Storage } from '@atlas/core';
+import type { CloudProviderConfig, Platform, Storage } from '@atlas/core';
 import { NOVA_INTELLIGENCE_PROVIDER_ID } from '@atlas/platform';
 import { extraInstalledTags, type LocalAiRuntime } from '../../atlas/buildIntelligence';
 import { CloudProviders } from './intelligence/CloudProviders';
@@ -31,6 +31,7 @@ import { LocalModels } from './intelligence/LocalModels';
 import { NovaIntelligence } from './intelligence/NovaIntelligence';
 
 interface Props {
+  platform: Platform;
   storage: Storage;
   localAi: LocalAiRuntime;
   activeProviderId: string | null;
@@ -39,6 +40,7 @@ interface Props {
 }
 
 export function Intelligence({
+  platform,
   storage,
   localAi,
   activeProviderId,
@@ -75,6 +77,7 @@ export function Intelligence({
       </p>
 
       <LocalModels
+        platform={platform}
         storage={storage}
         localAi={localAi}
         activeId={activeId}

@@ -221,6 +221,7 @@ function Ready({
     cloudProviders,
     speechForScreen,
     voice.speak,
+    voice.speakStream,
     executionMode,
     // A halt silences Atlas too. Talking on about a task that was just
     // emergency-stopped would read as not having stopped.

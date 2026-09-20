@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Icons, Surface, Switch } from '@atlas/ui';
-import type { LocalModelProfile, Storage } from '@atlas/core';
+import type { LocalModelProfile, Platform, Storage } from '@atlas/core';
 import {
   DEFAULT_LOCAL_MODEL_ID,
   LOCAL_MODEL_PROFILES,
@@ -39,6 +39,7 @@ import { extraInstalledTags, type LocalAiRuntime } from '../../../atlas/buildInt
 import { EndpointField, SectionHeader, Tag } from './parts';
 
 interface Props {
+  platform: Platform;
   storage: Storage;
   localAi: LocalAiRuntime;
   /** The provider actually in use, after the saved pick is checked against what exists. */
@@ -49,11 +50,15 @@ interface Props {
 /** undefined: still checking. null: Ollama is not running. Otherwise, what it has. */
 type Probe = InstalledLocalModel[] | null | undefined;
 
+/** The guide "Install" opens: how to download Ollama models quickly. */
+export const INSTALL_GUIDE_URL =
+  'https://www.devtutorial.io/local-ai-with-ollama-downloading-and-testing-models-with-ollama-p3812.html';
+
 function gb(bytes: number): string {
   return `${(bytes / 1e9).toFixed(1)} GB`;
 }
 
-export function LocalModels({ storage, localAi, activeId, onChange }: Props) {
+export function LocalModels({ platform, storage, localAi, activeId, onChange }: Props) {
   const local = localAi.local;
   const [saving, setSaving] = useState(false);
   const [probe, setProbe] = useState<Probe>(undefined);
@@ -166,6 +171,16 @@ export function LocalModels({ storage, localAi, activeId, onChange }: Props) {
                     </p>
                   )}
                 </div>
+                {missing && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void platform.openUrl?.(INSTALL_GUIDE_URL)}
+                    title="Opens a guide to downloading Ollama models"
+                  >
+                    Install
+                  </Button>
+                )}
                 <Button
                   variant={inUse ? 'secondary' : 'primary'}
                   size="sm"

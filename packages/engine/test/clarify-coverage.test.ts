@@ -277,6 +277,13 @@ const CASES: Case[] = [
     answers: [text('youtube')],
     call: { id: 'app.open', args: { name: 'youtube' } },
   },
+  // a chain: the browser is named, the site is what is missing
+  {
+    say: 'open chrome and go to a website',
+    question: /Which website/,
+    answers: [text('youtube')],
+    call: { id: 'web.open', args: { url: 'https://www.youtube.com', browser: 'chrome' } },
+  },
   {
     say: 'start an app',
     question: /open an app/,

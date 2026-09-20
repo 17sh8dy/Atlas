@@ -91,10 +91,14 @@ const LOOKS_LIKE_PATH = /(^|\s)(?:[a-z]:[\\/]|\\\\|~?\/)[^\s]+/i;
  * once, at its first occurrence, so the sentence splits into exactly two
  * clauses — see `tryCompound` for why more than two isn't worth the risk yet.
  */
-const COMPOUND_CONNECTOR = /\s+(?:and\s+then|then|and)\s+/i;
+const COMPOUND_CONNECTOR = /(?:\s*,\s*(?:and\s+then\s+|then\s+|and\s+)?|\s+(?:and\s+then|and\s+after\s+that|after\s+that|then|and)\s+)/gi;
+
+/** Browsers a chain can open first and then point at a site ("open chrome and go to youtube"). */
+const BROWSER_APP = /^(?:google\s+)?(?:chrome|edge|microsoft\s+edge|brave|firefox|opera|vivaldi)$/i;
 
 /** A clause that opens with its own launch verb is an instruction in its own right. */
-const OWN_LAUNCH_VERB = /^(?:open|launch|start|run)\b/i;
+const OWN_LAUNCH_VERB =
+  /^(?:open|launch|start|run|go\s+to|visit|browse\s+to|navigate\s+to)\b/i;
 
 /**
  * Intents worth reconsidering as "maybe that was two commands, not one" —
@@ -121,6 +125,45 @@ const COMPOUND_OVERRIDABLE = new Set([
   'maps',
   'wikipedia',
 ]);
+
+/**
+ * "open chrome, then go to youtube": the browser that was opened is the one the
+ * site should open in. Without this the two steps would launch Chrome and then
+ * hand the site to whichever browser Windows prefers.
+ */
+/** A step that means "a website": web.open already, or app.open on a bare address or "a website". */
+function asSiteStep(step: Plan['steps'][number]): Plan['steps'][number] | null {
+  if (step.skill === 'web.open') return step;
+  if (step.skill !== 'app.open') return null;
+  const name = String(step.args?.name ?? '').trim();
+  if (/^(?:(?:a|an|the|some)\s+)?(?:web\s*)?(?:site|page|link|url|website)$/i.test(name)) {
+    return { ...step, skill: 'web.open', args: {} };
+  }
+  if (/^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/\S*)?$/i.test(name)) {
+    return { ...step, skill: 'web.open', args: { url: `https://${name}` } };
+  }
+  return null;
+}
+
+function aimAtBrowser(steps: Plan['steps']): Plan['steps'] {
+  const out: Plan['steps'] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const cur = steps[i]!;
+    const next = steps[i + 1];
+    const name = cur.skill === 'app.open' ? String(cur.args?.name ?? '').trim() : '';
+    if (name && BROWSER_APP.test(name) && next && !next.args?.browser) {
+      const site = asSiteStep(next);
+      if (site) {
+        // The browser opens with the site, so it is not launched twice.
+        out.push({ ...site, args: { ...site.args, browser: name } });
+        i++;
+        continue;
+      }
+    }
+    out.push(cur);
+  }
+  return out;
+}
 
 export class Grammar {
   private rules: GrammarRule[] = [];
@@ -204,34 +247,39 @@ export class Grammar {
    * launch. Compounding only ever fires when *both* halves stand alone.
    */
   private tryCompound(raw: string): Plan | null {
-    const m = COMPOUND_CONNECTOR.exec(raw);
-    if (!m) return null;
+    // Every place the sentence could be cut. Each cut is tried in turn; the
+    // right-hand side is itself allowed to be a chain, so a sentence of any
+    // length falls apart into clauses — and every clause must still earn its
+    // step by matching a real rule on its own.
+    for (const m of raw.matchAll(COMPOUND_CONNECTOR)) {
+      const left = raw.slice(0, m.index).trim();
+      const right = raw.slice(m.index! + m[0].length).trim();
+      if (!left || !right) continue;
 
-    const left = raw.slice(0, m.index).trim();
-    const right = raw.slice(m.index + m[0].length).trim();
-    if (!left || !right) return null;
+      const p1 = this.parseDirect(left);
+      if (!p1) continue;
+      const p2 = this.tryCompound(right) ?? this.parseDirect(right);
+      if (!p2) continue;
 
-    const p1 = this.parseDirect(left);
-    const p2 = this.parseDirect(right);
-    if (!p1 || !p2) return null;
+      // Two apps named together is one launch, not two — leave it to
+      // app.open's own resolution rather than splitting it here. But a second
+      // half with its own launch verb ("open steam AND OPEN a game") is a
+      // second instruction, not a second name: reading it as one app called
+      // "steam and open a game" is how a vague half gets launched as a guess.
+      // Split, and each half is then judged on its own — including asking
+      // which game when a half names no particular one.
+      if (p1.intent === 'open-app' && p2.intent === 'open-app' && !OWN_LAUNCH_VERB.test(right)) {
+        continue;
+      }
 
-    // Two apps named together is one launch, not two — leave it to
-    // app.open's own resolution rather than splitting it here. But a second
-    // half with its own launch verb ("open steam AND OPEN a game") is a
-    // second instruction, not a second name: reading it as one app called
-    // "steam and open a game" is how a vague half gets launched as a guess.
-    // Split, and each half is then judged on its own — including asking which
-    // game when a half names no particular one.
-    if (p1.intent === 'open-app' && p2.intent === 'open-app' && !OWN_LAUNCH_VERB.test(right)) {
-      return null;
+      return {
+        source: 'grammar',
+        intent: 'compound',
+        steps: aimAtBrowser([...p1.steps, ...p2.steps]),
+        confidence: Math.min(p1.confidence, p2.confidence),
+      };
     }
-
-    return {
-      source: 'grammar',
-      intent: 'compound',
-      steps: [...p1.steps, ...p2.steps],
-      confidence: Math.min(p1.confidence, p2.confidence),
-    };
+    return null;
   }
 
   private allowedForQuestion(rule: GrammarRule, result: Plan): boolean {

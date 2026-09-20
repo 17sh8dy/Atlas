@@ -4,7 +4,63 @@ Phases are completed one at a time, in full. A phase is done when it typechecks,
 lints, has tests where the logic is non-trivial, and actually runs — not when
 the code exists.
 
-## Where things stand (2026-09-11)
+## Where things stand (2026-09-19)
+
+**Read this block first; the dated paragraphs after it are history and some of
+their claims (Cortex, "the only provider") are superseded here.**
+
+**Intelligence layer, rebuilt (2026-09-19).** Cortex is gone. Atlas talks to
+local Qwen3 models through Ollama directly (default Qwen3-8B with thinking
+off, ~10x faster; 30B and Coder variants optional), the Nova Intelligence
+sandbox has its own section, and cloud providers remain opt-in. Settings →
+Intelligence lists every local model with **Install** (opens a download guide)
+for any that is missing. Models are the conversation/reasoning layer only —
+skills, permissions, PowerShell-style tools and confirmations are unchanged.
+
+**Web research (committed).** Router → query rewrite → `SearchManager`
+(Tavily → DuckDuckGo → Wikipedia, with cooldowns) → evidence packet with
+code-computed verification → answer with inline citations and a Sources
+footer. Tavily key lives only in Credential Manager. DuckDuckGo is
+CAPTCHA-blocked on this machine, which is why the key matters.
+
+**Conversation UX (committed).** Streaming replies with a live counter,
+"Think longer" bubble, expandable composer, and **replies are now spoken
+sentence-by-sentence as they stream** (`useSpeech.speakStream`) instead of
+after the whole answer.
+
+**Clarifying questions (committed, `e2bff4a`).** Vague requests are asked
+about *before anything runs* — not just Steam: every action with a required
+detail (~102 of 146), fixed-choice details as buttons, a way out always
+present. A survey of 49 vague requests went 4 → 38 asked.
+
+**Chained requests (2026-09-19).** A sentence may now chain any number of
+clauses ("open notepad, open calculator and open paint"; connectors: `and`,
+`then`, `and then`, `after that`, commas). Every clause must still match a
+real rule on its own. A browser named first is aimed at the site that follows
+("open chrome and go to a website" → asks which site → opens it *in Chrome*).
+
+### Still open (the honest list)
+
+- **Not started:** Phase 5 Routines · Phase 9 Awareness · Phase 10 (configurable
+  summon shortcut, autostart, updater, code signing, first-run experience).
+- **Partial:** Phase 11 (2 of 10 skill groups: Storage, Audio, Display, Tasks,
+  Users, Firewall, Environment, Windows remain) · Phase 3 (`files.find` still
+  walks the disk per query; no background index) · Phase 7 · Phase 8 loose
+  ends ("stop talking" command, richer visualiser, opt-in weather).
+- **1.0.0 debt:** settings copy that promises the future ("always will"); six
+  phrasings needing referents ("format this json"); two that reach the wrong
+  skill ("open the first result and summarize it", "convert 0xff to decimal");
+  "click play" without a named window.
+- **Chains, what is still missing:** clauses that need *live UI state* ("go to
+  the Nova server, start a call in Hangout") still need the observe-and-replan
+  loop (see Ideas §7); a relevant-skill shortlist for small-model planning is
+  proposed, not built; an approval-gated PowerShell action is proposed, not built.
+- **Missing actions:** alarm, email, message, call, brightness.
+- **Owed:** a real-app click-through of streaming speech, chains and the
+  Install button (all verified by tests only). Ollama does not autostart, so
+  Atlas shows no models until it is running — a "Start Ollama" button is unbuilt.
+
+### Earlier status (2026-09-11)
 
 **2026-09-11: Phase 14 — cloud model providers + conversation streaming —
 built.** Cortex streams for real now (Ollama's NDJSON → SSE →
@@ -1219,6 +1275,10 @@ whether any of the skills still marked `confirm` are actually gated by
 lift, but a real one, and worth doing deliberately rather than by hunting.
 
 ### 7. Multi-step, app-specific chains (Brandon, 2026-09-10) — three separate gaps, not one
+
+> **Update 2026-09-19:** the second gap below is partly closed — chains of any
+> length now split, and a named browser is carried into the site step. What
+> remains is the third gap: clauses whose target only exists in live UI state.
 
 The concrete test case: *"Open Discord on Brave, go to the Nova server, and
 start a call in the Hangout voice channel."* Asked directly rather than

@@ -176,6 +176,7 @@ export function Settings({
             </TabsContent>
             <TabsContent value="intelligence">
               <Intelligence
+                platform={platform}
                 storage={storage}
                 localAi={localAi}
                 activeProviderId={activeProviderId}

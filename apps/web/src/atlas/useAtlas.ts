@@ -230,6 +230,8 @@ export function useAtlas(
    * playing, and two players would mean two Atlases able to talk at once.
    */
   speak: (text: string, options?: SpeechOptions) => void = () => {},
+  /** Speaks a reply while it is still streaming in; without it, speech waits for the end. */
+  speakStream?: (options?: SpeechOptions) => { append(chunk: string): void; finish(): void },
   executionMode: ExecutionMode = DEFAULT_EXECUTION_MODE,
   /** Called on every halt, for what lives outside the engine — a voice mid-sentence. */
   onHalt: () => void = () => {},
@@ -535,16 +537,34 @@ export function useAtlas(
           ...prev,
           { id, kind: 'atlas', text: '', at: Date.now(), streamed: true, streaming: true },
         ]);
+        // Sentences are spoken as they finish, so the voice starts after the
+        // first one rather than after the whole answer.
+        const prefs = speechRef.current;
+        const voice =
+          prefs.enabled && speakStream
+            ? speakStream({ voiceId: prefs.voiceId, pace: prefs.pace })
+            : null;
+        let streamedAny = false;
         return {
-          append: (chunk: string) =>
+          append: (chunk: string) => {
+            if (chunk.trim()) streamedAny = true;
+            voice?.append(chunk);
             setEntries((prev) =>
               prev.map((e) => (e.id === id ? { ...e, text: (e.text ?? '') + chunk } : e)),
-            ),
+            );
+          },
           finish: (full: string) => {
             setEntries((prev) =>
               prev.map((e) => (e.id === id ? { ...e, text: full, streaming: false } : e)),
             );
-            if (full.trim()) speakIfEnabled(full);
+            // What was streamed has been spoken; `full` may carry a Sources
+            // footer that is for the eyes. Nothing streamed (a reply that came
+            // back whole) is spoken the ordinary way.
+            if (voice && streamedAny) voice.finish();
+            else {
+              voice?.finish();
+              if (full.trim()) speakIfEnabled(full);
+            }
           },
         };
       },
@@ -567,7 +587,7 @@ export function useAtlas(
           speakIfEnabled(detail ? `${question} ${detail}` : question);
         }),
     }),
-    [push, speakIfEnabled],
+    [push, speakIfEnabled, speakStream],
   );
 
   /** Answer the outstanding question, and mark its card as answered. */
