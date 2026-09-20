@@ -12,8 +12,8 @@
  *   3. Runs typecheck, lint and tests (skip with --skip-checks).
  *   4. Builds the installer (`pnpm bundle`).
  *   5. Writes `latest.json` next to it in `.release/`, measured from the built file.
- *   6. Creates the GitHub release `v<version>` with the installer and `latest.json`
- *      attached, through the `gh` CLI you are already signed in to.
+ *   6. Creates the GitHub release `v<version>` with the installer, `latest.json` and
+ *      `docs/INSTALL.md` attached, through the `gh` CLI you are already signed in to.
  *
  * `--dry-run` does 1-5 and prints what step 6 would do, so nothing is published.
  *
@@ -141,6 +141,8 @@ run('gh', [
   tag,
   `"${installer}"`,
   `"${manifest}"`,
+  // The install guide travels with the release, so it is beside the download.
+  `"${join(root, 'docs/INSTALL.md')}"`,
   '--repo',
   REPO,
   '--title',
@@ -151,3 +153,4 @@ run('gh', [
 ]);
 console.log(`\n✔ Published: https://github.com/${REPO}/releases/tag/${tag}`);
 console.log('  Installed copies of Atlas will find it on their next update check.');
+console.log(`  Website: set CONFIG.version to '${version}' in "Atlas Website/script.js" (the download link is built from it).`);
