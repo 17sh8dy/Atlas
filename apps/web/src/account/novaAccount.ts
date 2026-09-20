@@ -65,6 +65,13 @@ export const NOVA_ORIGIN: string =
   (import.meta.env.DEV && import.meta.env.VITE_NOVA_DEV_ORIGIN) ||
   'https://nova-help.17sh8dy.workers.dev';
 
+/**
+ * Where a Nova Account is managed. Atlas shows who you are and can sign you out;
+ * everything else about the account (name, email, password, picture, security,
+ * deleting it) lives on Nova's own site, so it is one place for every product.
+ */
+export const NOVA_ACCOUNT_URL = 'https://nova-780.pages.dev/';
+
 /** Atlas's section of the support portal. A real page today. */
 export const NOVA_HELP_URL = `${NOVA_ORIGIN}/help/atlas`;
 

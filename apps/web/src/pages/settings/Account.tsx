@@ -26,7 +26,7 @@
 
 import type { Platform, Storage } from '@atlas/core';
 import { Button, Icons } from '@atlas/ui';
-import { NOVA_HELP_URL, useNovaAccount } from '../../account/novaAccount';
+import { NOVA_ACCOUNT_URL, NOVA_HELP_URL, useNovaAccount } from '../../account/novaAccount';
 
 interface Props {
   platform: Platform;
@@ -85,9 +85,15 @@ export function Account({ platform, storage }: Props) {
             see who you are and file support tickets as you. It cannot see your password, and
             nothing on this machine has been uploaded.
           </p>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="ghost" onClick={() => void signOut()} disabled={busy}>
               Sign out
+            </Button>
+            <Button variant="ghost" onClick={() => void platform.openUrl?.(NOVA_ACCOUNT_URL)}>
+              Edit Profile
+            </Button>
+            <Button variant="ghost" onClick={() => void platform.openUrl?.(NOVA_ACCOUNT_URL)}>
+              Account Settings
             </Button>
             <Button variant="ghost" onClick={() => void platform.openUrl?.(NOVA_HELP_URL)}>
               Help with Atlas
