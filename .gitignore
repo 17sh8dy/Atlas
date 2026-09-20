@@ -27,3 +27,6 @@ apps/desktop/Atlas.exe
 /atlas-desktop.exe
 /uninstall.exe
 /vendor/
+
+# built release artifacts (see scripts/make-update-manifest.mjs)
+/.release/
