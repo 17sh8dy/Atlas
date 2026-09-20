@@ -43,7 +43,7 @@
  * at Cloudflare (update the CSP in both tauri.conf.json and tauri.dev.conf.json to match).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createNovaAccountClient, type NovaAccount, type NovaAccountClient } from '@nova/account-client';
 import { asyncStorage } from '@nova/account-client/storage';
 import type { Platform, Storage } from '@atlas/core';
@@ -133,6 +133,9 @@ export function useNovaAccount(storage: Storage, platform: Platform) {
   const [account, setAccount] = useState<NovaAccount | null>(null);
   const [signIn, setSignIn] = useState<NovaSignInState>({ phase: 'idle' });
   const [busy, setBusy] = useState(false);
+  // The sign-in in flight, so Cancel actually stops it and a new attempt cannot leave an old
+  // one polling (two live codes is how "that code did not work" happens).
+  const flowRef = useRef<{ cancel(): void } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -157,6 +160,7 @@ export function useNovaAccount(storage: Storage, platform: Platform) {
 
   const begin = useCallback(async () => {
     const c = initNovaAccount(storage);
+    if (flowRef.current) return;
     setSignIn({ phase: 'starting' });
 
     const flow = await c.beginSignIn({ deviceName: `Atlas on ${platform.id === 'tauri' ? 'this PC' : 'a browser'}` });
@@ -171,6 +175,7 @@ export function useNovaAccount(storage: Storage, platform: Platform) {
       return;
     }
 
+    flowRef.current = flow;
     setSignIn({
       phase: 'waiting',
       userCode: flow.userCode,
@@ -182,8 +187,14 @@ export function useNovaAccount(storage: Storage, platform: Platform) {
     void platform.openUrl?.(flow.verificationUriComplete);
 
     const result = await flow.wait();
+    flowRef.current = null;
     if (result.ok) {
       setAccount(result.account);
+      setSignIn({ phase: 'idle' });
+      return;
+    }
+    // Cancelled by the person pressing Cancel: already back to idle, not a failure to report.
+    if (result.reason === 'cancelled') {
       setSignIn({ phase: 'idle' });
       return;
     }
@@ -192,13 +203,15 @@ export function useNovaAccount(storage: Storage, platform: Platform) {
       message:
         result.reason === 'denied'
           ? 'The request was refused in the browser.'
-          : result.reason === 'cancelled'
-            ? 'Sign-in cancelled.'
-            : 'That code expired before it was approved. Try again.',
+          : 'That code expired before it was approved. Try again.',
     });
   }, [storage, platform]);
 
-  const cancel = useCallback(() => setSignIn({ phase: 'idle' }), []);
+  const cancel = useCallback(() => {
+    flowRef.current?.cancel();
+    flowRef.current = null;
+    setSignIn({ phase: 'idle' });
+  }, []);
 
   const signOut = useCallback(async () => {
     setBusy(true);

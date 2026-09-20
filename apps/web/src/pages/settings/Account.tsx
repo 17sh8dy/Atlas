@@ -55,10 +55,12 @@ export function Account({ platform, storage }: Props) {
 
       {signIn.phase === 'waiting' ? (
         <div className="border-border rounded-xl border px-4 py-3.5">
-          <h2 className="text-foreground text-sm font-medium">Enter this code</h2>
+          <h2 className="text-foreground text-sm font-medium">Approve in your browser</h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
-            In your browser, sign in to Nova and enter this code at {signIn.verificationUri}. It
-            expires in ten minutes.
+            Your browser opened with Atlas's request. Sign in to Nova, choose Connect, then type
+            this code to finish — that step makes sure it is this Atlas you are approving. If the
+            page did not open, go to {signIn.verificationUri} and enter it there. It expires in
+            ten minutes.
           </p>
           <p className="text-foreground mt-3 select-all font-mono text-2xl tracking-[0.18em]">
             {signIn.userCode}
@@ -71,7 +73,7 @@ export function Account({ platform, storage }: Props) {
               variant="ghost"
               onClick={() => void platform.openUrl?.(signIn.verificationUriComplete)}
             >
-              Open the page again
+              Open the browser again
             </Button>
           </div>
         </div>
