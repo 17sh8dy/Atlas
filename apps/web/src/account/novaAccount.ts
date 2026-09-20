@@ -70,7 +70,10 @@ export const NOVA_ORIGIN: string =
  * everything else about the account (name, email, password, picture, security,
  * deleting it) lives on Nova's own site, so it is one place for every product.
  */
-export const NOVA_ACCOUNT_URL = 'https://nova-780.pages.dev/';
+export const NOVA_ACCOUNT_URL = 'https://nova-780.pages.dev/account';
+
+/** The profile page (name and picture) on Nova. */
+export const NOVA_PROFILE_URL = `${NOVA_ACCOUNT_URL}/profile`;
 
 /** Atlas's section of the support portal. A real page today. */
 export const NOVA_HELP_URL = `${NOVA_ORIGIN}/help/atlas`;

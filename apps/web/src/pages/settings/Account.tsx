@@ -26,7 +26,7 @@
 
 import type { Platform, Storage } from '@atlas/core';
 import { Button, Icons } from '@atlas/ui';
-import { NOVA_ACCOUNT_URL, NOVA_HELP_URL, useNovaAccount } from '../../account/novaAccount';
+import { NOVA_ACCOUNT_URL, NOVA_HELP_URL, NOVA_PROFILE_URL, useNovaAccount } from '../../account/novaAccount';
 
 interface Props {
   platform: Platform;
@@ -89,7 +89,7 @@ export function Account({ platform, storage }: Props) {
             <Button variant="ghost" onClick={() => void signOut()} disabled={busy}>
               Sign out
             </Button>
-            <Button variant="ghost" onClick={() => void platform.openUrl?.(NOVA_ACCOUNT_URL)}>
+            <Button variant="ghost" onClick={() => void platform.openUrl?.(NOVA_PROFILE_URL)}>
               Edit Profile
             </Button>
             <Button variant="ghost" onClick={() => void platform.openUrl?.(NOVA_ACCOUNT_URL)}>

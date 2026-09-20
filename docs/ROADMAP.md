@@ -59,6 +59,15 @@ itself back.
 
 ### Still open (the honest list)
 
+- **Nova has no rate limiting in production (added 2026-09-20):** the live `nova` Pages project has no
+  `RATE_LIMITER` binding, so sign-in and the password-checking account pages (change email, change
+  password, delete account) are not throttled against guessing. The code is written and tested with a
+  fake limiter; it needs the Durable Object binding to Nova.Help's `RateLimiterObject` attached to the
+  Pages project. Do this before relying on the account pages. See Nova `docs/ACCOUNT-MANAGEMENT.md`.
+- **Nova sends no email (added 2026-09-20):** there is no mail transport, so password-reset links and
+  the notices "your email was changed", "your password was changed" and "your account was deleted"
+  go nowhere. The code calls the mailer correctly and treats a failed send as non-fatal; a real transport
+  (configured in both Nova and Nova.Help) is what is missing.
 - **Settings persistence (added 2026-09-20):** theme, accent, text style and effects are saved in the
   webview's `localStorage` (`app/theme.tsx`, `text-style.tsx`, `effects.tsx`), not the `Storage` port /
   `storage.json`. They are per-build-origin and cannot follow a Nova Account. Move them onto `Storage`
