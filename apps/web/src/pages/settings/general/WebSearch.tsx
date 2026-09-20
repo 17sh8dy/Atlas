@@ -118,7 +118,7 @@ export function WebSearch({ platform }: { platform: Platform }) {
   };
 
   return (
-    <section>
+    <section className="mb-8">
       <h2 className="text-foreground mb-3 text-sm font-medium">Web search</h2>
       <Surface className="flex flex-col gap-3 p-4">
         <p className="text-foreground-muted text-sm">

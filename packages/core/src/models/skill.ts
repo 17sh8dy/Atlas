@@ -11,6 +11,7 @@
 
 import type { HaltSignal } from './halt';
 import type { ActivityReporter } from './activity';
+import type { Clarification, ClarifyAnswer, ClarifyNeed } from './clarify';
 
 /**
  * How much damage a skill could do if invoked wrongly.
@@ -104,6 +105,13 @@ export interface SkillContext {
   say(text: string, options?: { aloud?: boolean }): void;
   /** Ask for approval. Resolves false if declined. */
   confirm(question: string, detail?: string): Promise<boolean>;
+  /**
+   * Ask what a request left out, with choices — see `models/clarify.ts`.
+   * Optional: a surface that cannot ask (a test, a voice-only build) leaves it
+   * unset, and the executor then says the question in words and stops rather
+   * than guessing.
+   */
+  clarify?(question: Clarification): Promise<ClarifyAnswer>;
   /** Render rows the user can act on. */
   showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string }): void;
   /**
@@ -226,5 +234,25 @@ export interface Skill<T = unknown> {
    * went and asked the machine would be a second, invisible execution path.
    */
   guard?(args: SkillArgs): string | null;
+  /**
+   * Is something needed that these arguments do not give? Return what is
+   * missing, or `null` to go ahead.
+   *
+   * Asked before the risk gate, so a step is complete before anyone is asked
+   * whether to allow it. It is for *genuine* gaps only — a value so generic it
+   * could name anything. A skill that can reasonably finish the job returns
+   * `null`; asking when Atlas could simply have done it is the failure this
+   * exists to avoid. Required arguments that are simply absent need no hook:
+   * the executor asks about those on its own.
+   *
+   * Synchronous and pure, like `guard`: it reads arguments and decides, and
+   * never consults the machine.
+   */
+  clarify?(args: SkillArgs): ClarifyNeed | null;
+  /**
+   * These arguments as a short phrase — "open Steam" — for the places Atlas
+   * refers back to a step ("Just open Steam"). Falls back to the label.
+   */
+  summarize?(args: SkillArgs): string;
   run(args: SkillArgs, ctx: SkillContext): SkillResult<T> | Promise<SkillResult<T>>;
 }

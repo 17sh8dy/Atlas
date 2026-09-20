@@ -51,18 +51,26 @@ function setup(over: {
 
 type Outcome = { ok: true; text: string } | { ok: false; reason: string };
 
-function askActive(built: ReturnType<typeof setup>, prompt = 'hello'): Promise<Outcome> {
+function askActive(
+  built: ReturnType<typeof setup>,
+  prompt = 'hello',
+  options?: { deeper?: boolean },
+): Promise<Outcome> {
   return new Promise((resolve) => {
     const provider = built.registry.active();
     if (!provider) {
       resolve({ ok: false, reason: 'nothing-selected' });
       return;
     }
-    provider.ask(prompt, {
-      onDelta: () => {},
-      onDone: (text) => resolve({ ok: true, text }),
-      onError: (reason) => resolve({ ok: false, reason }),
-    });
+    provider.ask(
+      prompt,
+      {
+        onDelta: () => {},
+        onDone: (text) => resolve({ ok: true, text }),
+        onError: (reason) => resolve({ ok: false, reason }),
+      },
+      options,
+    );
   });
 }
 
@@ -121,7 +129,8 @@ describe('each selectable local model puts its own tag on the wire', () => {
     const built = setup({ localAi, activeProviderId: 'local:qwen3.5:9b' });
     expect(built.activeId).toBe('local:qwen3.5:9b');
     await askActive(built);
-    expect(lastArgs()).toMatchObject({ model: 'qwen3.5:9b', think: null });
+    // an uncatalogued model is an everyday chat model: thinking off, for speed
+    expect(lastArgs()).toMatchObject({ model: 'qwen3.5:9b', think: false });
     // a catalogued model that is installed is not listed twice
     expect(built.registry.list().filter((p) => p.id.includes('qwen3:8b'))).toHaveLength(0);
   });
@@ -259,5 +268,40 @@ describe('through the real Engine', () => {
     await e.ask('tell me something interesting about volcanoes');
     expect(invoke).not.toHaveBeenCalled();
     expect(e.said.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Think longer, on the wire', () => {
+  test('the everyday model normally runs with thinking off, and Think longer switches it on', async () => {
+    const built = setup({ activeProviderId: 'local:qwen3-8b' });
+    await askActive(built, 'hi');
+    expect(lastArgs()).toMatchObject({ model: 'qwen3:8b', think: false });
+    await askActive(built, 'hi', { deeper: true });
+    expect(lastArgs()).toMatchObject({ model: 'qwen3:8b', think: true });
+  });
+
+  test('it is still the same model — only the thinking changes', async () => {
+    const built = setup({ activeProviderId: 'local:qwen3-30b-a3b' });
+    await askActive(built, 'hi', { deeper: true });
+    expect(lastArgs()).toMatchObject({ model: 'qwen3:30b', think: true });
+    await askActive(built, 'hi');
+    expect(lastArgs()).toMatchObject({ model: 'qwen3:30b', think: null });
+  });
+
+  test('an uncatalogued model goes from thinking off to on', async () => {
+    const localAi = { ...ON, installed: ['qwen3.5:9b'] };
+    const built = setup({ localAi, activeProviderId: 'local:qwen3.5:9b' });
+    await askActive(built, 'hi');
+    expect(lastArgs()).toMatchObject({ model: 'qwen3.5:9b', think: false });
+    await askActive(built, 'hi', { deeper: true });
+    expect(lastArgs()).toMatchObject({ model: 'qwen3.5:9b', think: true });
+  });
+
+  test('a cloud provider is not sent anything it did not ask for', async () => {
+    const built = setup({ activeProviderId: CLOUD.id, cloudProviders: [CLOUD] });
+    await askActive(built, 'hi', { deeper: true });
+    expect(Object.keys(lastArgs()).sort()).toEqual(
+      ['baseUrl', 'kind', 'model', 'prompt', 'providerId'].sort(),
+    );
   });
 });

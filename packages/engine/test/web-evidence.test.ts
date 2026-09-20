@@ -74,6 +74,37 @@ describe('verifyEvidence', () => {
     expect(v.disagreements.join()).toContain('oldwiki.example');
   });
 
+  test('a source mentioning an upcoming season in passing is not a disagreement', () => {
+    // The real case: every source says Season 4; one also mentions Chapter 8
+    // arriving in December and another an old Season 1.
+    const v = verifyEvidence(
+      [
+        ev(
+          'accountshark.net',
+          'Season 4 ends soon. Chapter 8 and Season 1 of it arrive in December.',
+        ),
+        ev('ponly.com', 'Chapter 7 Season 4 launched in August.'),
+        ev('vice.com', 'The Season 4 September update adds weapons.'),
+        ev('timesaver.gg', 'When does Season 4 end? Season 9 of Chapter 1 was long ago.'),
+      ],
+      'release',
+      NOW,
+    );
+    expect(v.agreement).toBe('corroborated');
+    expect(v.disagreements).toEqual([]);
+    expect(v.agreed.join()).toContain('season 4 — 4 of 4');
+    expect(v.notes.join(' ')).toMatch(/other seasons/);
+  });
+
+  test('but a source that lacks the leading value and names another is still a real dissent', () => {
+    const v = verifyEvidence(
+      [ev('a.com', 'Season 5'), ev('b.com', 'Season 5'), ev('c.com', 'It is Season 4 now.')],
+      'release',
+      NOW,
+    );
+    expect(v.agreement).toBe('conflicting');
+  });
+
   test('sources that each mention several seasons do NOT get one claimed as agreed', () => {
     const v = verifyEvidence(
       [

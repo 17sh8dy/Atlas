@@ -64,13 +64,23 @@
  * emergency stop would be Atlas carrying on talking.
  */
 
+import {
+  buildClarification,
+  explainInText,
+  missingRequired,
+  resolveAnswer,
+  summarizeStep,
+  type Resolution,
+} from './clarify';
 import type {
   ActivityHandle,
   ActivityReporter,
   ActivityState,
+  ClarifyNeed,
   ExecutionMode,
   Plan,
   PlanOutcome,
+  PlanStep,
   Skill,
   SkillArgs,
   SkillContext,
@@ -137,6 +147,9 @@ let nextChildId = 1;
  * can nest without the skill knowing anything about nesting — a skill calls
  * `ctx.activity?.step('Querying DuckDuckGo')` and is done.
  */
+/** How many times one step may be asked about before Atlas stops rather than keep asking. */
+const MAX_CLARIFY_ROUNDS = 4;
+
 export function reporterFor(
   index: number,
   total: number,
@@ -180,6 +193,114 @@ export class Executor {
     phrasing: Phrasing = createPhrasing(),
   ) {
     this.phrasing = phrasing;
+  }
+
+  /**
+   * Fill in whatever the plan leaves open, before any of it runs.
+   *
+   * Walks the steps in order and, for each that cannot go ahead as written,
+   * asks. The answer completes the step in place (or adds a copy of it for each
+   * extra value, or drops just that step, or ends the whole plan). Nothing here
+   * executes anything: it only decides what the plan *is*.
+   *
+   * A step still unresolved after `MAX_CLARIFY_ROUNDS` questions ends the plan
+   * rather than running on a guess. `changed` says whether the plan is no longer
+   * the one that was handed in, so the caller knows to screen it again.
+   */
+  private async settleAmbiguity(
+    original: readonly PlanStep[],
+    ctx: SkillContext,
+    wait: <T>(work: Promise<T>) => Promise<T>,
+  ): Promise<{ steps: PlanStep[]; cancelled: boolean; changed: boolean }> {
+    const steps = [...original];
+    let changed = false;
+
+    for (let index = 0; index < steps.length;) {
+      let step = steps[index]!;
+      const skill = this.skills.get(step.skill);
+      if (!skill) {
+        // An unknown action is reported by the run itself, in its own words.
+        index += 1;
+        continue;
+      }
+
+      let dropped = false;
+      for (let round = 0; round < MAX_CLARIFY_ROUNDS; round += 1) {
+        const need = skill.clarify?.(step.args) ?? missingRequired(skill, step.args);
+        if (!need) break;
+
+        const resolution = await wait(this.askAbout(need, steps, index, ctx));
+        if (resolution.action === 'retry') {
+          // The answer could not be used as it stands. Say what is wanted and
+          // ask again; the round is spent, so this cannot go on forever.
+          ctx.say(resolution.hint);
+          continue;
+        }
+        if (resolution.action === 'skip') {
+          // Leave just this part out; the rest of the plan carries on.
+          steps.splice(index, 1);
+          dropped = true;
+          changed = true;
+          break;
+        }
+        if (resolution.action === 'cancel') {
+          ctx.say(
+            resolution.because === 'other'
+              ? 'Okay — tell me what you’d like instead.'
+              : this.phrasing.declined(),
+          );
+          return { steps: [], cancelled: true, changed: true };
+        }
+
+        // The gap is filled. One value completes this step; several complete it
+        // and add a copy of it for each of the others, straight after.
+        const [first, ...rest] = resolution.values as [string, ...string[]];
+        step = { ...step, args: { ...step.args, [need.param]: first } };
+        steps[index] = step;
+        if (rest.length) {
+          steps.splice(
+            index + 1,
+            0,
+            ...rest.map((value) => ({ ...step, args: { ...step.args, [need.param]: value } })),
+          );
+        }
+        changed = true;
+      }
+      if (dropped) continue; // `index` now points at what was the next step
+
+      // Still open after every round: stop here rather than run on a guess.
+      if (skill.clarify?.(step.args) ?? missingRequired(skill, step.args)) {
+        ctx.say(this.phrasing.declined());
+        return { steps: [], cancelled: true, changed: true };
+      }
+      index += 1;
+    }
+    return { steps, cancelled: false, changed };
+  }
+
+  /**
+   * Put the question to the person and turn the reply into what to do.
+   *
+   * A surface that cannot ask (`ctx.clarify` unset — a test, a voice-only
+   * build) gets the question in words and the plan stops. It never continues
+   * on a guess: the whole point of asking is that going ahead would have been
+   * one.
+   */
+  private async askAbout(
+    need: ClarifyNeed,
+    steps: readonly PlanStep[],
+    index: number,
+    ctx: SkillContext,
+  ): Promise<Resolution> {
+    const earlier = steps
+      .slice(0, index)
+      .map((s) => summarizeStep(this.skills.get(s.skill), s.args));
+    const question = buildClarification(need, earlier);
+    if (!ctx.clarify) {
+      ctx.say(explainInText(question));
+      return { action: 'cancel', because: 'cancelled' };
+    }
+    return resolveAnswer(need, await ctx.clarify(question));
   }
 
   async run(plan: Plan, ctx: SkillContext, options: ExecutorOptions = {}): Promise<PlanOutcome> {
@@ -241,12 +362,58 @@ export class Executor {
       };
     }
 
+    // Asking instead of guessing — BEFORE anything runs.
+    //
+    // The point of a question is to learn what the person wants, so it comes
+    // first: no step of the plan has run, been announced or been put to anyone
+    // for approval while a gap is still open. ("Open Steam and open a game"
+    // must not open Steam and only then ask which game — by then the request is
+    // half done on a guess.) Once every gap is filled the settled plan is what
+    // gets screened, approved and run, so Plan First's approval card describes
+    // the plan that will actually happen, and a step completed by an answer is
+    // gated exactly like any other.
+    const settled = await this.settleAmbiguity(plan.steps, ctx, wait);
+    if (settled.cancelled || settled.steps.length === 0) {
+      if (!settled.cancelled) ctx.say(this.phrasing.declined());
+      return {
+        ok: false,
+        ran: 0,
+        outcomes: plan.steps.map((s) => ({
+          skill: s.skill,
+          ok: false,
+          skipped: true,
+          error: 'Cancelled.',
+        })),
+        aborted: true,
+      };
+    }
+    const planned = settled.steps;
+    if (settled.changed) {
+      // What the person typed is now part of the plan, so it is screened like
+      // anything else — the answer to a question is not a way around the policy.
+      const rescreened = screenPlan(planned, (id) => this.skills.get(id));
+      if (!rescreened.allowed) {
+        ctx.say(refusalFor(rescreened.reason));
+        return {
+          ok: false,
+          ran: 0,
+          outcomes: planned.map((s) => ({
+            skill: s.skill,
+            ok: false,
+            skipped: true,
+            error: 'Refused.',
+          })),
+          aborted: true,
+        };
+      }
+    }
+
     // Plan First's gate: only when there is something in the plan actually
     // worth approving in advance. A plan of entirely safe steps falls through
     // to the ordinary "right then" announcement below, same as every other
     // mode — this is what keeps harmless requests just as quiet under this
     // mode as under the other two.
-    const hasConsequentialStep = plan.steps.some(
+    const hasConsequentialStep = planned.some(
       (s) => effectiveRisk(this.skills.get(s.skill), s.args) === 'confirm',
     );
     // Same reasoning as the per-step guard check below, applied to the whole
@@ -255,7 +422,7 @@ export class Executor {
     // discovered mid-plan — a batch approval covering a step that can never
     // run is worse than no batching at all, so a plan with a refusal in it
     // just falls back to asking (or refusing) step by step, same as `doIt`.
-    const hasGuardedStep = plan.steps.some((s) => {
+    const hasGuardedStep = planned.some((s) => {
       const skill = this.skills.get(s.skill);
       return Boolean(skill?.guard?.(s.args));
     });
@@ -263,7 +430,7 @@ export class Executor {
 
     if (usingPlanApproval) {
       const { question, detail } = this.phrasing.planApproval(
-        plan.steps.map((s) => {
+        planned.map((s) => {
           const skill = this.skills.get(s.skill);
           return {
             label: skill?.label ?? s.skill,
@@ -277,7 +444,7 @@ export class Executor {
         return {
           ok: false,
           ran: 0,
-          outcomes: plan.steps.map((s) => ({
+          outcomes: planned.map((s) => ({
             skill: s.skill,
             ok: false,
             skipped: true,
@@ -286,17 +453,23 @@ export class Executor {
           aborted: true,
         };
       }
-    } else if (plan.steps.length > 1) {
+    } else if (planned.length > 1) {
       // A multi-step plan says what it's about to do first, so the user can
       // stop it before it starts rather than watching it happen. Skipped
       // above because the plan-approval card already said as much.
-      const names = plan.steps.map((s) => this.skills.get(s.skill)?.label.toLowerCase() ?? s.skill);
+      const names = planned.map((s) => this.skills.get(s.skill)?.label.toLowerCase() ?? s.skill);
       ctx.say(this.phrasing.rightThen(names));
     }
 
     let aborted = false;
 
-    for (const step of plan.steps) {
+    // A working copy: asking about a step can complete it in place, or turn
+    // "open a game" into three launches, without the plan the caller holds
+    // ever being edited.
+    const steps = [...planned];
+
+    for (let index = 0; index < steps.length; index += 1) {
+      const step = steps[index]!;
       if (aborted) break;
       if (signal?.aborted) throw new HaltedError();
 
@@ -311,12 +484,12 @@ export class Executor {
         continue;
       }
 
-      const activityAt = plan.steps.indexOf(step);
+      const activityAt = index;
       const stepLabel = skill.label;
       const report = (state: ActivityState, detail?: string) =>
         options.onActivity?.({
           index: activityAt,
-          total: plan.steps.length,
+          total: steps.length,
           skill: step.skill,
           label: stepLabel,
           detail,
@@ -377,7 +550,7 @@ export class Executor {
         this.skills.invoke(step.skill, step.args, {
           ...ctx,
           activity: options.onActivity
-            ? reporterFor(activityAt, plan.steps.length, step.skill, options.onActivity)
+            ? reporterFor(activityAt, steps.length, step.skill, options.onActivity)
             : undefined,
         }),
       );
@@ -420,12 +593,13 @@ export class Executor {
     // `Skipped.` and not `Cancelled.`: the step the person actually declined
     // already carries that, and the steps behind it were never put to them.
     if (aborted) {
-      for (const step of plan.steps.slice(outcomes.length)) {
+      for (const step of steps.slice(outcomes.length)) {
         outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Skipped.' });
       }
     }
 
-    const ran = outcomes.filter((o) => o.ok).length;
+    // A part the person chose to leave out is neither a success nor a failure.
+    const ran = outcomes.filter((o) => o.ok && !o.skipped).length;
     return {
       ok: ran > 0 && outcomes.every((o) => o.ok),
       ran,

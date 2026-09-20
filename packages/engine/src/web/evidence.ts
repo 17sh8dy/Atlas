@@ -254,6 +254,22 @@ export function verifyEvidence(
     if (topCount >= 2) {
       agreed.push(`${kind} ${topValue} — ${topCount} of ${reporting.length} sources`);
     }
+    // Every source that mentions this kind of fact names the leading value. A
+    // page saying "Season 4 … Chapter 8 arrives in December" has mentioned a
+    // past or upcoming one in passing; that is not a source *disagreeing*, and
+    // reporting it as one under an answer every source supports is wrong. It is
+    // noted, not counted.
+    if (topCount === reporting.length && topCount >= 2) {
+      const others = ranked.filter(([value]) => value !== topValue);
+      if (others.length) {
+        notes.push(
+          `Some sources also mention other ${kind}s (${others.map(([v]) => v).join(', ')}) — ` +
+            `likely past or upcoming ones.`,
+        );
+      }
+      continue;
+    }
+
     for (const [value, doms] of ranked) {
       if (value === topValue && topCount >= 2) continue;
       if (doms.length >= reporting.length) continue; // every source mentions it: not a conflict

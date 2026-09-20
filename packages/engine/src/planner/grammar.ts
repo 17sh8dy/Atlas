@@ -93,6 +93,9 @@ const LOOKS_LIKE_PATH = /(^|\s)(?:[a-z]:[\\/]|\\\\|~?\/)[^\s]+/i;
  */
 const COMPOUND_CONNECTOR = /\s+(?:and\s+then|then|and)\s+/i;
 
+/** A clause that opens with its own launch verb is an instruction in its own right. */
+const OWN_LAUNCH_VERB = /^(?:open|launch|start|run)\b/i;
+
 /**
  * Intents worth reconsidering as "maybe that was two commands, not one" —
  * every one of these captures *the rest of the line* as a bare identifier or
@@ -213,8 +216,15 @@ export class Grammar {
     if (!p1 || !p2) return null;
 
     // Two apps named together is one launch, not two — leave it to
-    // app.open's own resolution rather than splitting it here.
-    if (p1.intent === 'open-app' && p2.intent === 'open-app') return null;
+    // app.open's own resolution rather than splitting it here. But a second
+    // half with its own launch verb ("open steam AND OPEN a game") is a
+    // second instruction, not a second name: reading it as one app called
+    // "steam and open a game" is how a vague half gets launched as a guess.
+    // Split, and each half is then judged on its own — including asking which
+    // game when a half names no particular one.
+    if (p1.intent === 'open-app' && p2.intent === 'open-app' && !OWN_LAUNCH_VERB.test(right)) {
+      return null;
+    }
 
     return {
       source: 'grammar',

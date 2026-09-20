@@ -7,11 +7,19 @@
  * assistant you have to click into between commands is one you stop using.
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import type { Attachment, ExecutionMode } from '@atlas/core';
 import { EXECUTION_MODE_META } from '@atlas/core';
 import { Icons, Kbd, cn } from '@atlas/ui';
 import { AttachmentChips } from './AttachmentChips';
+import { fitComposer, lengthNote } from './composer-size';
 
 interface Props {
   onSubmit(text: string): void;
@@ -39,6 +47,15 @@ interface Props {
   dictation?: {
     active: boolean;
     transcribing: boolean;
+    onToggle(): void;
+  };
+  /**
+   * "Think longer": ask the model for extended thinking and a fuller answer,
+   * for the next message. Absent when nothing could act on it, so the bubble
+   * never promises something that would do nothing.
+   */
+  thinkLonger?: {
+    on: boolean;
     onToggle(): void;
   };
   /**
@@ -86,8 +103,6 @@ interface Props {
   onResume?(): void;
 }
 
-const MAX_HEIGHT = 160;
-
 export function Composer({
   onSubmit,
   busy,
@@ -96,6 +111,7 @@ export function Composer({
   onCycleExecutionMode,
   placeholder = 'Ask Atlas anything…',
   dictation,
+  thinkLonger,
   dictated,
   prefill,
   onStop,
@@ -133,13 +149,28 @@ export function Composer({
     });
   }, [prefill]);
 
-  // Grow to fit, but stop before the transcript is squeezed off screen.
-  useEffect(() => {
+  // Grow to fit what was typed or pasted, up to a share of the window — then
+  // scroll inside the box rather than take the conversation off the screen.
+  // Measured with the height reset, so shrinking after a delete works too.
+  const [scrolls, setScrolls] = useState(false);
+  const fit = useCallback(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
-  }, [value]);
+    const next = fitComposer(el.scrollHeight, window.innerHeight);
+    el.style.height = `${next.height}px`;
+    setScrolls(next.scrolls);
+  }, []);
+
+  useEffect(() => fit(), [value, fit]);
+
+  // The allowance is a share of the window, so it has to follow the window.
+  useEffect(() => {
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [fit]);
+
+  const note = lengthNote(value.length);
 
   // Focus follows the same rule as sending: an open card means the caret
   // belongs in the box, since answering by typing is the point.
@@ -275,8 +306,30 @@ export function Composer({
             className={cn(
               'text-foreground flex-1 resize-none bg-transparent py-1.5 text-sm',
               'placeholder:text-foreground-subtle focus:outline-none',
+              // Hidden until it is needed: an always-on scrollbar on a
+              // one-line box is clutter, and it would eat width from the text.
+              scrolls ? 'overflow-y-auto' : 'overflow-y-hidden',
             )}
           />
+          {thinkLonger && (
+            <button
+              type="button"
+              onClick={thinkLonger.onToggle}
+              aria-pressed={thinkLonger.on}
+              aria-label="Think longer"
+              title="Use this for extended thinking time and mostly more detailed answers, depending on the model."
+              className={cn(
+                'atlas-enhance mb-0.5 flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5',
+                'duration-fast text-xs font-medium backdrop-blur-md transition',
+                thinkLonger.on
+                  ? 'border-primary/40 bg-primary/15 text-primary'
+                  : 'border-border/60 bg-surface-raised/50 text-foreground-subtle hover:bg-surface-raised/80 hover:text-foreground',
+              )}
+            >
+              <Icons.Brain className="h-3.5 w-3.5" />
+              <span>Think longer</span>
+            </button>
+          )}
           {dictation && (
             <button
               type="button"
@@ -321,22 +374,34 @@ export function Composer({
               <span aria-hidden="true" className="h-2.5 w-2.5 rounded-[2px] bg-white" />
             </button>
           ) : (
-          <button
-            type="button"
-            onClick={send}
-            disabled={!value.trim() || blocked}
-            aria-label="Send"
-            className={cn(
-              'atlas-enhance mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
-              'accent-surface text-primary-foreground duration-fast transition',
-              'hover:brightness-110 disabled:opacity-30 disabled:hover:brightness-100',
-            )}
-          >
-            <Icons.ArrowUp className="h-4 w-4" />
-          </button>
+            <button
+              type="button"
+              onClick={send}
+              disabled={!value.trim() || blocked}
+              aria-label="Send"
+              className={cn(
+                'atlas-enhance mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
+                'accent-surface text-primary-foreground duration-fast transition',
+                'hover:brightness-110 disabled:opacity-30 disabled:hover:brightness-100',
+              )}
+            >
+              <Icons.ArrowUp className="h-4 w-4" />
+            </button>
           )}
         </div>
       </div>
+
+      {note && (
+        <p
+          role={note.tone === 'warn' ? 'alert' : undefined}
+          className={cn(
+            'mt-1.5 px-1 text-right text-[11px]',
+            note.tone === 'warn' ? 'text-danger' : 'text-foreground-subtle',
+          )}
+        >
+          {note.text}
+        </p>
+      )}
 
       {/*
         The mode indicator. Not a setting buried in a menu — it sits exactly

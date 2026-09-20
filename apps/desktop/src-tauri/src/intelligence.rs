@@ -54,6 +54,8 @@ use tauri::Emitter;
 const REQUEST_TIMEOUT_SECS: u64 = 900;
 const MAX_PROMPT_CHARS: usize = 100_000;
 const MAX_MODEL_TAG_CHARS: usize = 100;
+/// How long Ollama keeps a model in memory after its last message.
+const KEEP_ALIVE: &str = "30m";
 
 /// Where Ollama listens when nothing says otherwise.
 pub const OLLAMA_DEFAULT_URL: &str = "http://127.0.0.1:11434";
@@ -136,6 +138,9 @@ fn chat_body(model: &str, prompt: &str, think: Option<bool>) -> serde_json::Valu
         "model": model,
         "messages": [{ "role": "user", "content": prompt }],
         "stream": true,
+        // Ollama unloads a model after five idle minutes, and loading a big
+        // one costs seconds on the next message. Keep it warm for a while.
+        "keep_alive": KEEP_ALIVE,
     });
     if let Some(t) = think {
         body["think"] = serde_json::Value::Bool(t);
@@ -236,6 +241,11 @@ impl ThinkFilter {
     }
 }
 
+/// Ollama's refusal when `think` is set on a model with no thinking mode.
+fn is_think_unsupported(status: u16, body: &str) -> bool {
+    status == 400 && body.to_lowercase().contains("thinking")
+}
+
 /// Ollama's own words for "no such model", turned into a sentinel the
 /// renderer can explain with the exact command to run.
 fn ollama_error_message(status: u16, body: &str, model: &str) -> String {
@@ -284,14 +294,28 @@ async fn ask_local_model_unraced(
     let base = validate_base_url(&base_url, OLLAMA_DEFAULT_URL)?;
     let client = http_client()?;
 
-    let resp = client
-        .post(format!("{base}/api/chat"))
-        .json(&chat_body(&model, &prompt, think))
-        .send()
-        .await
-        // A refused connection means Ollama isn't up: the normal state on a
-        // machine where it was never started.
-        .map_err(|_| "offline".to_string())?;
+    let send = |think: Option<bool>| {
+        client
+            .post(format!("{base}/api/chat"))
+            .json(&chat_body(&model, &prompt, think))
+            .send()
+    };
+    // A refused connection means Ollama isn't up: the normal state on a
+    // machine where it was never started.
+    let mut resp = send(think).await.map_err(|_| "offline".to_string())?;
+
+    // Thinking is switched off for speed, but not every model has a thinking
+    // mode to switch. Ask again without the field rather than fail a chat over
+    // a speed preference.
+    if !resp.status().is_success() && think.is_some() {
+        let status = resp.status().as_u16();
+        let text = resp.text().await.unwrap_or_default();
+        if is_think_unsupported(status, &text) {
+            resp = send(None).await.map_err(|_| "offline".to_string())?;
+        } else {
+            return Err(ollama_error_message(status, &text, &model));
+        }
+    }
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -635,6 +659,19 @@ mod tests {
             assert_eq!(body["messages"][0]["role"], "user");
             assert_eq!(body["messages"][0]["content"], "hi");
         }
+    }
+
+    #[test]
+    fn the_model_is_kept_loaded_between_messages() {
+        assert_eq!(chat_body("qwen3:8b", "x", None)["keep_alive"], "30m");
+    }
+
+    #[test]
+    fn a_model_with_no_thinking_mode_is_asked_again_without_the_field() {
+        assert!(is_think_unsupported(400, r#"{"error":"\"llama3\" does not support thinking"}"#));
+        assert!(!is_think_unsupported(404, r#"{"error":"model not found"}"#));
+        assert!(!is_think_unsupported(400, r#"{"error":"bad json"}"#));
+        assert!(!is_think_unsupported(500, "thinking"));
     }
 
     #[test]

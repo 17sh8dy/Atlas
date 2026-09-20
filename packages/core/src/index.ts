@@ -38,6 +38,7 @@ export * from './models/disk-usage';
 export * from './models/devtools';
 export * from './models/cloud-provider';
 export * from './models/local-model';
+export * from './models/clarify';
 export * from './models/halt';
 export * from './ports/platform';
 export * from './ports/intelligence';

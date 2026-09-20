@@ -119,14 +119,26 @@ export function createLocalModelProvider(
     label: profile.label,
     isConfigured: () => options.enabled,
     isLocal: () => true,
-    ask(prompt: string, handlers: ProviderStreamHandlers, askOptions?: { signal?: HaltSignal }) {
+    ask(
+      prompt: string,
+      handlers: ProviderStreamHandlers,
+      askOptions?: { signal?: HaltSignal; deeper?: boolean },
+    ) {
       if (!options.enabled) {
         handlers.onError('not-configured');
         return;
       }
       void streamNative(
         'ask_local_model_stream',
-        { baseUrl, model: profile.ollamaTag, prompt, think: profile.think ?? null },
+        {
+          baseUrl,
+          model: profile.ollamaTag,
+          prompt,
+          // "Think longer" switches thinking on for a model that had it off. A
+          // model with no thinking mode is asked again without the field
+          // natively, so this can never turn a chat into an error.
+          think: askOptions?.deeper ? true : (profile.think ?? null),
+        },
         handlers,
         (reason) => explainLocalFailure(profile.label, profile.ollamaTag, reason),
         askOptions?.signal,

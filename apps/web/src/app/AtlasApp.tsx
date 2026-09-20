@@ -798,12 +798,18 @@ function Ready({
             entries={atlas.entries}
             busy={atlas.busy}
             awaitingAnswer={atlas.awaitingAnswer}
+            thinkLonger={
+              atlas.hasModel
+                ? { on: atlas.thinkLonger, onToggle: atlas.toggleThinkLonger }
+                : undefined
+            }
             memory={atlas.memory}
             greeting={atlas.greeting}
             atlasName={atlas.atlasName}
             onAsk={askWithContext}
             onRunAction={atlas.runAction}
             onAnswerConfirm={atlas.answerConfirm}
+            onAnswerClarify={atlas.answerClarify}
             onCopy={atlas.copy}
             onAskAgain={askAloud}
             executionMode={executionMode}

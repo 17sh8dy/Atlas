@@ -32,6 +32,8 @@
  */
 
 import type {
+  Clarification,
+  ClarifyAnswer,
   ExecutionMode,
   IntelligenceProvider,
   IntelligenceRegistry,
@@ -53,16 +55,31 @@ import { createPhrasing, type Phrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
 import { routeQuestion } from './web/router';
 import { gatherEvidence } from './web/pipeline';
-import {
-  buildEvidencePrompt,
-  formatEvidenceFallback,
-  formatEvidenceFooter,
-} from './web/evidence';
+import { buildEvidencePrompt, formatEvidenceFallback, formatEvidenceFooter } from './web/evidence';
 import { refusalFor, screenRequest } from './safety/content-policy';
 import { normalizeRequest } from './text/normalize';
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
 import { reporterFor, type ActivityEvent } from './planner/executor';
+
+/**
+ * What the chat model is told when an instruction reached it unresolved.
+ *
+ * Left alone, a model asked to "create a folder" answers as a general chatbot:
+ * "I can't access your file system, here is how to do it yourself" — which is
+ * true of the model and false of Atlas, whose own tools do exactly that. The
+ * model still cannot act (nothing here gives it a way to), so this only
+ * corrects what it says about Atlas and points the person at wording that
+ * Atlas's tools do understand. One short paragraph, sent only for
+ * instruction-shaped requests, so ordinary chat is neither slowed nor steered.
+ */
+const ACTION_CONTEXT =
+  'You are Atlas, a Windows desktop assistant. Atlas itself carries out actions on this PC ' +
+  '(open apps and files, create folders and files, search, and more) with its own tools; you ' +
+  'only write the reply. Do not say Atlas cannot control the computer, and do not give ' +
+  'command-line tutorials. If the request was not carried out, say Atlas did not catch the ' +
+  'exact wording, and suggest a precise phrasing with a full folder path, for example: ' +
+  'create a folder called Notes in D:\\Dev. Keep it to a sentence or two.';
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -72,6 +89,12 @@ export interface EngineIO {
    */
   say(text: string, options?: { aloud?: boolean }): void;
   confirm(question: string, detail?: string): Promise<boolean>;
+  /**
+   * Ask what a request left out, with choices — see `@atlas/core`'s
+   * `models/clarify.ts`. Optional: a surface that cannot ask leaves it unset,
+   * and Atlas then says the question in words and stops instead of guessing.
+   */
+  clarify?(question: Clarification): Promise<ClarifyAnswer>;
   showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string }): void;
   /** Streaming conversation, when the surface supports it. */
   stream?(): { append(chunk: string): void; finish(full: string): void } | null;
@@ -82,6 +105,21 @@ export type AskOutcome =
   | { ok: boolean; mode: 'command'; plan: Plan; outcome: PlanOutcome }
   | { ok: false; mode: 'halted' }
   | { ok: boolean; mode: 'chat'; text?: string; error?: string };
+
+/** Per-message choices from the person, as opposed to how the engine was built. */
+export interface AskOptions {
+  /** "Think longer": extended thinking and a fuller answer, where the model has that. */
+  thinkLonger?: boolean;
+}
+
+/**
+ * Sent ahead of the prompt when the person turned on "Think longer". Models
+ * with a thinking mode also get it switched on (see `deeper` on the provider
+ * port); this line is what reaches the ones without, and it is honest about
+ * what it asks for — a fuller answer, not a promise of a better one.
+ */
+const DEEPER_ASK =
+  'Take your time. Work through this carefully, and give a thorough, detailed answer.';
 
 export interface EngineOptions {
   skills: SkillRegistry;
@@ -164,14 +202,14 @@ export class Engine {
     this.bus.emit('engine:halted', { runs: running.length });
   }
 
-  async ask(text: string, io: EngineIO): Promise<AskOutcome> {
+  async ask(text: string, io: EngineIO, options: AskOptions = {}): Promise<AskOutcome> {
     const raw = String(text ?? '').trim();
     if (!raw) return { ok: false, mode: 'chat', error: 'empty' };
 
     const controller = new HaltController();
     this.live.add(controller);
     try {
-      return await this.askWith(raw, io, controller.signal);
+      return await this.askWith(raw, io, controller.signal, options);
     } catch (err) {
       if (err instanceof HaltedError) return { ok: false, mode: 'halted' };
       throw err;
@@ -180,7 +218,12 @@ export class Engine {
     }
   }
 
-  private async askWith(raw: string, io: EngineIO, signal: HaltSignal): Promise<AskOutcome> {
+  private async askWith(
+    raw: string,
+    io: EngineIO,
+    signal: HaltSignal,
+    options: AskOptions = {},
+  ): Promise<AskOutcome> {
     this.bus.emit('engine:ask', { text: raw });
     const ctx = this.context(io, signal);
 
@@ -310,7 +353,7 @@ export class Engine {
     }
 
     // 4. Conversation.
-    return this.converse(understood, io, ctx, signal);
+    return this.converse(understood, io, ctx, signal, instruction, options.thinkLonger === true);
   }
 
   /** Question-shaped, and therefore conversation rather than an instruction. */
@@ -338,6 +381,7 @@ export class Engine {
       signal,
       say: (t: string, options?: { aloud?: boolean }) => io.say(t, options),
       confirm: (q: string, d?: string) => io.confirm(q, d),
+      clarify: io.clarify ? (question) => io.clarify!(question) : undefined,
       showResults: (items, meta) => {
         this.working.setResults(items);
         io.showResults?.(items, meta);
@@ -428,6 +472,13 @@ export class Engine {
     io: EngineIO,
     ctx: SkillContext,
     signal: HaltSignal,
+    /**
+     * The request was an instruction Atlas's own tiers could not resolve. The
+     * model is then told what Atlas is (see `ACTION_CONTEXT`); an ordinary
+     * question or chat message is sent as it was written.
+     */
+    asInstruction = false,
+    deeper = false,
   ): Promise<AskOutcome> {
     const provider = this.intelligence?.active();
     const searchSkill = this.skills.get('research.search');
@@ -489,6 +540,7 @@ export class Engine {
             signal,
             formatEvidenceFooter(research.packet),
             formatEvidenceFallback(research.packet),
+            deeper,
           );
         }
         io.say(
@@ -505,7 +557,15 @@ export class Engine {
       return { ok: false, mode: 'chat', error: 'not-configured' };
     }
 
-    return this.converseWithProvider(provider, text, io, signal);
+    return this.converseWithProvider(
+      provider,
+      asInstruction ? `${ACTION_CONTEXT}\n\n${text}` : text,
+      io,
+      signal,
+      '',
+      '',
+      deeper,
+    );
   }
 
   private async converseWithProvider(
@@ -520,6 +580,8 @@ export class Engine {
      * a model that is off must not hide work that succeeded without it.
      */
     fallback = '',
+    /** "Think longer" was on for this message. */
+    deeper = false,
   ): Promise<AskOutcome> {
     io.typing?.(true);
     return new Promise<AskOutcome>((resolve, reject) => {
@@ -587,7 +649,12 @@ export class Engine {
           resolve({ ok: false, mode: 'chat', error: reason });
         },
       };
-      provider.ask(promptText, handlers, { signal });
+      // The provider is asked for extended thinking if it has such a mode; the
+      // wording is what reaches every provider, thinking mode or not.
+      provider.ask(deeper ? `${DEEPER_ASK}\n\n${promptText}` : promptText, handlers, {
+        signal,
+        deeper,
+      });
     });
   }
 

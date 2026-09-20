@@ -17,16 +17,22 @@ import type { Entry, StepState } from '../atlas/useAtlas';
 import { useTextStyle } from '../app/text-style';
 import { CapabilityBrowser } from './CapabilityBrowser';
 import { RevealText } from './RevealText';
-import type { ActivityRun } from '@atlas/core';
+import type { ActivityRun, ClarifyAnswer } from '@atlas/core';
 import { ActivityPanel } from './ActivityPanel';
 
 /** An entry this new was just said; anything older was already read. */
 const FRESH_MS = 1500;
 
+import { CitedReply } from './CitedReply';
+import { ClarifyCard } from './ClarifyCard';
+import { formatLive, hasSources } from './citations';
+
 interface Props {
   entries: Entry[];
   busy: boolean;
   onAnswerConfirm(approved: boolean): void;
+  /** Answer a question Atlas asked about a vague request. */
+  onAnswerClarify(answer: ClarifyAnswer, label: string): void;
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onCopy(text: string): Promise<boolean>;
   /**
@@ -52,6 +58,7 @@ export function Transcript({
   entries,
   busy,
   onAnswerConfirm,
+  onAnswerClarify,
   onRunAction,
   onCopy,
   onAskAgain,
@@ -73,6 +80,14 @@ export function Transcript({
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [entries.length, busy]);
 
+  // Words are arriving: the answer is the thing to be looking at, so follow it
+  // (unless the person has scrolled up to read something else).
+  const last = entries[entries.length - 1];
+  const streamingNow = last?.streaming === true;
+  useEffect(() => {
+    if (streamingNow) followReveal();
+  }, [streamingNow, last?.text, followReveal]);
+
   return (
     <div className="flex flex-col gap-3 px-6 py-5">
       {entries.map((entry) => (
@@ -80,6 +95,7 @@ export function Transcript({
           key={entry.id}
           entry={entry}
           onAnswerConfirm={onAnswerConfirm}
+          onAnswerClarify={onAnswerClarify}
           onRunAction={onRunAction}
           busy={busy}
           onCopy={onCopy}
@@ -92,15 +108,46 @@ export function Transcript({
           about to replace it — the text lands where the bars were and nothing
           below it moves. A centred spinner would have to be pushed out of the
           way by the answer it was waiting for. */}
-      {busy &&
-        (activeRun && activeRun.steps.length > 0 ? (
-          <ActivityPanel run={activeRun} />
-        ) : (
-          <AuroraBars className="max-w-[85%]" label="Atlas is thinking" />
-        ))}
+      {busy && !streamingNow && (
+        <div className="max-w-[85%]">
+          {activeRun && activeRun.steps.length > 0 ? (
+            <ActivityPanel run={activeRun} />
+          ) : (
+            <AuroraBars className="max-w-full" label="Atlas is thinking" />
+          )}
+          <LiveTimer />
+        </div>
+      )}
 
       <div ref={endRef} />
     </div>
+  );
+}
+
+/**
+ * How long Atlas has been working on this, ticking until the answer starts to
+ * arrive. It is mounted with the wait and unmounted when words appear, so it
+ * always starts from zero and never keeps counting behind an answer.
+ *
+ * Lives outside the bars / activity-panel switch on purpose: when the run gains
+ * its first step the indicator above changes shape but this stays mounted, so
+ * the count does not restart.
+ */
+function LiveTimer() {
+  const [ms, setMs] = useState(0);
+  useEffect(() => {
+    const started = performance.now();
+    const id = window.setInterval(() => setMs(performance.now() - started), 100);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <p
+      role="timer"
+      aria-label="Time spent so far"
+      className="text-foreground-subtle mt-1.5 text-xs tabular-nums"
+    >
+      {formatLive(ms)}
+    </p>
   );
 }
 
@@ -173,6 +220,7 @@ function EntryView({
   entry,
   busy,
   onAnswerConfirm,
+  onAnswerClarify,
   onRunAction,
   onCopy,
   onAskAgain,
@@ -182,6 +230,7 @@ function EntryView({
   entry: Entry;
   busy: boolean;
   onAnswerConfirm(approved: boolean): void;
+  onAnswerClarify(answer: ClarifyAnswer, label: string): void;
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onCopy(text: string): Promise<boolean>;
   onAskAgain?(text: string): void;
@@ -223,9 +272,17 @@ function EntryView({
     return (
       <div className="group max-w-[85%]">
         <div className="atlas-reply whitespace-pre-wrap leading-relaxed">
-          <Reply entry={entry} onProgress={onReveal} />
+          {entry.streamed || hasSources(entry.text ?? '') ? (
+            <CitedReply
+              text={entry.text ?? ''}
+              streaming={entry.streaming}
+              onOpen={(url) => onRunAction('web.open', { url })}
+            />
+          ) : (
+            <Reply entry={entry} onProgress={onReveal} />
+          )}
         </div>
-        <MessageActions text={entry.text ?? ''} onCopy={onCopy} />
+        {!entry.streaming && <MessageActions text={entry.text ?? ''} onCopy={onCopy} />}
       </div>
     );
   }
@@ -247,6 +304,18 @@ function EntryView({
         </span>
         <span className="bg-border h-px flex-1" />
       </div>
+    );
+  }
+
+  if (entry.kind === 'clarify') {
+    return (
+      <ClarifyCard
+        question={entry.question ?? ''}
+        choices={entry.choices ?? []}
+        answered={entry.answered}
+        reply={entry.reply}
+        onAnswer={onAnswerClarify}
+      />
     );
   }
 
@@ -443,7 +512,10 @@ function StepsDisclosure({ steps }: { steps: NonNullable<Entry['steps']> }) {
             const icon = STEP_ICON[step.state];
             return (
               <li key={i} className="flex items-baseline gap-2 py-1 text-xs">
-                <span aria-label={icon.label} className={cn('w-3 shrink-0 text-center', icon.className)}>
+                <span
+                  aria-label={icon.label}
+                  className={cn('w-3 shrink-0 text-center', icon.className)}
+                >
                   {icon.glyph}
                 </span>
                 <span className="text-foreground">{step.label}</span>

@@ -52,6 +52,79 @@ function stripQuotes(s: string): string {
   return s.trim().replace(/^["']|["']$/g, '');
 }
 
+const ASK = String.raw`(?:(?:please|hey|ok(?:ay)?)[\s,]+)*(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?`;
+const MAKE = String.raw`(?:create|make|add)`;
+const PLACE = String.raw`(?:in|inside|under|within|into|at)`;
+const A_FOLDER = String.raw`(?:a\s+|an\s+|the\s+)?(?:new\s+)?`;
+const TAIL = String.raw`(?:\s+(?:please|for\s+me|thanks?|thank\s+you))?\s*[?.!]*$`;
+
+/** Words that sit where a name would but are not one. */
+const NOT_A_NAME = /^(?:new|a|an|the|another|my|our|this|that|empty|blank)$/i;
+
+/** Characters Windows will not allow in a single file or folder name. */
+const BAD_NAME = /[<>:"/\\|?*]/;
+
+/** Control characters (a tab or newline cannot be part of a name either). */
+function hasControlCharacter(s: string): boolean {
+  for (const ch of s) if (ch.charCodeAt(0) < 32) return true;
+  return false;
+}
+
+/**
+ * "create a folder called NAME in PLACE", in the three orders people say it:
+ *   create a folder called NAME in PLACE
+ *   create a new NAME folder in PLACE
+ *   in PLACE, create a folder called NAME
+ * Returns the full path, or null unless PLACE is an explicit absolute path and
+ * NAME is a single valid folder name — anything less is left to the rules and
+ * tiers behind this one, never guessed at.
+ */
+export function readFolderInPlace(raw: string): string | null {
+  const patterns: Array<{ re: RegExp; name: number; place: number }> = [
+    {
+      re: new RegExp(
+        String.raw`^\s*${ASK}${MAKE}\s+${A_FOLDER}(?:folder|directory)\s+(?:called|named|titled)\s+(.+?)\s+${PLACE}\s+(.+?)${TAIL}`,
+        'i',
+      ),
+      name: 1,
+      place: 2,
+    },
+    {
+      re: new RegExp(
+        String.raw`^\s*${ASK}${MAKE}\s+${A_FOLDER}(.+?)\s+(?:folder|directory)\s+${PLACE}\s+(.+?)${TAIL}`,
+        'i',
+      ),
+      name: 1,
+      place: 2,
+    },
+    {
+      re: new RegExp(
+        String.raw`^\s*${PLACE}\s+(.+?)[\s,]+${ASK}${MAKE}\s+${A_FOLDER}(?:folder|directory)\s+(?:called|named|titled)\s+(.+?)${TAIL}`,
+        'i',
+      ),
+      name: 2,
+      place: 1,
+    },
+  ];
+
+  for (const { re, name, place } of patterns) {
+    const m = re.exec(raw);
+    if (!m) continue;
+    const folderName = stripQuotes(m[name] ?? '');
+    const parent = stripQuotes(m[place] ?? '').replace(/[\\/]+$/, '');
+    if (!folderName || folderName === '.' || folderName === '..') continue;
+    // "make a new folder at X" has no name in it: "new" is a modifier, not a
+    // name. The second pattern reads it as one unless it is refused here.
+    if (NOT_A_NAME.test(folderName)) continue;
+    if (BAD_NAME.test(folderName) || hasControlCharacter(folderName)) continue;
+    if (ABS_PATH_START.test(folderName)) continue;
+    if (!ABS_PATH_START.test(`${parent}\\`)) continue;
+    const sep = parent.includes('\\') || /^[a-z]:$/i.test(parent) ? '\\' : '/';
+    return `${parent}${sep}${folderName}`;
+  }
+  return null;
+}
+
 export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
   return [
     // --- Find files ---------------------------------------------------------
@@ -817,6 +890,24 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         const path = stripQuotes(captured);
         if (!ABS_PATH_START.test(path)) return null;
         return plan(step('files.createFolder', { path }), 'create-folder');
+      },
+    },
+
+    // "create a folder called Atlas Test in D:\Dev\Atlas" — the name and the
+    // place said separately, which is how people actually say it. Still only
+    // an explicit absolute place: this layer has no Platform, so "on my
+    // desktop" needs the known-folder lookup a skill can do and a grammar
+    // rule cannot. The plan is the same one `folderCreate` builds, so the
+    // skill, its permissions and its confirmation are exactly the ones a full
+    // path would have reached.
+    {
+      name: 'folderCreateIn',
+      order: -3.85,
+      pathSafe: true,
+      test(_lower, raw) {
+        const found = readFolderInPlace(raw);
+        if (!found) return null;
+        return plan(step('files.createFolder', { path: found }), 'create-folder');
       },
     },
 

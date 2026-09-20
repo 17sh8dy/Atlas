@@ -24,7 +24,14 @@
  */
 
 import { useEffect, useState, type ReactNode } from 'react';
-import type { ActivityRun, Attachment, EpisodicEvent, ExecutionMode, Memory } from '@atlas/core';
+import type {
+  ActivityRun,
+  Attachment,
+  ClarifyAnswer,
+  EpisodicEvent,
+  ExecutionMode,
+  Memory,
+} from '@atlas/core';
 import { AtlasMark, Modal } from '@atlas/ui';
 import { Composer } from '../components/Composer';
 import { Transcript } from '../components/Transcript';
@@ -38,6 +45,8 @@ interface Props {
   busy: boolean;
   /** A confirmation is open, so the composer must stay usable. */
   awaitingAnswer: boolean;
+  /** "Think longer" — absent when no model is connected, so the bubble never promises nothing. */
+  thinkLonger?: { on: boolean; onToggle(): void };
   /** Where Recent Activity reads from, and nowhere else — see `EmptyState`. */
   memory: Memory;
   greeting: string;
@@ -45,6 +54,7 @@ interface Props {
   onAsk(text: string): void;
   onRunAction(skill: string, args: Record<string, string | number | boolean>): void;
   onAnswerConfirm(approved: boolean): void;
+  onAnswerClarify(answer: ClarifyAnswer, label: string): void;
   onCopy(text: string): Promise<boolean>;
   /** Re-ask one of your own messages. */
   onAskAgain?(text: string): void;
@@ -79,12 +89,14 @@ export function Conversation({
   entries,
   busy,
   awaitingAnswer,
+  thinkLonger,
   memory,
   greeting,
   atlasName,
   onAsk,
   onRunAction,
   onAnswerConfirm,
+  onAnswerClarify,
   onCopy,
   onAskAgain,
   executionMode,
@@ -123,6 +135,7 @@ export function Conversation({
             entries={entries}
             busy={busy}
             onAnswerConfirm={onAnswerConfirm}
+            onAnswerClarify={onAnswerClarify}
             onRunAction={onRunAction}
             onCopy={onCopy}
             onAskAgain={onAskAgain}
@@ -137,6 +150,7 @@ export function Conversation({
         onSubmit={onAsk}
         busy={busy}
         awaitingAnswer={awaitingAnswer}
+        thinkLonger={thinkLonger}
         executionMode={executionMode}
         onCycleExecutionMode={onCycleExecutionMode}
         dictation={dictation}

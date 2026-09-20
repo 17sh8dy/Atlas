@@ -13,6 +13,7 @@
  * and the quotes are the only honest way to tell them apart without guessing.
  */
 
+import { createIncompleteRules } from './incomplete-grammar';
 import type { GrammarRule } from './grammar';
 import { plan, step } from './grammar';
 
@@ -40,6 +41,10 @@ function planUiaVerb(verb: string, args: Record<string, string>, confidence?: nu
 
 export function createExtraGrammar(): GrammarRule[] {
   return [
+    // Requests that name an action and leave out what it needs: last in line,
+    // so they only ever catch what every more specific rule declined.
+    ...createIncompleteRules(),
+
     // ---- text -------------------------------------------------------------
 
     {

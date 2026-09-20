@@ -95,7 +95,10 @@ export function buildIntelligence(setup: IntelligenceSetup): BuiltIntelligence {
   for (const tag of extraInstalledTags(localAi.installed)) {
     registry.register(
       createLocalModelProvider(
-        { id: localModelIdForTag(tag), label: tag, ollamaTag: tag, think: undefined },
+        // Thinking off: a model Atlas has no profile for is treated as an
+        // everyday chat model, and on a home PC the hidden reasoning is the
+        // difference between a reply in half a second and one in four.
+        { id: localModelIdForTag(tag), label: tag, ollamaTag: tag, think: false },
         localAi.local,
       ),
     );

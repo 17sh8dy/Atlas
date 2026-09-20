@@ -28,7 +28,16 @@
  * only the "are you sure" in front of the ones it should allow that has gone.
  */
 
-import type { AppEntry, FileEntry, KnownFolder, Memory, Platform, ResultRow, Skill } from '@atlas/core';
+import { readVagueTarget } from './vague';
+import type {
+  AppEntry,
+  FileEntry,
+  KnownFolder,
+  Memory,
+  Platform,
+  ResultRow,
+  Skill,
+} from '@atlas/core';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { rankMatches, nearMatches, RANK } from '../text/fuzzy';
 import { resolveSite, exactSiteName } from '../text/sites';
@@ -918,6 +927,15 @@ export function createCoreSkills(
     risk: 'safe',
     examples: ['open steam', 'launch discord'],
     params: { name: { type: 'string', required: true, description: 'the application name' } },
+    // "open a game" names no game. Launching whichever program's name happens
+    // to contain the word would be a guess, so Atlas asks which one.
+    clarify(args) {
+      const vague = readVagueTarget(String(args.name ?? ''));
+      return vague
+        ? { param: 'name', noun: vague.noun, question: vague.question, many: true }
+        : null;
+    },
+    summarize: (args) => `open ${String(args.name ?? '').trim()}`,
     async run(args, ctx) {
       const apps = await platform.listApps!();
       const { wanted, matches } = resolveAppName(apps, String(args.name).trim());
@@ -934,7 +952,8 @@ export function createCoreSkills(
           // rather than trying something else that could also just guess.
           id: 'installed-app',
           async run() {
-            if (!matches.length) return { result: { ok: false, error: 'no installed app matched' } };
+            if (!matches.length)
+              return { result: { ok: false, error: 'no installed app matched' } };
             const best = matches[0]!;
             const ambiguous = best.rank >= 4 && matches.length > 1;
 
@@ -1018,7 +1037,10 @@ export function createCoreSkills(
               if (ok) {
                 return {
                   final: true,
-                  result: { ok: true, message: `No app called “${wanted}” — opening ${url} instead.` },
+                  result: {
+                    ok: true,
+                    message: `No app called “${wanted}” — opening ${url} instead.`,
+                  },
                 };
               }
             }
@@ -1027,7 +1049,11 @@ export function createCoreSkills(
               const site = resolveSite(wanted);
               if (site) {
                 const ok = await platform.openUrl(site.url);
-                if (ok) return { final: true, result: { ok: true, message: phrasing.opening(site.name) } };
+                if (ok)
+                  return {
+                    final: true,
+                    result: { ok: true, message: phrasing.opening(site.name) },
+                  };
               }
             }
             return { result: { ok: false, error: 'no known destination' } };
@@ -1303,7 +1329,10 @@ export function createCoreSkills(
     // match opens, but a guess with more than one candidate is a question,
     // not a coin flip picked silently.
     if (best.rank >= RANK.typo && matches.length > 1) {
-      return { ok: false, error: `More than one installed app could be "${wanted}" — say which one.` };
+      return {
+        ok: false,
+        error: `More than one installed app could be "${wanted}" — say which one.`,
+      };
     }
     const ok = await platform.openUrlWithApp(best.app.id, url);
     return ok
@@ -1338,7 +1367,9 @@ export function createCoreSkills(
       if (!result.ok) return { ok: false, error: result.error };
       return {
         ok: true,
-        message: result.openedWith ? `Opening ${url} in ${result.openedWith}.` : phrasing.opening(url),
+        message: result.openedWith
+          ? `Opening ${url} in ${result.openedWith}.`
+          : phrasing.opening(url),
       };
     },
   });

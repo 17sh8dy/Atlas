@@ -16,6 +16,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CloudProviderConfig,
+  ClarifyAnswer,
+  ClarifyChoice,
   ExecutionMode,
   HaltEvent,
   HaltSource,
@@ -31,7 +33,12 @@ import type {
 } from '@atlas/core';
 import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH } from '@atlas/core';
 import { MemoryStore } from '@atlas/data';
-import { buildIntelligence, DEFAULT_LOCAL_AI_RUNTIME, type LocalAiRuntime } from './buildIntelligence';
+import {
+  buildIntelligence,
+  DEFAULT_LOCAL_AI_RUNTIME,
+  type LocalAiRuntime,
+} from './buildIntelligence';
+import { readClarifyReply } from './clarify-reply';
 import {
   Engine,
   Grammar,
@@ -65,7 +72,7 @@ import {
 } from '@atlas/engine';
 import type { CapabilityName } from '@atlas/core';
 
-export type EntryKind = 'you' | 'atlas' | 'results' | 'confirm' | 'halted' | 'steps';
+export type EntryKind = 'you' | 'atlas' | 'results' | 'confirm' | 'clarify' | 'halted' | 'steps';
 
 export type StepState = 'done' | 'failed' | 'declined' | 'halted' | 'skipped';
 
@@ -86,6 +93,14 @@ export interface Entry {
   steps?: { label: string; state: StepState; detail?: string }[];
   /** When the entry was added, for animating only what is new (restored entries have none). */
   at?: number;
+  /** `atlas` entries: this reply arrived word by word, so it is drawn as it came and not re-animated. */
+  streamed?: boolean;
+  /** Still arriving. Never true for a restored entry. */
+  streaming?: boolean;
+  /** `clarify` entries: the options offered. */
+  choices?: ClarifyChoice[];
+  /** `clarify` entries: what was chosen or typed, once answered. */
+  reply?: string;
 }
 
 /**
@@ -222,6 +237,11 @@ export function useAtlas(
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
   const pendingConfirm = useRef<((approved: boolean) => void) | null>(null);
+  /** A question Atlas asked about a vague request, and the options it offered. */
+  const pendingClarify = useRef<{
+    resolve: (answer: ClarifyAnswer) => void;
+    choices: ClarifyChoice[];
+  } | null>(null);
 
   const push = useCallback((entry: Omit<Entry, 'id'>) => {
     setEntries((prev) => [...prev, { ...entry, id: nextId++, at: Date.now() }]);
@@ -255,7 +275,16 @@ export function useAtlas(
           // and `nextId` is process-wide by design (see its own declaration).
           const maxId = saved.reduce((m, e) => Math.max(m, e.id), 0);
           if (maxId >= nextId) nextId = maxId + 1;
-          setEntries(saved);
+          // A reply that was mid-stream when the app closed is not still arriving.
+          setEntries(
+            saved.map((e) => {
+              if (e.streaming) return { ...e, streaming: false };
+              // A question that was open when the app closed is not still
+              // waiting on anyone.
+              if (e.kind === 'clarify' && !e.answered) return { ...e, answered: 'halted' as const };
+              return e;
+            }),
+          );
         }
       })
       .catch(() => {})
@@ -336,6 +365,20 @@ export function useAtlas(
     return () => window.removeEventListener('atlas:search-key-changed', forget);
   }, [searchManager]);
 
+  // Built once per change to the settings that shape it, outside the engine
+  // memo, so the UI can also ask "is a model active?" without a second build.
+  const builtIntelligence = useMemo(
+    () => buildIntelligence({ localAi, activeProviderId, cloudProviders }),
+    [localAi, activeProviderId, cloudProviders],
+  );
+  const hasModel = builtIntelligence.registry.active() !== null;
+
+  // "Think longer": extended thinking and a fuller answer, for the messages
+  // sent while it is on. Stays on until turned off — it is a mode, and a mode
+  // that quietly reset after one message would be a surprise in the other
+  // direction.
+  const [thinkLonger, setThinkLonger] = useState(false);
+
   const engine = useMemo(() => {
     const skills = new SkillRegistry({ capabilities: () => capabilities });
     skills.registerMany(createCoreSkills(platform, memory, skills, phrasing));
@@ -364,11 +407,7 @@ export function useAtlas(
     // skills, the executor and permissions are built around it and never
     // consult which provider is active. Everything is inert until the user
     // switches it on, and Atlas works completely with all of it off.
-    const { registry: intelligence } = buildIntelligence({
-      localAi,
-      activeProviderId,
-      cloudProviders,
-    });
+    const intelligence = builtIntelligence.registry;
 
     // The developer agent needs `intelligence` (to ask the selected model itself) and
     // `skills` (to validate/run each step it proposes) both already built,
@@ -405,14 +444,12 @@ export function useAtlas(
   }, [
     platform,
     searchManager,
+    builtIntelligence,
     capabilities,
     memory,
     phrasing,
     voiceProfile,
     working,
-    localAi,
-    activeProviderId,
-    cloudProviders,
     isPreapproved,
   ]);
 
@@ -487,6 +524,39 @@ export function useAtlas(
         // what would otherwise be nothing back.
         speakIfEnabled(summarizeForSpeech(rows, meta));
       },
+      // Words as they are generated, not the whole answer at the end. The
+      // engine asks for this only when a model is answering; everything else
+      // still arrives through `say`. Speech waits for the finished text — a
+      // voice reading half a sentence is worse than one that starts a moment
+      // later.
+      stream: () => {
+        const id = nextId++;
+        setEntries((prev) => [
+          ...prev,
+          { id, kind: 'atlas', text: '', at: Date.now(), streamed: true, streaming: true },
+        ]);
+        return {
+          append: (chunk: string) =>
+            setEntries((prev) =>
+              prev.map((e) => (e.id === id ? { ...e, text: (e.text ?? '') + chunk } : e)),
+            ),
+          finish: (full: string) => {
+            setEntries((prev) =>
+              prev.map((e) => (e.id === id ? { ...e, text: full, streaming: false } : e)),
+            );
+            if (full.trim()) speakIfEnabled(full);
+          },
+        };
+      },
+      // Asking instead of guessing: a card in the transcript, options on it,
+      // and the composer stays open for a typed answer. The engine is parked
+      // on this promise exactly as it is on a confirmation.
+      clarify: (question) =>
+        new Promise<ClarifyAnswer>((resolve) => {
+          pendingClarify.current = { resolve, choices: [...question.choices] };
+          push({ kind: 'clarify', question: question.question, choices: [...question.choices] });
+          speakIfEnabled(question.question);
+        }),
       confirm: (question, detail) =>
         new Promise<boolean>((resolve) => {
           pendingConfirm.current = resolve;
@@ -499,6 +569,28 @@ export function useAtlas(
     }),
     [push, speakIfEnabled],
   );
+
+  /** Answer the outstanding question, and mark its card as answered. */
+  const answerClarify = useCallback((answer: ClarifyAnswer, label: string) => {
+    const pending = pendingClarify.current;
+    pendingClarify.current = null;
+    setEntries((prev) => {
+      const next = [...prev];
+      for (let i = next.length - 1; i >= 0; i--) {
+        const entry = next[i];
+        if (entry && entry.kind === 'clarify' && !entry.answered) {
+          next[i] = {
+            ...entry,
+            answered: answer.kind === 'cancelled' ? 'no' : 'yes',
+            reply: answer.kind === 'cancelled' ? undefined : label,
+          };
+          break;
+        }
+      }
+      return next;
+    });
+    pending?.resolve(answer);
+  }, []);
 
   /** Said while a confirmation was open, and not an answer to it. */
   const queued = useRef<string | null>(null);
@@ -545,7 +637,10 @@ export function useAtlas(
       onHaltRef.current();
 
       const already = haltRef.current;
-      const next: HaltState = { epoch: event.epoch ?? already?.epoch ?? null, source: already?.source ?? event.source };
+      const next: HaltState = {
+        epoch: event.epoch ?? already?.epoch ?? null,
+        source: already?.source ?? event.source,
+      };
       haltRef.current = next;
       setHalt(next);
       // One marker per halt the person caused, not one per native echo of it:
@@ -555,8 +650,15 @@ export function useAtlas(
       const resolve = pendingConfirm.current;
       pendingConfirm.current = null;
       resolve?.(false);
+      const question = pendingClarify.current;
+      pendingClarify.current = null;
+      question?.resolve({ kind: 'cancelled' });
       setEntries((prev) => [
-        ...prev.map((e) => (e.kind === 'confirm' && !e.answered ? { ...e, answered: 'halted' as const } : e)),
+        ...prev.map((e) =>
+          (e.kind === 'confirm' || e.kind === 'clarify') && !e.answered
+            ? { ...e, answered: 'halted' as const }
+            : e,
+        ),
         { id: nextId++, kind: 'halted', source: event.source, at: Date.now() },
       ]);
     },
@@ -613,7 +715,7 @@ export function useAtlas(
     const native = platform.halt;
     if (native) {
       let epoch = current.epoch;
-      if (epoch === null) epoch = await nativeHalt.current?.catch(() => null) ?? null;
+      if (epoch === null) epoch = (await nativeHalt.current?.catch(() => null)) ?? null;
       if (epoch !== null && !(await native.reset(epoch).catch(() => false))) {
         const status = await native.status().catch(() => null);
         if (status?.halted) {
@@ -651,6 +753,19 @@ export function useAtlas(
        * the early return, and vanished — which from the outside looks like
        * Atlas getting stuck on his own question.
        */
+      if (pendingClarify.current) {
+        push({ kind: 'you', text: trimmed });
+        const reading = readClarifyReply(trimmed, pendingClarify.current.choices);
+        if (reading.kind === 'needs-text') {
+          // Picked an option that wants typing, or a number that is not one:
+          // say what is needed and keep waiting.
+          push({ kind: 'atlas', text: reading.prompt });
+        } else {
+          answerClarify(reading.answer, reading.label);
+        }
+        return;
+      }
+
       if (pendingConfirm.current) {
         push({ kind: 'you', text: trimmed });
         const answer = readAffirmation(trimmed);
@@ -668,12 +783,12 @@ export function useAtlas(
       if (options.echo !== false) push({ kind: 'you', text: trimmed });
       setBusy(true);
       try {
-        await engine.ask(trimmed, io);
+        await engine.ask(trimmed, io, { thinkLonger: thinkLonger && hasModel });
       } finally {
         setBusy(false);
       }
     },
-    [busy, engine, io, push, answerConfirm, resume],
+    [busy, engine, io, push, answerConfirm, answerClarify, resume, thinkLonger, hasModel],
   );
 
   /**
@@ -758,7 +873,13 @@ export function useAtlas(
      * that is a ref: changing it would not re-render anything, and a gate that
      * only lifts on the next unrelated render is not a gate.
      */
-    awaitingAnswer: entries.some((e) => e.kind === 'confirm' && !e.answered),
+    awaitingAnswer: entries.some(
+      (e) => (e.kind === 'confirm' || e.kind === 'clarify') && !e.answered,
+    ),
+    /** Is a model connected and switched on? Nothing about thinking longer means anything without one. */
+    hasModel,
+    thinkLonger,
+    toggleThinkLonger: () => setThinkLonger((on) => !on),
     ask,
     runAction,
     /** Null unless Atlas is halted. */
@@ -766,6 +887,7 @@ export function useAtlas(
     requestHalt,
     resume,
     answerConfirm,
+    answerClarify,
     clear,
     copy,
     /**

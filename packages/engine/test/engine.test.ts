@@ -1611,7 +1611,7 @@ test('research.search renders no results honestly rather than an empty list', as
 test('research.search fails gracefully when the network is unreachable', async () => {
   const h = harness();
   h.web.failSearch = true;
-  const outcome = await h.engine.ask('search the internet for anything', io(h));
+  const outcome = await h.engine.ask('search the internet for rust tutorials', io(h));
   assert.equal(outcome.ok, false);
   // The manager hides which backend broke: the user hears a calm, generic
   // sentence, not a provider's raw error.

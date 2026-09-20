@@ -50,7 +50,19 @@ export interface IntelligenceProvider {
    * request itself; a provider uses the signal to stop delivering to
    * handlers nobody is listening to any more.
    */
-  ask(prompt: string, handlers: ProviderStreamHandlers, options?: { signal?: HaltSignal }): void;
+  ask(
+    prompt: string,
+    handlers: ProviderStreamHandlers,
+    options?: {
+      signal?: HaltSignal;
+      /**
+       * "Think longer": the person asked for extended thinking and a fuller
+       * answer. A provider that has such a mode uses it; one that does not
+       * ignores this — the prompt itself already asks for a thorough answer.
+       */
+      deeper?: boolean;
+    },
+  ): void;
   /** Opens whatever UI configures this provider. */
   configure?(): void;
 }
