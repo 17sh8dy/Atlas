@@ -13,11 +13,11 @@
  * ── Model names are Ollama tags ─────────────────────────────────────────────
  * Local models are served by Ollama on this machine, so `ollamaTag` is the
  * exact tag `ollama pull` takes. Nothing here assumes a PC can run all of
- * them: the two 30B models are large mixture-of-experts downloads (~19 GB)
+ * them: the two large models are mixture-of-experts downloads (~19 and ~24 GB)
  * and are optional. The default is the small one.
  */
 
-export type LocalModelRole = 'everyday' | 'reasoning' | 'coding';
+export type LocalModelRole = 'everyday' | 'reasoning' | 'flagship';
 
 export interface LocalModelProfile {
   /** The `IntelligenceProvider` id. Stable — it is what "in use" is stored as. */
@@ -58,19 +58,19 @@ export const LOCAL_MODEL_PROFILES: readonly LocalModelProfile[] = [
     approxDownloadGb: 19,
   },
   {
-    id: 'local:qwen3-coder-30b-a3b',
-    label: 'Qwen3-Coder-30B-A3B-Instruct',
-    ollamaTag: 'qwen3-coder:30b',
-    role: 'coding',
-    blurb: 'Coding and agentic development',
-    approxDownloadGb: 19,
+    id: 'local:qwen3.5-35b',
+    label: 'Qwen3.5-35B',
+    ollamaTag: 'qwen3.5:35b',
+    role: 'flagship',
+    blurb: 'Newest generation: strongest reasoning, coding and vision',
+    approxDownloadGb: 24,
   },
 ];
 
 export const ROLE_ICON: Record<LocalModelRole, string> = {
   everyday: '💬',
   reasoning: '🧠',
-  coding: '💻',
+  flagship: '⭐',
 };
 
 /** The main local model: what is used when local models are on and none was picked. */

@@ -120,7 +120,7 @@ describe('each selectable local model puts its own tag on the wire', () => {
       await askActive(setup({ activeProviderId: profile.id }));
       models.push(lastArgs().model as string);
     }
-    expect(models).toEqual(['qwen3:8b', 'qwen3:30b', 'qwen3-coder:30b']);
+    expect(models).toEqual(['qwen3:8b', 'qwen3:30b', 'qwen3.5:35b']);
     expect(new Set(models).size).toBe(3);
   });
 

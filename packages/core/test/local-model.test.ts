@@ -15,12 +15,12 @@ test('the main local model is Qwen3-8B', () => {
   assert.equal(main?.role, 'everyday');
 });
 
-test('the two optional models are the 30B pair, each with its own role', () => {
+test('the two optional models are the large pair, each with its own role', () => {
   const byRole = Object.fromEntries(LOCAL_MODEL_PROFILES.map((p) => [p.role, p]));
   assert.equal(byRole.reasoning?.label, 'Qwen3-30B-A3B');
   assert.equal(byRole.reasoning?.ollamaTag, 'qwen3:30b');
-  assert.equal(byRole.coding?.label, 'Qwen3-Coder-30B-A3B-Instruct');
-  assert.equal(byRole.coding?.ollamaTag, 'qwen3-coder:30b');
+  assert.equal(byRole.flagship?.label, 'Qwen3.5-35B');
+  assert.equal(byRole.flagship?.ollamaTag, 'qwen3.5:35b');
   assert.lengthOf(LOCAL_MODEL_PROFILES, 3);
 });
 
@@ -38,12 +38,12 @@ test('only the everyday model turns thinking off; the others keep their default'
   const think = Object.fromEntries(LOCAL_MODEL_PROFILES.map((p) => [p.role, p.think]));
   assert.equal(think.everyday, false);
   assert.isUndefined(think.reasoning);
-  assert.isUndefined(think.coding);
+  assert.isUndefined(think.flagship);
 });
 
 test('an installed tag maps to its profile id, and an unknown tag gets its own', () => {
   assert.equal(localModelIdForTag('qwen3:8b'), 'local:qwen3-8b');
-  assert.equal(localModelIdForTag('qwen3-coder:30b'), 'local:qwen3-coder-30b-a3b');
+  assert.equal(localModelIdForTag('qwen3.5:35b'), 'local:qwen3.5-35b');
   assert.equal(localModelIdForTag('llama3.2:3b'), 'local:llama3.2:3b');
 });
 

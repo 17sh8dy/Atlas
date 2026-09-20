@@ -227,8 +227,8 @@ registered, through `SimpleIntelligenceRegistry`
   `packages/core/src/models/local-model.ts` is the catalogue — **Qwen3-8B**
   (`qwen3:8b`, the default, everyday conversation, thinking off so a home PC
   answers in seconds), **Qwen3-30B-A3B** (`qwen3:30b`, deeper reasoning) and
-  **Qwen3-Coder-30B-A3B-Instruct** (`qwen3-coder:30b`, coding). The two 30B
-  models are optional ~19 GB downloads; nothing assumes a PC can run them.
+  **Qwen3.5-35B** (`qwen3.5:35b`, newest generation, replaced Qwen3-Coder-30B
+  2026-09-20). The two large models are optional ~19 and ~24 GB downloads; nothing assumes a PC can run them.
   Each is its own provider with its own id, and its `ask()` puts *its own*
   Ollama tag on the wire (`apps/web/test/model-routing.test.ts` proves it for
   every model, and through the real `Engine`). Any other model Ollama reports

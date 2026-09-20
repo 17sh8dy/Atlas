@@ -59,6 +59,14 @@ itself back.
 
 ### Still open (the honest list)
 
+- **Settings persistence (added 2026-09-20):** theme, accent, text style and effects are saved in the
+  webview's `localStorage` (`app/theme.tsx`, `text-style.tsx`, `effects.tsx`), not the `Storage` port /
+  `storage.json`. They are per-build-origin and cannot follow a Nova Account. Move them onto `Storage`
+  (one-time import from `localStorage`), or fold into Nova Accounts settings sync when that lands.
+- **More local runtimes (added 2026-09-20):** Local Models and "Also installed on this PC" only speak
+  Ollama (`intelligence.rs` streams `/api/chat` NDJSON). Add LM Studio / llama.cpp server / Jan through
+  their OpenAI-compatible `/v1` endpoint (SSE) behind a runtime seam. Cline is a VS Code agent, not a
+  model runtime, so it is not a target. Also possible: an Install button that runs `ollama pull`.
 - **Not started:** Phase 5 Routines · Phase 9 Awareness · Phase 10 (configurable
   summon shortcut, autostart, code signing, first-run experience — the
   updater is built, see above).

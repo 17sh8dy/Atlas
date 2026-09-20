@@ -669,7 +669,56 @@ pub fn open_url_with_app(app_id: String, url: String) -> Result<bool, String> {
     if app.target.starts_with(APPS_FOLDER_PREFIX) {
         return Err(format!("{} can't be opened straight to a page — try opening it and going there.", app.name));
     }
-    spawn_hidden(&app.target, &url, &app.name)
+    // Most apps are found through a Start Menu `.lnk`, which is not itself an
+    // executable — spawning it directly is "%1 is not a valid Win32 application"
+    // (os error 193). Resolve it to the program it points at first.
+    let program = if app.target.to_lowercase().ends_with(".lnk") {
+        resolve_shortcut(&app.target).ok_or_else(|| {
+            format!("Couldn't work out which program {}'s shortcut points at.", app.name)
+        })?
+    } else {
+        app.target.clone()
+    };
+    spawn_hidden(&program, &url, &app.name)
+}
+
+/// The program a `.lnk` shortcut points at, or `None` if it can't be read.
+#[cfg(windows)]
+fn resolve_shortcut(lnk: &str) -> Option<String> {
+    use windows::core::{Interface, PCWSTR};
+    use windows::Win32::Storage::FileSystem::WIN32_FIND_DATAW;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED, STGM_READ,
+    };
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+
+    let wide: Vec<u16> = lnk.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        // S_OK / S_FALSE mean this call added a COM reference to balance; a
+        // mode mismatch (thread already initialised differently) still works.
+        let owns = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let path = (|| -> Option<String> {
+            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
+            let file: IPersistFile = link.cast().ok()?;
+            file.Load(PCWSTR(wide.as_ptr()), STGM_READ).ok()?;
+            let mut buf = [0u16; 1024];
+            let mut find = WIN32_FIND_DATAW::default();
+            link.GetPath(&mut buf, &mut find, 0).ok()?;
+            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            let s = String::from_utf16_lossy(&buf[..len]);
+            (!s.is_empty()).then_some(s)
+        })();
+        if owns {
+            CoUninitialize();
+        }
+        path
+    }
+}
+
+#[cfg(not(windows))]
+fn resolve_shortcut(_lnk: &str) -> Option<String> {
+    None
 }
 
 /// Spawn `program` with a single argument, suppressing the console window
@@ -1024,6 +1073,23 @@ pub fn open_system_tool(id: String) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
+    /// "Open Discord on Brave" failed with os error 193 because the app's target
+    /// is a `.lnk`, which can't be spawned. A real Start Menu shortcut must
+    /// resolve to an executable that exists. Skipped where Brave isn't installed.
+    #[test]
+    #[cfg(windows)]
+    fn a_start_menu_shortcut_resolves_to_its_executable() {
+        let Some(appdata) = std::env::var_os("APPDATA") else { return };
+        let lnk = std::path::PathBuf::from(appdata)
+            .join("Microsoft/Windows/Start Menu/Programs/Brave.lnk");
+        if !lnk.exists() {
+            return;
+        }
+        let exe = super::resolve_shortcut(&lnk.to_string_lossy()).expect("shortcut should resolve");
+        assert!(exe.to_lowercase().ends_with(".exe"), "got {exe}");
+        assert!(std::path::Path::new(&exe).exists(), "{exe} does not exist");
+    }
+
     /// The hole this closed, stated as the thing a person would actually type.
     ///
     /// A Store app has no `.lnk` anywhere on disk, so before `collect_apps_folder`

@@ -184,7 +184,14 @@ export function LocalModels({ platform, storage, localAi, activeId, onChange }: 
                 <Button
                   variant={inUse ? 'secondary' : 'primary'}
                   size="sm"
-                  disabled={saving || inUse || missing}
+                  disabled={saving || inUse || !installed}
+                  title={
+                    installed || inUse
+                      ? undefined
+                      : probe === null
+                        ? 'Start Ollama first, then Refresh'
+                        : 'Install this model first'
+                  }
                   onClick={() => select(p.id)}
                 >
                   {inUse ? 'In use' : 'Use'}

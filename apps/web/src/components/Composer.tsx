@@ -317,7 +317,7 @@ export function Composer({
               onClick={thinkLonger.onToggle}
               aria-pressed={thinkLonger.on}
               aria-label="Think longer"
-              title="Use this for extended thinking time and mostly more detailed answers, depending on the model."
+              title="Give the model more time to reason through complex tasks."
               className={cn(
                 'atlas-enhance mb-0.5 flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5',
                 'duration-fast text-xs font-medium backdrop-blur-md transition',
