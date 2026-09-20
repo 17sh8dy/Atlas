@@ -17,7 +17,7 @@
  * and are optional. The default is the small one.
  */
 
-export type LocalModelRole = 'everyday' | 'reasoning' | 'flagship';
+export type LocalModelRole = 'everyday' | 'reasoning' | 'flagship' | 'compact';
 
 export interface LocalModelProfile {
   /** The `IntelligenceProvider` id. Stable — it is what "in use" is stored as. */
@@ -65,12 +65,21 @@ export const LOCAL_MODEL_PROFILES: readonly LocalModelProfile[] = [
     blurb: 'Newest generation: strongest reasoning, coding and vision',
     approxDownloadGb: 24,
   },
+  {
+    id: 'local:gpt-oss-20b',
+    label: 'GPT-OSS 20B',
+    ollamaTag: 'gpt-oss:20b',
+    role: 'compact',
+    blurb: "OpenAI's open-weight reasoning model; small enough for a 16 GB graphics card",
+    approxDownloadGb: 14,
+  },
 ];
 
 export const ROLE_ICON: Record<LocalModelRole, string> = {
   everyday: '💬',
   reasoning: '🧠',
   flagship: '⭐',
+  compact: '⚡',
 };
 
 /** The main local model: what is used when local models are on and none was picked. */

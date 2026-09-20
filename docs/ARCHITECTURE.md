@@ -228,7 +228,7 @@ registered, through `SimpleIntelligenceRegistry`
   (`qwen3:8b`, the default, everyday conversation, thinking off so a home PC
   answers in seconds), **Qwen3-30B-A3B** (`qwen3:30b`, deeper reasoning) and
   **Qwen3.5-35B** (`qwen3.5:35b`, newest generation, replaced Qwen3-Coder-30B
-  2026-09-20). The two large models are optional ~19 and ~24 GB downloads; nothing assumes a PC can run them.
+  2026-09-20). **GPT-OSS 20B** (`gpt-oss:20b`, OpenAI's open-weight model, ~14 GB, added 2026-09-20). The large models are optional ~14–24 GB downloads; nothing assumes a PC can run them.
   Each is its own provider with its own id, and its `ask()` puts *its own*
   Ollama tag on the wire (`apps/web/test/model-routing.test.ts` proves it for
   every model, and through the real `Engine`). Any other model Ollama reports

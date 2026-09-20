@@ -8,7 +8,7 @@
  * Atlas's own skills, permissions and confirmations.
  *
  * ── Not every PC can run every model ────────────────────────────────────────
- * The two 30B models are ~19 GB downloads and are optional. The page says how
+ * The larger models are ~14–24 GB downloads and are optional. The page says how
  * big each one is and how to get it, and never assumes it is installed: a row
  * for a model that is not there says so and shows the one command to run, and
  * "Use" stays off until it is. When Ollama is not running at all, the page

@@ -21,7 +21,8 @@ test('the two optional models are the large pair, each with its own role', () =>
   assert.equal(byRole.reasoning?.ollamaTag, 'qwen3:30b');
   assert.equal(byRole.flagship?.label, 'Qwen3.5-35B');
   assert.equal(byRole.flagship?.ollamaTag, 'qwen3.5:35b');
-  assert.lengthOf(LOCAL_MODEL_PROFILES, 3);
+  assert.equal(byRole.compact?.ollamaTag, 'gpt-oss:20b');
+  assert.lengthOf(LOCAL_MODEL_PROFILES, 4);
 });
 
 test('every profile has a distinct id and tag, and ids never collide with a cloud id shape', () => {
@@ -39,11 +40,13 @@ test('only the everyday model turns thinking off; the others keep their default'
   assert.equal(think.everyday, false);
   assert.isUndefined(think.reasoning);
   assert.isUndefined(think.flagship);
+  assert.isUndefined(think.compact);
 });
 
 test('an installed tag maps to its profile id, and an unknown tag gets its own', () => {
   assert.equal(localModelIdForTag('qwen3:8b'), 'local:qwen3-8b');
   assert.equal(localModelIdForTag('qwen3.5:35b'), 'local:qwen3.5-35b');
+  assert.equal(localModelIdForTag('gpt-oss:20b'), 'local:gpt-oss-20b');
   assert.equal(localModelIdForTag('llama3.2:3b'), 'local:llama3.2:3b');
 });
 

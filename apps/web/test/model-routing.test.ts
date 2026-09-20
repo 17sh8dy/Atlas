@@ -120,8 +120,8 @@ describe('each selectable local model puts its own tag on the wire', () => {
       await askActive(setup({ activeProviderId: profile.id }));
       models.push(lastArgs().model as string);
     }
-    expect(models).toEqual(['qwen3:8b', 'qwen3:30b', 'qwen3.5:35b']);
-    expect(new Set(models).size).toBe(3);
+    expect(models).toEqual(['qwen3:8b', 'qwen3:30b', 'qwen3.5:35b', 'gpt-oss:20b']);
+    expect(new Set(models).size).toBe(4);
   });
 
   test('a model Ollama has that is not in the catalogue is usable too, under its own name', async () => {
