@@ -20,7 +20,7 @@ import type { Platform } from '@atlas/core';
 import { Icons, cn } from '@atlas/ui';
 
 import { NovaAllProducts } from './NovaAllProducts';
-import { openNovaProduct, type NovaLaunchable, type NovaProductKind } from './novaProducts';
+import { NOVA_HOME_URL, openNovaProduct, type NovaLaunchable, type NovaProductKind } from './novaProducts';
 
 interface NovaProduct extends NovaLaunchable {
   tagline: string;
@@ -90,7 +90,7 @@ const SITES: NovaProduct[] = [
     kind: 'site',
     url: 'https://atlas-website.17sh8dy.workers.dev/',
   },
-  { id: 'nova', label: 'Nova', tagline: 'The Nova home page', icon: Icons.Globe, kind: 'soon' },
+  { id: 'nova', label: 'Nova', tagline: 'The Nova home page', icon: Icons.Globe, kind: 'site', url: NOVA_HOME_URL },
   { id: 'nova-legal', label: 'Nova Legal', tagline: 'Terms and privacy', icon: Icons.FileText, kind: 'soon' },
   { id: 'nova-cut-site', label: 'Nova Cut Website', tagline: 'Nova Cut, on the web', icon: Icons.Scissors, kind: 'soon' },
 ];
