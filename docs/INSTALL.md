@@ -1,4 +1,4 @@
-# Atlas 1.0.0 — install and first run
+# Atlas 1.0.1 — install and first run
 
 Atlas is a local-first desktop assistant for Windows. It does its job on your PC, with no account,
 no API key and no internet needed for the everyday things it does.
@@ -16,20 +16,20 @@ You do **not** need Ollama, an API key or a Nova Account. Those are optional (se
 
 ## Install
 
-1. Download `Atlas_1.0.0_x64-setup.exe` from the [latest release](https://github.com/17sh8dy/Atlas/releases/latest).
+1. Download `Atlas_1.0.1_x64-setup.exe` from the [latest release](https://github.com/17sh8dy/Atlas/releases/latest).
 2. Run it and follow the steps.
 3. Atlas starts. Press **Ctrl+Space** anywhere to summon or hide it.
 
 ### "Windows protected your PC"
 
-Atlas 1.0.0 is **not code-signed yet**, so Windows SmartScreen shows a blue warning the first time.
+Atlas 1.0.1 is **not code-signed yet**, so Windows SmartScreen shows a blue warning the first time.
 That is expected for an unsigned installer, not a sign of a problem. Choose **More info → Run anyway**.
 
 If you want to confirm the file is the one that was published, compare its checksum with the
 `sha256` in `latest.json` on the same release page:
 
 ```powershell
-Get-FileHash .\Atlas_1.0.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Atlas_1.0.1_x64-setup.exe -Algorithm SHA256
 ```
 
 ## First run
@@ -67,7 +67,7 @@ Atlas checks for updates about 20 seconds after it starts and every few hours wh
 check yourself in **Settings → About → Check for updates**. An update downloads, is verified against a
 checksum, and installs when you say so.
 
-> Older builds (0.85.x and earlier) do not have automatic updates. Install 1.0.0 by hand once; from
+> Older builds (0.85.x and earlier) do not have automatic updates. Install 1.0.0 or newer by hand once; from
 > then on it updates itself.
 
 ## Where things are stored
