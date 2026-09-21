@@ -692,6 +692,7 @@ function Ready({
   return (
     <div className="bg-background text-foreground flex h-full flex-col">
       <TitleBar
+        platform={platform}
         onLogoClick={goHome}
         back={
           screen === 'settings'

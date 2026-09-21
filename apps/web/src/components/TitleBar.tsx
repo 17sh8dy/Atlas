@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { AtlasMark, Icons, cn } from '@atlas/ui';
+import type { Platform } from '@atlas/core';
 import { isTauri } from '@atlas/platform';
 
 import { NovaSwitcher } from './NovaSwitcher';
@@ -32,9 +33,11 @@ interface Props {
    * an arrow in this corner means everywhere else it appears.
    */
   back?: { label: string; onClick: () => void };
+  /** For the product switcher, which opens sibling apps and sites through it. */
+  platform: Platform;
 }
 
-export function TitleBar({ right, onLogoClick, back }: Props) {
+export function TitleBar({ right, onLogoClick, back, platform }: Props) {
   const native = isTauri();
 
   const [maximized, setMaximized] = useState(false);
@@ -146,7 +149,7 @@ export function TitleBar({ right, onLogoClick, back }: Props) {
         </div>
       )}
       <div className="flex items-center px-1">
-        <NovaSwitcher current="atlas" />
+        <NovaSwitcher current="atlas" platform={platform} />
       </div>
       <div data-tauri-drag-region className="flex-1" />
 

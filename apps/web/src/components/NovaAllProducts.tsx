@@ -20,7 +20,8 @@ export interface NovaAllProduct {
   label: string;
   tagline: string;
   icon: Icons.LucideIcon;
-  url: string | null;
+  /** 'app' launches the installed program, 'site' opens the browser, 'soon' is disabled. */
+  kind: 'app' | 'site' | 'soon';
 }
 
 interface Props {
@@ -29,10 +30,85 @@ interface Props {
   current: string;
   currentLabel?: string;
   products: NovaAllProduct[];
+  /** Websites, shown in their own section under the apps. */
+  sites?: NovaAllProduct[];
   mark: React.ReactNode;
+  /** Called with a product id; the parent decides how to open it (app vs website). */
+  onOpen: (id: string) => void;
+  /** Why the last open didn't happen, e.g. "isn't installed on this PC yet". */
+  note?: string | null;
 }
 
-export function NovaAllProducts({ open, onClose, current, currentLabel, products, mark }: Props) {
+export function NovaAllProducts({ open, onClose, current, currentLabel, products, sites = [], mark, onOpen, note }: Props) {
+  const renderCard = (p: NovaAllProduct, i: number) => {
+    const Icon = p.icon;
+    const isCurrent = p.id === current;
+    const label = isCurrent && currentLabel ? currentLabel : p.label;
+    const body = (
+      <>
+        <span
+          className={cn(
+            'bg-surface-raised text-foreground-muted mb-3 grid h-10 w-10 shrink-0 place-items-center rounded-md',
+            // See NovaSwitcher.tsx: `primary`, not the separate `accent`
+            // token, is what every other flat "this is active" state in
+            // the app tracks.
+            isCurrent && 'bg-background text-primary',
+          )}
+        >
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <span className="text-foreground block text-sm font-bold">{label}</span>
+        <span className={cn('text-foreground-subtle block text-xs', isCurrent && 'text-primary')}>
+          {isCurrent ? "You're here" : p.tagline}
+        </span>
+      </>
+    );
+    const style = { animationDelay: `${i * 40}ms` };
+    const cardClass =
+      'animate-in fade-in-0 zoom-in-95 fill-mode-both relative flex flex-col rounded-2xl border p-5';
+
+    if (isCurrent) {
+      return (
+        <span
+          key={p.id}
+          style={style}
+          className={cn(cardClass, 'border-primary/40 bg-primary/10 cursor-default')}
+        >
+          {body}
+        </span>
+      );
+    }
+    if (p.kind === 'soon') {
+      return (
+        <span
+          key={p.id}
+          style={style}
+          className={cn(cardClass, 'border-border text-foreground-subtle cursor-default')}
+        >
+          {body}
+          <span className="bg-surface-raised text-foreground-subtle absolute right-3.5 top-3.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold">
+            Soon
+          </span>
+        </span>
+      );
+    }
+    return (
+      <button
+        key={p.id}
+        type="button"
+        onClick={() => onOpen(p.id)}
+        style={style}
+        className={cn(
+          cardClass,
+          'border-border bg-surface text-left',
+          'duration-base transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-raised hover:shadow-lg',
+        )}
+      >
+        {body}
+      </button>
+    );
+  };
+
   return (
     <Modal
       open={open}
@@ -61,77 +137,21 @@ export function NovaAllProducts({ open, onClose, current, currentLabel, products
           <h2 className="text-foreground mb-1.5 text-2xl font-bold tracking-tight">All products</h2>
           <p className="text-foreground-muted mx-auto mb-7 max-w-md">Everything Nova makes, in one place.</p>
 
-          <div className="grid grid-cols-2 gap-3.5 text-left sm:grid-cols-4">
-            {products.map((p, i) => {
-              const Icon = p.icon;
-              const isCurrent = p.id === current;
-              const label = isCurrent && currentLabel ? currentLabel : p.label;
-              const body = (
-                <>
-                  <span
-                    className={cn(
-                      'bg-surface-raised text-foreground-muted mb-3 grid h-10 w-10 shrink-0 place-items-center rounded-md',
-                      // See NovaSwitcher.tsx: `primary`, not the separate `accent`
-                      // token, is what every other flat "this is active" state in
-                      // the app tracks.
-                      isCurrent && 'bg-background text-primary',
-                    )}
-                  >
-                    <Icon className="h-5 w-5" aria-hidden="true" />
-                  </span>
-                  <span className="text-foreground block text-sm font-bold">{label}</span>
-                  <span className={cn('text-foreground-subtle block text-xs', isCurrent && 'text-primary')}>
-                    {isCurrent ? "You're here" : p.tagline}
-                  </span>
-                </>
-              );
-              const style = { animationDelay: `${i * 40}ms` };
-              const cardClass =
-                'animate-in fade-in-0 zoom-in-95 fill-mode-both relative flex flex-col rounded-2xl border p-5';
-
-              if (isCurrent) {
-                return (
-                  <span
-                    key={p.id}
-                    style={style}
-                    className={cn(cardClass, 'border-primary/40 bg-primary/10 cursor-default')}
-                  >
-                    {body}
-                  </span>
-                );
-              }
-              if (!p.url) {
-                return (
-                  <span
-                    key={p.id}
-                    style={style}
-                    className={cn(cardClass, 'border-border text-foreground-subtle cursor-default')}
-                  >
-                    {body}
-                    <span className="bg-surface-raised text-foreground-subtle absolute right-3.5 top-3.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold">
-                      Soon
-                    </span>
-                  </span>
-                );
-              }
-              return (
-                <a
-                  key={p.id}
-                  href={p.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={style}
-                  className={cn(
-                    cardClass,
-                    'border-border bg-surface no-underline',
-                    'duration-base transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-raised hover:shadow-lg',
-                  )}
-                >
-                  {body}
-                </a>
-              );
-            })}
-          </div>
+          <p className="text-foreground-subtle mb-3 mt-1 text-left text-[11px] font-bold uppercase tracking-wide">Apps</p>
+          <div className="grid grid-cols-2 gap-3.5 text-left sm:grid-cols-4">{products.map(renderCard)}</div>
+          {sites.length > 0 && (
+            <>
+              <p className="text-foreground-subtle mb-3 mt-7 text-left text-[11px] font-bold uppercase tracking-wide">
+                Websites
+              </p>
+              <div className="grid grid-cols-2 gap-3.5 text-left sm:grid-cols-4">{sites.map(renderCard)}</div>
+            </>
+          )}
+          {note && (
+            <p role="status" className="text-foreground-muted mt-4 text-sm">
+              {note}
+            </p>
+          )}
         </div>
       </div>
     </Modal>

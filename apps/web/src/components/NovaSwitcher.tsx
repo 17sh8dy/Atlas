@@ -16,22 +16,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import type { Platform } from '@atlas/core';
 import { Icons, cn } from '@atlas/ui';
 
 import { NovaAllProducts } from './NovaAllProducts';
+import { openNovaProduct, type NovaLaunchable, type NovaProductKind } from './novaProducts';
 
-interface NovaProduct {
-  id: string;
-  label: string;
+interface NovaProduct extends NovaLaunchable {
   tagline: string;
   icon: Icons.LucideIcon;
   /**
-   * None of these has a confirmed public domain yet. TODO: confirm the real URL for each before
-   * this ships — a wrong guess here sends someone to an unregistered domain, not somewhere
-   * unsafe, but it should be fixed before launch. `null` (Nova Games) means there is genuinely
-   * nothing to link to yet, not just an unconfirmed one — that row renders disabled instead.
+   * 'app' launches the installed program in the background, 'site' opens the browser, 'soon'
+   * renders disabled. See `novaProducts.ts` for how each one is opened. Only addresses that
+   * really exist are listed: Atlas's own download page is real; Nova Cut and Replay.gg have none
+   * yet, so a missing install sends people to the Nova home page instead of a guessed domain.
    */
-  url: string | null;
+  kind: NovaProductKind;
 }
 
 const PRODUCTS: NovaProduct[] = [
@@ -40,29 +40,59 @@ const PRODUCTS: NovaProduct[] = [
     label: 'Nova Cut',
     tagline: 'Create and edit',
     icon: Icons.Scissors,
-    url: 'https://novacut.app',
+    // "Soon" until Nova Cut is ready. To turn it on: kind: 'app', appIds: ['novacut'].
+    kind: 'soon',
   },
   {
     id: 'replay-gg',
     label: 'Replay.GG',
     tagline: 'Record and clip gameplay',
     icon: Icons.Gamepad2,
-    url: 'https://replay.gg',
+    kind: 'app',
+    appIds: ['replaygg'],
   },
   {
     id: 'atlas',
     label: 'Atlas',
     tagline: 'Your desktop assistant',
     icon: Icons.Sparkles,
-    url: 'https://atlas.app',
+    kind: 'app',
+    getUrl: 'https://atlas-website.17sh8dy.workers.dev/',
   },
   {
     id: 'nova-games',
     label: 'Nova Games',
     tagline: 'Coming soon',
     icon: Icons.Gamepad2,
-    url: null,
+    kind: 'soon',
   },
+];
+
+/**
+ * The Nova websites, shown under "Websites" in View all (not in the quick dropdown, which is
+ * for jumping between apps). Only sites that are deployed and have a real address are links;
+ * the rest render as "Soon" until they are.
+ */
+const SITES: NovaProduct[] = [
+  {
+    id: 'nova-help',
+    label: 'Nova.Help',
+    tagline: 'Support and guides',
+    icon: Icons.Search,
+    kind: 'site',
+    url: 'https://nova-help.17sh8dy.workers.dev/',
+  },
+  {
+    id: 'atlas-site',
+    label: 'Atlas Website',
+    tagline: 'Download and learn about Atlas',
+    icon: Icons.Sparkles,
+    kind: 'site',
+    url: 'https://atlas-website.17sh8dy.workers.dev/',
+  },
+  { id: 'nova', label: 'Nova', tagline: 'The Nova home page', icon: Icons.Globe, kind: 'soon' },
+  { id: 'nova-legal', label: 'Nova Legal', tagline: 'Terms and privacy', icon: Icons.FileText, kind: 'soon' },
+  { id: 'nova-cut-site', label: 'Nova Cut Website', tagline: 'Nova Cut, on the web', icon: Icons.Scissors, kind: 'soon' },
 ];
 
 /** The Nova sparkle mark — identical to assets/favicon.svg in the Nova repo. */
@@ -78,8 +108,24 @@ function NovaMark() {
   );
 }
 
-export function NovaSwitcher({ current }: { current: string }) {
+export function NovaSwitcher({ current, platform }: { current: string; platform: Platform }) {
   const [open, setOpen] = useState(false);
+  /** Why the last open didn't happen ("isn't installed"), shown in the menu. */
+  const [note, setNote] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const openProduct = async (p: NovaProduct) => {
+    setNote(null);
+    setBusyId(p.id);
+    const result = await openNovaProduct(platform, p);
+    setBusyId(null);
+    if (result.ok) {
+      setOpen(false);
+      setAllOpen(false);
+    } else {
+      setNote(result.message);
+    }
+  };
   const [allOpen, setAllOpen] = useState(false);
   /**
    * Where the portaled menu below should sit, in viewport coordinates.
@@ -131,6 +177,7 @@ export function NovaSwitcher({ current }: { current: string }) {
           // paints a frame at its previous (or default 0,0) position — by the
           // time `open` reaches this render, `menuPos` already matches it.
           if (!open) {
+            setNote(null);
             const rect = rootRef.current?.getBoundingClientRect();
             if (rect) setMenuPos({ top: rect.bottom + 8, left: rect.left });
           }
@@ -230,7 +277,7 @@ export function NovaSwitcher({ current }: { current: string }) {
                 </span>
               );
             }
-            if (!p.url) {
+            if (p.kind === 'soon') {
               return (
                 <span
                   key={p.id}
@@ -246,18 +293,29 @@ export function NovaSwitcher({ current }: { current: string }) {
               );
             }
             return (
-              <a
+              <button
                 key={p.id}
+                type="button"
                 role="menuitem"
-                href={p.url}
-                target="_blank"
-                rel="noreferrer"
-                className="hover:bg-surface flex items-center gap-2.5 rounded-md p-2 no-underline"
+                disabled={busyId !== null}
+                onClick={() => void openProduct(p)}
+                className="hover:bg-surface flex w-full items-center gap-2.5 rounded-md p-2 text-left disabled:opacity-60"
               >
                 {body}
-              </a>
+                {p.kind === 'site' && (
+                  <Icons.Globe
+                    className="text-foreground-subtle ml-auto h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                )}
+              </button>
             );
           })}
+          {note && (
+            <p role="status" className="text-foreground-muted mx-2 my-1.5 text-[11px] leading-snug">
+              {note}
+            </p>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -277,7 +335,13 @@ export function NovaSwitcher({ current }: { current: string }) {
         onClose={() => setAllOpen(false)}
         current={current}
         products={PRODUCTS}
+        sites={SITES}
         mark={<NovaMark />}
+        onOpen={(id) => {
+          const p = [...PRODUCTS, ...SITES].find((x) => x.id === id);
+          if (p) void openProduct(p);
+        }}
+        note={note}
       />
     </div>
   );
