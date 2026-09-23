@@ -65,7 +65,7 @@ export function plan(steps: PlanStep | PlanStep[], intent: string, confidence = 
 export const COMMAND_VERBS = [
   'open', 'launch', 'start', 'run', 'show', 'find', 'search', 'go', 'take',
   'close', 'hide', 'set', 'turn', 'enable', 'disable', 'make', 'create',
-  'delete', 'move', 'copy', 'play', 'stop', 'remind', 'save',
+  'build', 'delete', 'move', 'copy', 'play', 'stop', 'remind', 'save',
 ] as const;
 
 const COMMAND_VERB_PATTERN = new RegExp(`\\b(${COMMAND_VERBS.join('|')})\\b`);

@@ -179,6 +179,15 @@ function summarizeForSpeech(rows: readonly ResultRow[], meta?: { title?: string 
  * (read, search, info, everything outside `files.*`) never reaches
  * `isPreapproved` at all, because it isn't `risk: 'confirm'` in the first
  * place — see `effectiveRisk` in `@atlas/engine`'s executor.
+ *
+ * `project.create` (`@atlas/engine`'s devtools skills) is listed alongside
+ * its `files.*` siblings for the same reason: it is `platform.createFolder`
+ * under a project-domain name, the identical call `files.createFolder` already
+ * makes, so it earns the identical softening. `dependency.install` is
+ * deliberately **not** here — it runs a project's own package-manager tooling
+ * (network access, postinstall scripts), a materially bigger consequence than
+ * writing an empty file, so it keeps asking every time regardless of how
+ * trusted the folder is.
  */
 export const PREAPPROVABLE_PATH_ARGS: Readonly<Record<string, readonly string[]>> = {
   'files.create': ['path'],
@@ -188,6 +197,7 @@ export const PREAPPROVABLE_PATH_ARGS: Readonly<Record<string, readonly string[]>
   'files.copy': ['path', 'destDir'],
   'files.delete': ['path'],
   'files.append': ['path'],
+  'project.create': ['path'],
 };
 
 /**

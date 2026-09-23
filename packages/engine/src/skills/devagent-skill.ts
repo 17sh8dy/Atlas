@@ -42,16 +42,21 @@ export function createDevAgentSkill(options: DevAgentSkillOptions): Skill {
     icon: '🛠️',
     domain: 'devagent',
     description:
-      'Investigate a software project and carry out an open-ended development goal step by step — inspecting, searching, editing, building and testing — deciding each next step from what the last one actually showed, and stopping to explain why when the goal is done, blocked, or the step budget runs out.',
+      'Work on a software project step by step toward one open-ended goal — inspecting, searching, editing, building and testing — deciding each next step from what the last one actually showed, and stopping to explain why when the goal is done, blocked, or the step budget runs out. The project folder may already exist ("fix the build errors in…") or be a new, empty one to scaffold from scratch ("build me a clicker game in…") — project.create, files.create and dependency.install are all in reach the same way project.detect and build.run are.',
     needs: ['devtools'],
     risk: 'confirm',
     examples: [
       'fix the build errors in D:\\Dev\\NovaEngine',
       'find where the login form is validated in this project',
+      'build a simple black/purple clicker game with upgrades in D:\\Dev\\Clicker',
     ],
     params: {
       goal: { type: 'string', required: true, description: 'what to accomplish' },
-      path: { type: 'string', required: true, description: 'the project folder to work in' },
+      path: {
+        type: 'string',
+        required: true,
+        description: 'the project folder to work in — existing, or a new one to create',
+      },
     },
     async run(args, ctx) {
       const report = await runDevTask(String(args.goal), String(args.path), deps, ctx);

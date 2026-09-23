@@ -47,3 +47,12 @@ test('move and copy check both the source and the destination', () => {
   assert.deepEqual(PREAPPROVABLE_PATH_ARGS['files.move'], ['path', 'destDir']);
   assert.deepEqual(PREAPPROVABLE_PATH_ARGS['files.copy'], ['path', 'destDir']);
 });
+
+test('project.create gets the same softening as its twin files.createFolder', () => {
+  assert.deepEqual(PREAPPROVABLE_PATH_ARGS['project.create'], ['path']);
+  assert.deepEqual(PREAPPROVABLE_PATH_ARGS['files.createFolder'], ['path']);
+});
+
+test('dependency.install is deliberately never preapproved — it always asks', () => {
+  assert.isUndefined(PREAPPROVABLE_PATH_ARGS['dependency.install']);
+});
