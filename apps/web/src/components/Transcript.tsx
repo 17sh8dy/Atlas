@@ -18,7 +18,6 @@ import { useTextStyle } from '../app/text-style';
 import { CapabilityBrowser } from './CapabilityBrowser';
 import { RevealText } from './RevealText';
 import type { ActivityRun, ClarifyAnswer } from '@atlas/core';
-import { ActivityPanel } from './ActivityPanel';
 import { LatticeRow } from './LatticeRow';
 
 /** An entry this new was just said; anything older was already read. */
@@ -47,11 +46,12 @@ interface Props {
   /**
    * The run happening right now, if there is one.
    *
-   * Always drives the lattice row (`LatticeRow`) — "Thinking" while it has no
-   * steps yet (the grammar is still deciding, or nothing will ever need a
-   * step at all, as with a plain question), the current step's own label once
-   * it does. A run with steps also gets the full `ActivityPanel` disclosure
-   * underneath, unchanged from before.
+   * Drives `LatticeRow` end to end — "Thinking" while it has no steps yet
+   * (the grammar is still deciding, or nothing will ever need a step at all,
+   * as with a plain question), each real step appearing beneath the header
+   * as it runs, settling into one line once the run really ends. See
+   * `LatticeRow`'s own doc comment for why the old separate `ActivityPanel`
+   * render is gone from here — it would now be showing the same steps twice.
    */
   activeRun?: ActivityRun | null;
 }
@@ -113,11 +113,6 @@ export function Transcript({
       {busy && !streamingNow && (
         <div className="max-w-[85%]">
           <LatticeRow run={activeRun} />
-          {activeRun && activeRun.steps.length > 0 && (
-            <div className="mt-1.5">
-              <ActivityPanel run={activeRun} />
-            </div>
-          )}
         </div>
       )}
 

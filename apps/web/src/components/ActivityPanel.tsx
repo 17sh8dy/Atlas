@@ -17,6 +17,13 @@
  * The height animation measures the content rather than guessing a max-height,
  * which is what keeps a two-step run and a nine-step run both open cleanly
  * instead of one snapping and the other easing.
+ *
+ * ── `StateDot` and `StepRow` are exported ───────────────────────────────────
+ * `LatticeRow.tsx` reuses them verbatim for the live, always-visible step
+ * list beside the lattice header — same rows, same rule about what they show,
+ * rather than a second implementation of "draw an `ActivityStep`" existing
+ * beside this one. This file stays the one place that knows how to draw a
+ * step.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -31,7 +38,7 @@ const STATE_STYLE: Record<ActivityState, { className: string; label: string }> =
   halted: { className: 'text-danger', label: 'Stopped' },
 };
 
-function StateDot({ state }: { state: ActivityState }) {
+export function StateDot({ state }: { state: ActivityState }) {
   const style = STATE_STYLE[state];
   if (state === 'running') {
     return (
@@ -115,7 +122,7 @@ export function ActivityPanel({ run }: { run: ActivityRun }) {
   );
 }
 
-function StepRow({ step, now }: { step: ActivityStep; now: number }) {
+export function StepRow({ step, now }: { step: ActivityStep; now: number }) {
   return (
     <div className="py-1.5">
       <div className="flex items-baseline gap-2 text-xs">
