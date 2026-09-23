@@ -9,8 +9,9 @@
  */
 
 import { test, assert } from 'vitest';
-import type { DevTool, Platform } from '@atlas/core';
+import type { DepManager, DevTool, Platform } from '@atlas/core';
 import { createDevToolsSkills } from '../src/skills/devtools-skills';
+import { SkillRegistry } from '../src/skills/registry';
 
 function stubPlatform(overrides: Partial<Platform> = {}): Platform {
   return {
@@ -255,6 +256,7 @@ test('reads are safe and writes/executions are confirm', () => {
     'git.status',
     'git.diff',
     'git.log',
+    'project.launch',
   ]) {
     assert.equal(riskOf(id), 'safe', id);
   }
@@ -266,6 +268,8 @@ test('reads are safe and writes/executions are confirm', () => {
     'test.run',
     'code.write',
     'code.edit',
+    'project.create',
+    'dependency.install',
   ]) {
     assert.equal(riskOf(id), 'confirm', id);
   }
@@ -276,4 +280,168 @@ test('every devtools skill declares the devtools capability', () => {
   for (const skill of skills) {
     assert.include(skill.needs ?? [], 'devtools', skill.id);
   }
+});
+
+// ---- project.create ---------------------------------------------------------
+
+test('project.create reports the new folder by its full path', async () => {
+  let captured: string | null = null;
+  const find = skillsFrom(
+    stubPlatform({
+      createFolder: async (path) => {
+        captured = path;
+        return true;
+      },
+    }),
+  );
+
+  const result = await find('project.create').run({ path: 'D:\\Dev\\Clicker' }, ctx());
+
+  assert.isTrue(result.ok);
+  assert.equal(captured, 'D:\\Dev\\Clicker');
+  assert.match(result.message!, /D:\\Dev\\Clicker/);
+});
+
+test('project.create surfaces the platform\'s own refusal, e.g. outside the allowed folders', async () => {
+  const find = skillsFrom(
+    stubPlatform({
+      createFolder: async () => {
+        throw new Error('That path is outside the folders Atlas can touch.');
+      },
+    }),
+  );
+
+  const result = await find('project.create').run({ path: 'Z:\\elsewhere\\Clicker' }, ctx());
+
+  assert.isFalse(result.ok);
+  assert.equal(result.error, 'That path is outside the folders Atlas can touch.');
+});
+
+test('project.create reports a plain failure when the platform returns false rather than throwing', async () => {
+  const find = skillsFrom(stubPlatform({ createFolder: async () => false }));
+  const result = await find('project.create').run({ path: 'D:\\Dev\\Clicker' }, ctx());
+  assert.isFalse(result.ok);
+  assert.match(result.error!, /couldn't create/i);
+});
+
+// ---- dependency.install -------------------------------------------------------
+
+test('dependency.install passes manager, package and dev straight through to the platform', async () => {
+  let captured: [string, DepManager, string, boolean | undefined] | null = null;
+  const find = skillsFrom(
+    stubPlatform({
+      installDependency: async (cwd, manager, pkg, dev) => {
+        captured = [cwd, manager, pkg, dev];
+        return { ok: true, stdout: 'added 1 package', stderr: '', exitCode: 0, truncated: false };
+      },
+    }),
+  );
+
+  const result = await find('dependency.install').run(
+    { path: 'C:\\proj', manager: 'npm', package: 'express', dev: true },
+    ctx(),
+  );
+
+  assert.isTrue(result.ok);
+  assert.deepEqual(captured, ['C:\\proj', 'npm', 'express', true]);
+});
+
+test('dependency.install defaults "dev" to false when the caller leaves it out', async () => {
+  let capturedDev: boolean | undefined = 'unset' as unknown as boolean;
+  const find = skillsFrom(
+    stubPlatform({
+      installDependency: async (_cwd, _manager, _pkg, dev) => {
+        capturedDev = dev;
+        return { ok: true, stdout: '', stderr: '', exitCode: 0, truncated: false };
+      },
+    }),
+  );
+
+  await find('dependency.install').run({ path: 'C:\\proj', manager: 'cargo', package: 'serde' }, ctx());
+
+  assert.equal(capturedDev, false);
+});
+
+test('dependency.install surfaces a failed install with its exit code and output, like build.run', async () => {
+  const find = skillsFrom(
+    stubPlatform({
+      installDependency: async () => ({
+        ok: false,
+        stdout: '',
+        stderr: 'npm ERR! 404 Not Found - GET https://registry.npmjs.org/not-a-real-package',
+        exitCode: 1,
+        truncated: false,
+      }),
+    }),
+  );
+
+  const result = await find('dependency.install').run(
+    { path: 'C:\\proj', manager: 'npm', package: 'not-a-real-package' },
+    ctx(),
+  );
+
+  assert.isFalse(result.ok);
+  assert.match(result.error!, /Exit code 1/);
+  assert.match(result.error!, /404 Not Found/);
+});
+
+test('dependency.install declares a closed set of managers — "yarn" is not one of them', () => {
+  // The registry (registry.test.ts covers this mechanism generally) refuses
+  // any value outside a declared `enum` before a skill's `run` is ever
+  // reached — this pins the declaration itself: the one place that closed
+  // set is written down.
+  const skills = createDevToolsSkills(stubPlatform());
+  const skill = skills.find((s) => s.id === 'dependency.install')!;
+  assert.deepEqual(skill.params!.manager!.enum, ['npm', 'pnpm', 'cargo', 'pip']);
+});
+
+test('dependency.install: the registry itself refuses "yarn" before the platform is ever called', async () => {
+  let called = false;
+  const registry = new SkillRegistry({ capabilities: () => ['devtools'] });
+  registry.registerMany(
+    createDevToolsSkills(
+      stubPlatform({
+        installDependency: async () => {
+          called = true;
+          return { ok: true, stdout: '', stderr: '', exitCode: 0, truncated: false };
+        },
+      }),
+    ),
+  );
+
+  const result = await registry.invoke(
+    'dependency.install',
+    { path: 'C:\\proj', manager: 'yarn', package: 'left-pad' },
+    ctx(),
+  );
+
+  assert.isFalse(result.ok);
+  assert.isFalse(called, 'an unvalidated manager must never reach the platform');
+});
+
+// ---- project.launch ---------------------------------------------------------
+
+test('project.launch opens the given path and names it in the message', async () => {
+  let captured: string | null = null;
+  const find = skillsFrom(
+    stubPlatform({
+      openPath: async (path) => {
+        captured = path;
+        return true;
+      },
+    }),
+  );
+
+  const result = await find('project.launch').run({ path: 'D:\\Dev\\Clicker\\index.html' }, ctx());
+
+  assert.isTrue(result.ok);
+  assert.equal(captured, 'D:\\Dev\\Clicker\\index.html');
+  assert.match(result.message!, /index\.html/);
+});
+
+test('project.launch reports failure plainly when the platform could not open the path', async () => {
+  const find = skillsFrom(stubPlatform({ openPath: async () => false }));
+  const result = await find('project.launch').run({ path: 'D:\\Dev\\Clicker\\index.html' }, ctx());
+  assert.isFalse(result.ok);
+  assert.match(result.error!, /couldn't open/i);
 });

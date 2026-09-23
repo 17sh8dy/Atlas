@@ -82,3 +82,11 @@ export interface ToolResult {
   /** True when stdout/stderr were cut off at the size cap. */
   truncated: boolean;
 }
+
+/**
+ * The package managers `installDependency` knows how to drive — a closed
+ * set, exactly like `DevTool` above. There is no variant that takes a raw
+ * command line; the manager decides the fixed executable, `installDependency`
+ * fills in one validated package-name slot.
+ */
+export type DepManager = 'npm' | 'pnpm' | 'cargo' | 'pip';

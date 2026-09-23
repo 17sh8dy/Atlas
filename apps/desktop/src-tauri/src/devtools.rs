@@ -35,6 +35,17 @@
 //! anything runs — the same check every other path-taking command in this
 //! crate makes. Nothing here can act outside a folder the user explicitly
 //! allowed.
+//!
+//! ## `install_dependency` is the same pattern one door over
+//!
+//! Adding a dependency is a variable-command-string temptation for exactly
+//! the reason a build is: "install whatever the user asks for" sounds like it
+//! needs a free-form string. It doesn't. [`DepManager`] closes which
+//! executable runs (`npm`, `pnpm`, `cargo`, or `python -m pip`) the same way
+//! [`DevTool`] closes it for build/test, and the one variable slot — the
+//! package name — is checked against [`is_safe_package_name`], which is
+//! *stricter* than [`is_safe_tool_arg`]: a leading `-` is refused outright so
+//! a "package name" can never double as a manager flag.
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -580,15 +591,12 @@ fn run_direct(root: &Path, program: &str, args: &[&str]) -> Result<ToolResult, S
 
 /// npm/pnpm alone: `.cmd` shims on Windows, which `CreateProcessW` cannot
 /// execute directly. Routed through `cmd.exe /C`, whose own re-parsing is why
-/// `script` is restricted to [`is_safe_tool_arg`]'s character set *and*
-/// checked against `package.json`'s real keys before this is ever called —
-/// see the module doc.
-fn run_npm_or_pnpm(root: &Path, manager: &str, verb: &str, script: Option<&str>) -> Result<ToolResult, String> {
-    let mut line = format!("{manager} {verb}");
-    if let Some(s) = script {
-        line.push(' ');
-        line.push_str(s);
-    }
+/// every word joining the command line is restricted to [`is_safe_tool_arg`]'s
+/// character set (a script name, additionally checked against `package.json`'s
+/// real keys before this is ever called) or [`is_safe_package_name`]'s (a
+/// dependency to install) — see the module doc.
+fn run_npm_or_pnpm_words(root: &Path, manager: &str, words: &[&str]) -> Result<ToolResult, String> {
+    let line = format!("{manager} {}", words.join(" "));
 
     #[cfg(windows)]
     {
@@ -604,11 +612,14 @@ fn run_npm_or_pnpm(root: &Path, manager: &str, verb: &str, script: Option<&str>)
     }
     #[cfg(not(windows))]
     {
-        let mut args = vec![verb];
-        if let Some(s) = script {
-            args.push(s);
-        }
-        run_direct(root, manager, &args)
+        run_direct(root, manager, words)
+    }
+}
+
+fn run_npm_or_pnpm(root: &Path, manager: &str, verb: &str, script: Option<&str>) -> Result<ToolResult, String> {
+    match script {
+        Some(s) => run_npm_or_pnpm_words(root, manager, &[verb, s]),
+        None => run_npm_or_pnpm_words(root, manager, &[verb]),
     }
 }
 
@@ -677,6 +688,82 @@ pub fn run_devtool(cwd: String, tool: DevTool, arg: Option<String>) -> Result<To
             Some(filter) => run_direct(&root, "python", &["-m", "pytest", "-k", filter]),
             None => run_direct(&root, "python", &["-m", "pytest"]),
         },
+    }
+}
+
+// ---- dependency install -----------------------------------------------------
+
+/// The one door for adding a dependency: a fixed package manager, and one
+/// validated package-name slot — the same "closed command, one checked
+/// argument" shape as [`DevTool`] above, applied to `install`/`add` instead of
+/// `build`/`test`. There is no variant that takes a manager's raw flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DepManager {
+    Npm,
+    Pnpm,
+    Cargo,
+    Pip,
+}
+
+/// A package name (npm scoped names and version specifiers included, e.g.
+/// `@vitejs/plugin-vue` or `react@18.2.0`), never a flag.
+///
+/// Deliberately stricter than [`is_safe_tool_arg`]: a leading `-` is refused
+/// outright so a "package name" can never smuggle in a manager flag
+/// (`--registry=http://evil`, `-e`) even though nothing here reaches a shell
+/// for cargo/pip — npm/pnpm still route through `cmd.exe /C`, so this is the
+/// one real gate on that path, the same role `is_safe_tool_arg` plays for a
+/// script name.
+fn is_safe_package_name(s: &str) -> bool {
+    if s.is_empty() || s.len() > 214 || s.starts_with('-') {
+        return false;
+    }
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | '/'))
+}
+
+#[tauri::command(async)]
+pub fn install_dependency(
+    cwd: String,
+    manager: DepManager,
+    package: String,
+    dev: Option<bool>,
+) -> Result<ToolResult, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    let package = package.trim();
+    if !is_safe_package_name(package) {
+        return Err("That package name contains characters I won't pass to a package manager.".into());
+    }
+    let dev = dev.unwrap_or(false);
+
+    match manager {
+        DepManager::Npm => {
+            let mut words = vec!["install", package];
+            if dev {
+                words.push("--save-dev");
+            }
+            run_npm_or_pnpm_words(&root, "npm", &words)
+        }
+        DepManager::Pnpm => {
+            let mut words = vec!["add", package];
+            if dev {
+                words.push("-D");
+            }
+            run_npm_or_pnpm_words(&root, "pnpm", &words)
+        }
+        DepManager::Cargo => {
+            let mut args = vec!["add", package];
+            if dev {
+                args.push("--dev");
+            }
+            run_direct(&root, "cargo", &args)
+        }
+        // pip has no first-class "dev dependency" concept the way npm/cargo
+        // do (that's a `requirements-dev.txt` convention, not a flag) — `dev`
+        // is accepted for a uniform call shape and simply has no effect here.
+        DepManager::Pip => run_direct(&root, "python", &["-m", "pip", "install", package]),
     }
 }
 
@@ -839,6 +926,39 @@ mod tests {
         let (out, cut) = truncate_output(long);
         assert_eq!(out.chars().count(), MAX_OUTPUT_CHARS);
         assert!(cut);
+    }
+
+    #[test]
+    fn dep_manager_serializes_to_the_lowercase_ids_the_ts_side_expects() {
+        assert_eq!(serde_json::to_string(&DepManager::Npm).unwrap(), "\"npm\"");
+        assert_eq!(serde_json::to_string(&DepManager::Pnpm).unwrap(), "\"pnpm\"");
+        assert_eq!(serde_json::to_string(&DepManager::Cargo).unwrap(), "\"cargo\"");
+        assert_eq!(serde_json::to_string(&DepManager::Pip).unwrap(), "\"pip\"");
+    }
+
+    #[test]
+    fn safe_package_name_accepts_ordinary_and_scoped_names() {
+        assert!(is_safe_package_name("react"));
+        assert!(is_safe_package_name("react@18.2.0"));
+        assert!(is_safe_package_name("@vitejs/plugin-vue"));
+        assert!(is_safe_package_name("some_crate.v2"));
+    }
+
+    #[test]
+    fn safe_package_name_rejects_flag_injection_and_shell_metacharacters() {
+        // A leading `-` could smuggle a manager flag past the argument slot —
+        // refused outright, unlike `is_safe_tool_arg` which only rejects
+        // metacharacters.
+        for bad in ["--registry=http://evil", "-e", "; rm -rf /", "a b", "a`b`", "a$(b)", "a\nb"] {
+            assert!(!is_safe_package_name(bad), "should reject: {bad}");
+        }
+    }
+
+    #[test]
+    fn safe_package_name_rejects_empty_and_overlong() {
+        assert!(!is_safe_package_name(""));
+        assert!(!is_safe_package_name(&"x".repeat(215)));
+        assert!(is_safe_package_name(&"x".repeat(214)));
     }
 
     #[test]

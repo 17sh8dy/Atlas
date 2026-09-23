@@ -6,22 +6,50 @@
  * same executor and the same risk/confirm/guard machinery every other plan
  * goes through.
  *
+ * ── Scaffolding a new project ────────────────────────────────────────────
+ * `project.create`, `dependency.install` and `project.launch` complete the
+ * "build me a thing" loop this file started with `project.detect` and
+ * `build.run`/`test.run`. None of them are a new *kind* of capability:
+ * `project.create` is `platform.createFolder` (the same call
+ * `files.createFolder` in `core-skills.ts` makes) under a name and a domain
+ * the developer-agent loop already allows; `dependency.install` is one more
+ * closed dispatch shaped exactly like `build.run`/`test.run` — a fixed
+ * package manager, one validated package-name slot, never a raw command line
+ * (see `devtools.rs`'s `install_dependency` doc comment); `project.launch` is
+ * `platform.openPath` — the same mechanism `files.open` already uses — given
+ * a name that reads right at the end of a scaffold-build-test sequence.
+ * Actually *writing* the generated code is not a new skill either: it is the
+ * model's own text going into `files.create` (a new file) or `code.write` /
+ * `code.edit` (an existing one) — both already in this catalog family, see
+ * `core-skills.ts` for `files.create`/`files.delete`/`files.readText`.
+ *
+ * `project.create` and `project.launch` live in `project` and `dependency.
+ * install` in `build` — not `apps` — specifically so the developer agent
+ * (`../devagent/loop.ts`'s `DEV_AGENT_DOMAINS`) can reach them without
+ * widening its domain allowlist to admit every `apps`-domain skill
+ * (`app.open`, `app.list`) for the sake of one. `project.launch` is
+ * mechanically identical to `app.open`'s "open the thing, don't ask" case —
+ * see its own doc comment below for why it is `safe` on the same reasoning.
+ *
  * ── Risk ──────────────────────────────────────────────────────────────────
  * Reads (`project.detect`, `project.tree`, `code.search`, `git.status`,
  * `git.diff`, `git.log`) are `safe`, matching every other read-only group in
- * this catalog (`net.rs`, the services list). Everything that changes the
- * repository or runs a project's own build/test tooling — `git.add`,
- * `git.commit`, `build.configure`, `build.run`, `test.run`, `code.write`,
- * `code.edit` — is `confirm`. A build or test run is the closest thing this
- * catalog has ever executed to arbitrary developer-authored code (an npm
- * script, a CMake rule, a pytest conftest can do anything), so it starts
- * conservative rather than reasoning its way to `safe` the way `app.open`
- * eventually did — see the roadmap's own note about auditing `confirm` skills
- * by consequence rather than mechanism, which this group is a candidate for
- * revisiting once it has real use behind it.
+ * this catalog (`net.rs`, the services list). `project.launch` is also
+ * `safe` — see its own doc comment; opening what was just built is the same
+ * non-question `app.open` already answered. Everything that changes the
+ * repository, the disk, or runs a project's own build/test/install tooling —
+ * `git.add`, `git.commit`, `build.configure`, `build.run`, `test.run`,
+ * `code.write`, `code.edit`, `project.create`, `dependency.install` — is
+ * `confirm`. A build, a test run or a dependency install is the closest thing
+ * this catalog has ever executed to arbitrary developer-authored code (an npm
+ * script, a CMake rule, a pytest conftest, an npm/pip/cargo post-install hook
+ * can do anything), so it starts conservative rather than reasoning its way
+ * to `safe` the way `app.open` eventually did — see the roadmap's own note
+ * about auditing `confirm` skills by consequence rather than mechanism, which
+ * this group is a candidate for revisiting once it has real use behind it.
  */
 
-import type { DevTool, Platform, Skill } from '@atlas/core';
+import type { DepManager, DevTool, Platform, Skill } from '@atlas/core';
 
 function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -112,6 +140,35 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
         return { ok: true, message: `🌳 ${basename(path)}:\n\n${body}`, data: entries };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : `I couldn't list ${path}.` };
+      }
+    },
+  });
+
+  skills.push({
+    id: 'project.create',
+    label: 'Start a new project',
+    icon: '🆕',
+    domain: 'project',
+    description:
+      'Create a new, empty project folder to build something in. Refuses if something is already there — this is for starting fresh, not reusing a folder.',
+    needs: ['devtools'],
+    risk: 'confirm',
+    examples: ['start a new project at D:\\Dev\\ClickerGame'],
+    params: {
+      path: { type: 'string', required: true, description: 'full path for the new project folder' },
+    },
+    async run(args) {
+      const path = String(args.path);
+      try {
+        const ok = await platform.createFolder!(path);
+        return ok
+          ? { ok: true, message: `Created a new project folder at ${path}.` }
+          : { ok: false, error: `I couldn't create a project folder at ${path}.` };
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : `I couldn't create a project folder at ${path}.`,
+        };
       }
     },
   });
@@ -302,6 +359,7 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
 
   const BUILD_SYSTEMS = ['cmake', 'cargo', 'npm', 'pnpm', 'dotnet', 'make'] as const;
   const TEST_SYSTEMS = ['cmake', 'cargo', 'npm', 'pnpm', 'dotnet', 'pytest'] as const;
+  const DEP_MANAGERS = ['npm', 'pnpm', 'cargo', 'pip'] as const;
 
   skills.push({
     id: 'build.configure',
@@ -416,6 +474,53 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
   });
 
   skills.push({
+    id: 'dependency.install',
+    label: 'Install a dependency',
+    icon: '📦',
+    domain: 'build',
+    description:
+      'Add one dependency to a project using its own package manager. "manager" must be one already reported by project.detect (npm/pnpm/cargo) or "pip" for a Python project. "package" may include a version, e.g. "react@18". Never a raw command line — see devtools.rs\'s install_dependency.',
+    needs: ['devtools'],
+    risk: 'confirm',
+    examples: ['add express to this project', 'install pytest as a dev dependency'],
+    params: {
+      path: { type: 'string', required: true, description: 'the project folder' },
+      manager: {
+        type: 'string',
+        required: true,
+        enum: DEP_MANAGERS,
+        description: 'which package manager to use',
+      },
+      package: {
+        type: 'string',
+        required: true,
+        description: 'the package name to install, optionally with a version',
+      },
+      dev: {
+        type: 'boolean',
+        required: false,
+        description: 'install as a development-only dependency, where the manager supports it',
+      },
+    },
+    async run(args) {
+      const path = String(args.path);
+      const manager = String(args.manager) as DepManager;
+      const pkg = String(args.package);
+      const dev = args.dev === true;
+
+      try {
+        const result = await platform.installDependency!(path, manager, pkg, dev);
+        return toolResultToSkillResult(result, `Installed ${pkg} (${manager}).`);
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : `I couldn't install ${pkg}.`,
+        };
+      }
+    },
+  });
+
+  skills.push({
     id: 'code.write',
     label: 'Overwrite a file',
     icon: '💾',
@@ -471,6 +576,35 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : `I couldn't edit ${path}.` };
       }
+    },
+  });
+
+  skills.push({
+    id: 'project.launch',
+    label: 'Open the built project',
+    icon: '🚀',
+    domain: 'project',
+    description:
+      'Open a file, folder or program that was just built or generated — the last step of a scaffold-build-test sequence, so the person can see it running.',
+    needs: ['devtools'],
+    // Mirrors `app.open`: asking "are you sure you want to open the thing
+    // you just asked me to build" is the same redundant question `app.open`'s
+    // own doc comment already answers no to. It is `platform.openPath` under
+    // the hood — the same call `files.open` (core-skills.ts) makes — kept as
+    // its own skill so it reads right at the end of a devtools-domain plan
+    // and stays inside the developer agent's domain allowlist. See this
+    // file's own module doc for why it is `project`-domain rather than `apps`.
+    risk: 'safe',
+    examples: ['open the project I just built'],
+    params: {
+      path: { type: 'string', required: true, description: 'the file, folder or program to open' },
+    },
+    async run(args) {
+      const path = String(args.path);
+      const ok = await platform.openPath!(path);
+      return ok
+        ? { ok: true, message: `Opened ${basename(path)}.` }
+        : { ok: false, error: `I couldn't open ${path}.` };
     },
   });
 

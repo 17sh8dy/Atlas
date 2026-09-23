@@ -35,6 +35,7 @@ import type { UiaNode } from '../models/uia';
 import type { DisplayInfo } from '../models/screen';
 import type { WindowsCompatibility } from '../models/compat';
 import type {
+  DepManager,
   DevTool,
   GitLogEntry,
   GitStatus,
@@ -368,6 +369,20 @@ export interface Platform {
   /** Returns the new commit's short hash. */
   gitCommit?(cwd: string, message: string): Promise<string>;
   runDevTool?(cwd: string, tool: DevTool, arg?: string): Promise<ToolResult>;
+  /**
+   * Add one dependency to a project, gated by `devtools` alongside the rest
+   * of this group. The same rule as `runDevTool`, applied to `install`/`add`
+   * instead of `build`/`test`: `manager` is a closed set naming a fixed
+   * executable, `package` is the one validated slot (never a manager flag —
+   * see `install_dependency`'s doc comment for why a leading `-` is refused
+   * outright), and `dev` is a plain boolean, never a raw argument list.
+   */
+  installDependency?(
+    cwd: string,
+    manager: DepManager,
+    pkg: string,
+    dev?: boolean,
+  ): Promise<ToolResult>;
   /**
    * Overwrite a file that already exists — the inverse of `createFile`, which
    * refuses when one does. Kept as a separate method rather than a flag on

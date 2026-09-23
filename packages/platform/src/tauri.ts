@@ -36,6 +36,7 @@ import type {
   UiaNode,
   DisplayInfo,
   WindowsCompatibility,
+  DepManager,
   DevTool,
   GitLogEntry,
   GitStatus,
@@ -213,6 +214,8 @@ export function createTauriPlatform(): Platform {
     gitCommit: (cwd, message) => invoke<string>('git_commit', { cwd, message }),
     runDevTool: (cwd, tool: DevTool, arg) =>
       invoke<ToolResult>('run_devtool', { cwd, tool, arg: arg ?? null }),
+    installDependency: (cwd, manager: DepManager, pkg, dev) =>
+      invoke<ToolResult>('install_dependency', { cwd, manager, package: pkg, dev: dev ?? null }),
     writeTextFile: (path, content) => invoke<boolean>('write_text_file', { path, content }),
     patchTextFile: (path, find, replace, replaceAll) =>
       invoke<string>('patch_text_file', { path, find, replace, replaceAll: replaceAll ?? null }),

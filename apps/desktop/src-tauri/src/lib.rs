@@ -293,6 +293,7 @@ pub fn run() {
             devtools::git_add,
             devtools::git_commit,
             devtools::run_devtool,
+            devtools::install_dependency,
             devtools::write_text_file,
             devtools::patch_text_file,
             secrets::save_secret,
