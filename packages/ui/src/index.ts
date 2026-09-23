@@ -7,6 +7,8 @@ export type { SurfaceProps } from './components/Surface';
 export { Skeleton } from './components/Skeleton';
 export { AuroraBars } from './components/AuroraBars';
 export type { AuroraBarsProps } from './components/AuroraBars';
+export { LatticeLoader } from './components/LatticeLoader';
+export type { LatticeLoaderProps, LatticePhase } from './components/LatticeLoader';
 export { Spinner } from './components/Spinner';
 export { Input } from './components/Input';
 export type { InputProps } from './components/Input';

@@ -285,6 +285,52 @@
   }
 }
 
+/* ── Lattice ───────────────────────────────────────────────────────────────
+   The working indicator for a plan in flight — see `LatticeLoader` in
+   `@atlas/ui`. A small grid of cells brightening in a phase-offset wave,
+   beside a verb and (per the caller) a stopwatch, resolving to a fixed check
+   or cross once the caller says the run has ended.
+
+   One colour — the accent `atlas-orbit`'s ring already uses for "Atlas is
+   doing something" — not the aurora's five-hue ramp above, which is reserved
+   for "a reply is arriving" (see the Aurora note). A lattice is a different
+   moment: work in progress rather than words being written, and it reads
+   better in one colour than borrowing the ramp that means the other thing.
+
+   Opacity and scale only, for the same reason the aurora's wave and edge are:
+   both are compositor properties, so the wave never touches layout or paint
+   and stays cheap next to whatever else is running (a model streaming, speech
+   being synthesised). `will-change` is scoped to this class alone rather than
+   left on the page, since sixteen composited layers is enough to ask for
+   without asking for it permanently. */
+@keyframes atlas-lattice-pulse {
+  0%,
+  100% {
+    opacity: 0.22;
+    transform: scale(0.78);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.atlas-lattice-cell {
+  animation: atlas-lattice-pulse 1.6s var(--ease-in-out) infinite;
+  will-change: opacity, transform;
+}
+
+/* Reduced motion keeps a cell visible at a fixed brightness rather than
+   removing it — same rule the aurora follows: the message is "working", not
+   the movement, so the message survives losing the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .atlas-lattice-cell {
+    animation: none !important;
+    opacity: 0.7;
+    transform: none;
+  }
+}
+
 /* ── Glass ─────────────────────────────────────────────────────────────────
    The panels on the voice screen, and the category panels on Home.
 

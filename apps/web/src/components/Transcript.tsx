@@ -12,20 +12,21 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AuroraBars, Button, Icons, cn } from '@atlas/ui';
+import { Button, Icons, cn } from '@atlas/ui';
 import type { Entry, StepState } from '../atlas/useAtlas';
 import { useTextStyle } from '../app/text-style';
 import { CapabilityBrowser } from './CapabilityBrowser';
 import { RevealText } from './RevealText';
 import type { ActivityRun, ClarifyAnswer } from '@atlas/core';
 import { ActivityPanel } from './ActivityPanel';
+import { LatticeRow } from './LatticeRow';
 
 /** An entry this new was just said; anything older was already read. */
 const FRESH_MS = 1500;
 
 import { CitedReply } from './CitedReply';
 import { ClarifyCard } from './ClarifyCard';
-import { formatLive, hasSources } from './citations';
+import { hasSources } from './citations';
 
 interface Props {
   entries: Entry[];
@@ -46,10 +47,11 @@ interface Props {
   /**
    * The run happening right now, if there is one.
    *
-   * Rendered in place of the thinking bars once it has something to say.
-   * A run with no steps yet keeps the bars: "Atlas is thinking" is honest
-   * while the grammar is still deciding, and an empty activity panel would
-   * be less informative than the animation it replaced.
+   * Always drives the lattice row (`LatticeRow`) — "Thinking" while it has no
+   * steps yet (the grammar is still deciding, or nothing will ever need a
+   * step at all, as with a plain question), the current step's own label once
+   * it does. A run with steps also gets the full `ActivityPanel` disclosure
+   * underneath, unchanged from before.
    */
   activeRun?: ActivityRun | null;
 }
@@ -105,49 +107,22 @@ export function Transcript({
       ))}
 
       {/* Sized and placed like an assistant message, because that is what is
-          about to replace it — the text lands where the bars were and nothing
-          below it moves. A centred spinner would have to be pushed out of the
-          way by the answer it was waiting for. */}
+          about to replace it — the text lands where the lattice was and
+          nothing below it moves. A centred spinner would have to be pushed
+          out of the way by the answer it was waiting for. */}
       {busy && !streamingNow && (
         <div className="max-w-[85%]">
-          {activeRun && activeRun.steps.length > 0 ? (
-            <ActivityPanel run={activeRun} />
-          ) : (
-            <AuroraBars className="max-w-full" label="Atlas is thinking" />
+          <LatticeRow run={activeRun} />
+          {activeRun && activeRun.steps.length > 0 && (
+            <div className="mt-1.5">
+              <ActivityPanel run={activeRun} />
+            </div>
           )}
-          <LiveTimer />
         </div>
       )}
 
       <div ref={endRef} />
     </div>
-  );
-}
-
-/**
- * How long Atlas has been working on this, ticking until the answer starts to
- * arrive. It is mounted with the wait and unmounted when words appear, so it
- * always starts from zero and never keeps counting behind an answer.
- *
- * Lives outside the bars / activity-panel switch on purpose: when the run gains
- * its first step the indicator above changes shape but this stays mounted, so
- * the count does not restart.
- */
-function LiveTimer() {
-  const [ms, setMs] = useState(0);
-  useEffect(() => {
-    const started = performance.now();
-    const id = window.setInterval(() => setMs(performance.now() - started), 100);
-    return () => window.clearInterval(id);
-  }, []);
-  return (
-    <p
-      role="timer"
-      aria-label="Time spent so far"
-      className="text-foreground-subtle mt-1.5 text-xs tabular-nums"
-    >
-      {formatLive(ms)}
-    </p>
   );
 }
 
