@@ -63,7 +63,7 @@ import type { Platform, Storage } from '@atlas/core';
  */
 export const NOVA_ORIGIN: string =
   (import.meta.env.DEV && import.meta.env.VITE_NOVA_DEV_ORIGIN) ||
-  'https://nova-help.17sh8dy.workers.dev';
+  'https://nova-help.shadylabs.workers.dev';
 
 /**
  * Where a Nova Account is managed. Atlas shows who you are and can sign you out;

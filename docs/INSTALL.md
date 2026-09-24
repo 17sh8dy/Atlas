@@ -85,6 +85,6 @@ so a reinstall picks up where you left off; delete that folder to remove them to
 
 ## Get help
 
-- Support and tickets: <https://nova-help.17sh8dy.workers.dev/help/atlas>
+- Support and tickets: <https://nova-help.shadylabs.workers.dev/help/atlas>
 - Discord: <https://discord.gg/XBhER9Z6EB>
 - Source and issues: <https://github.com/17sh8dy/Atlas>

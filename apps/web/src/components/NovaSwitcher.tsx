@@ -57,7 +57,7 @@ const PRODUCTS: NovaProduct[] = [
     tagline: 'Your desktop assistant',
     icon: Icons.Sparkles,
     kind: 'app',
-    getUrl: 'https://atlas-website.17sh8dy.workers.dev/',
+    getUrl: 'https://atlas-website.shadylabs.workers.dev/',
   },
   {
     id: 'nova-games',
@@ -80,7 +80,7 @@ const SITES: NovaProduct[] = [
     tagline: 'Support and guides',
     icon: Icons.Search,
     kind: 'site',
-    url: 'https://nova-help.17sh8dy.workers.dev/',
+    url: 'https://nova-help.shadylabs.workers.dev/',
   },
   {
     id: 'atlas-site',
@@ -88,7 +88,7 @@ const SITES: NovaProduct[] = [
     tagline: 'Download and learn about Atlas',
     icon: Icons.Sparkles,
     kind: 'site',
-    url: 'https://atlas-website.17sh8dy.workers.dev/',
+    url: 'https://atlas-website.shadylabs.workers.dev/',
   },
   { id: 'nova', label: 'Nova', tagline: 'The Nova home page', icon: Icons.Globe, kind: 'site', url: NOVA_HOME_URL },
   { id: 'nova-legal', label: 'Nova Legal', tagline: 'Terms and privacy', icon: Icons.FileText, kind: 'soon' },
