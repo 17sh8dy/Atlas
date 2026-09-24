@@ -206,6 +206,7 @@ pub fn run() {
             platform::create_folder,
             platform::rename_path,
             platform::move_path,
+            platform::move_path_to,
             platform::copy_path,
             platform::delete_path,
             platform::read_text_file,

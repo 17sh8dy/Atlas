@@ -127,10 +127,24 @@ struct Pending {
     installer: String,
     backup: String,
     install_dir: String,
+    /// The installed program's file name — recorded by the *app*, which knows
+    /// it, because the helper does not: it runs as a copy called
+    /// `atlas-update-helper.exe`, so asking the helper what "this executable"
+    /// is called answers with the helper's name. That mistake made every update
+    /// look like it had installed nothing, and roll back, whatever the
+    /// installer did.
+    #[serde(default = "default_exe_name")]
+    exe_name: String,
     /// `handoff` (armed), `installed`, `failed` or `rolled-back`.
     phase: String,
     attempts: u32,
     detail: Option<String>,
+}
+
+/// For a `pending.json` written before `exe_name` existed. The name the
+/// installer has always given the program.
+fn default_exe_name() -> String {
+    "atlas-desktop.exe".into()
 }
 
 #[derive(Serialize, Clone)]
@@ -160,6 +174,12 @@ fn pending_path() -> Result<PathBuf, String> {
 }
 
 fn log(line: &str) {
+    // Unit tests run the real apply/rollback code, and would otherwise write
+    // "installing 9.9.9" into the person's actual log — the one thing they
+    // would open to find out what really happened to their update.
+    if cfg!(test) {
+        return;
+    }
     if let Ok(dir) = updates_dir() {
         if let Ok(mut f) = fs::OpenOptions::new()
             .create(true)
@@ -559,6 +579,7 @@ fn install(
         installer: installer.to_string_lossy().into_owned(),
         backup: backup.to_string_lossy().into_owned(),
         install_dir: install_dir.to_string_lossy().into_owned(),
+        exe_name: install_exe_name(),
         phase: "handoff".into(),
         attempts: 0,
         detail: None,
@@ -713,37 +734,51 @@ fn save_at(pending_file: &str, p: &Pending) {
     }
 }
 
-fn relaunch(install_dir: &str) {
+fn relaunch(p: &Pending) {
     // Tests exercise the real apply/rollback logic; starting a program from
     // inside one would leave it running.
     if cfg!(test) {
         return;
     }
-    let exe = Path::new(install_dir).join(install_exe_name());
+    let exe = Path::new(&p.install_dir).join(&p.exe_name);
     let _ = win::spawn_detached(&exe, &[]);
 }
 
 fn apply(p: &mut Pending, pending_file: &str) {
     log(&format!("helper: installing {}", p.to));
     let status = win::run_installer(Path::new(&p.installer), &p.install_dir);
-    let ok = matches!(&status, Ok(s) if s.success());
+    let installer_ok = matches!(&status, Ok(s) if s.success());
 
     // Trust what is on disk, not what the installer said.
-    let installed = Path::new(&p.install_dir).join(install_exe_name());
+    let installed = Path::new(&p.install_dir).join(&p.exe_name);
     let (_, found) = win::version_info(&installed);
     let right_version = found.as_deref() == Some(p.to.as_str());
 
-    if ok && right_version {
+    if installer_ok && right_version {
         p.phase = "installed".into();
         save_at(pending_file, p);
         log("helper: installed; starting the new version");
-        relaunch(&p.install_dir);
+        relaunch(p);
         return;
     }
 
+    // Say which half failed. "The installer finished with an error (exit code:
+    // 0)" — one message for both — sent this investigation the wrong way for
+    // a long while: a success code reported as an error is a contradiction,
+    // and the contradiction was the bug.
     let why = match status {
-        Ok(s) => format!("The installer finished with an error ({s})."),
         Err(e) => format!("The installer could not be started ({e})."),
+        Ok(s) if !s.success() => format!("The installer finished with an error ({s})."),
+        Ok(_) => match found {
+            Some(v) => format!(
+                "The installer finished, but {} is version {v}, not {}.",
+                p.exe_name, p.to
+            ),
+            None => format!(
+                "The installer finished, but {} could not be found or read in {}.",
+                p.exe_name, p.install_dir
+            ),
+        },
     };
     log(&format!("helper: {why} — restoring"));
     rollback(p, pending_file, &why);
@@ -761,7 +796,7 @@ fn rollback(p: &mut Pending, pending_file: &str, why: &str) {
     });
     save_at(pending_file, p);
     log(&format!("helper: {}", p.detail.clone().unwrap_or_default()));
-    relaunch(&p.install_dir);
+    relaunch(p);
 }
 
 // ---------------------------------------------------------------------------
@@ -928,6 +963,7 @@ mod tests {
             installer: "x".into(),
             backup: "y".into(),
             install_dir: "z".into(),
+            exe_name: "atlas-desktop.exe".into(),
             phase: phase.into(),
             attempts,
             detail: Some("because".into()),
@@ -1062,6 +1098,7 @@ mod tests {
             installer: installer.to_string_lossy().into_owned(),
             backup: backup.to_string_lossy().into_owned(),
             install_dir: install.to_string_lossy().into_owned(),
+            exe_name: install_exe_name(),
             phase: "handoff".into(),
             attempts: 0,
             detail: None,
@@ -1124,6 +1161,74 @@ mod tests {
         assert_eq!(data(&sb), "good");
         assert!(sb.installed_exe.is_file());
         let _ = fs::remove_dir_all(&sb.root);
+    }
+
+    /// The regression. The helper is a *copy* of Atlas called
+    /// `atlas-update-helper.exe`, so the installed program is never called what
+    /// the running process is called. Every earlier test put the installed exe
+    /// at `install_exe_name()` — the test binary's own name — which is exactly
+    /// what the buggy code also computed, so they passed by construction while
+    /// every real update rolled back.
+    #[test]
+    fn helper_finds_the_installed_program_by_its_recorded_name_not_its_own() {
+        let dir = std::env::temp_dir().join(format!("atlas-helper-name-{}", std::process::id()));
+        let body = format!(
+            "echo new> \"{}\\data.txt\"\r\nexit /b 0",
+            dir.join("install").display()
+        );
+        let Some(mut sb) = sandbox("name", &body, None) else { return };
+        let real_name = "Atlas-Installed-Name.exe";
+        assert_ne!(real_name, install_exe_name(), "the point is that the names differ");
+        let renamed = Path::new(&sb.pending.install_dir).join(real_name);
+        fs::rename(&sb.installed_exe, &renamed).unwrap();
+        sb.pending.exe_name = real_name.into();
+
+        apply(&mut sb.pending, &sb.pending_file);
+
+        assert_eq!(sb.pending.phase, "installed", "{:?}", sb.pending.detail);
+        assert!(data(&sb).starts_with("new"), "the installer's changes stay");
+        let _ = fs::remove_dir_all(&sb.root);
+    }
+
+    /// An exit code of 0 with the wrong program on disk must not be described
+    /// as the installer "finishing with an error" — the two failures need two
+    /// different sentences, or the second one is impossible to diagnose.
+    #[test]
+    fn a_wrong_version_is_reported_as_a_wrong_version_not_as_an_installer_error() {
+        let dir = std::env::temp_dir().join(format!("atlas-helper-msg-{}", std::process::id()));
+        let body = format!(
+            "echo x> \"{}\\data.txt\"\r\nexit /b 0",
+            dir.join("install").display()
+        );
+        let Some(mut sb) = sandbox("msg", &body, Some("9.9.9")) else { return };
+        apply(&mut sb.pending, &sb.pending_file);
+        let detail = sb.pending.detail.clone().unwrap_or_default();
+        assert!(detail.contains("is version"), "{detail}");
+        assert!(detail.contains("not 9.9.9"), "{detail}");
+        assert!(!detail.contains("finished with an error"), "{detail}");
+        let _ = fs::remove_dir_all(&sb.root);
+    }
+
+    #[test]
+    fn a_missing_installed_program_is_reported_as_missing() {
+        let dir = std::env::temp_dir().join(format!("atlas-helper-gone-{}", std::process::id()));
+        let body = format!(
+            "echo x> \"{}\\data.txt\"\r\nexit /b 0",
+            dir.join("install").display()
+        );
+        let Some(mut sb) = sandbox("gone", &body, None) else { return };
+        sb.pending.exe_name = "does-not-exist.exe".into();
+        apply(&mut sb.pending, &sb.pending_file);
+        let detail = sb.pending.detail.clone().unwrap_or_default();
+        assert!(detail.contains("could not be found or read"), "{detail}");
+        let _ = fs::remove_dir_all(&sb.root);
+    }
+
+    #[test]
+    fn a_pending_file_from_before_exe_name_existed_still_reads() {
+        let old = r#"{"from":"1.0.0","to":"1.0.1","installer":"i","backup":"b","install_dir":"d","phase":"handoff","attempts":0,"detail":null}"#;
+        let p: Pending = serde_json::from_str(old).expect("an older pending.json must still load");
+        assert_eq!(p.exe_name, "atlas-desktop.exe");
     }
 
     #[test]

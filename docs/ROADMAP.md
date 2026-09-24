@@ -1496,6 +1496,97 @@ Not started, and the honest gap in the "operate any app" story:
 
 ---
 
+## Phase 15 — Letting Atlas run the desktop (2026-09-23)
+
+Brandon's brief: *"Atlas, clean up my Downloads folder. Put installers in
+Software, images in Images, and ask me before deleting anything."* — inspects,
+understands, creates folders, moves files, shows what it's doing, confirms
+anything destructive, reports exactly what changed. And, more broadly: a huge
+native capability layer.
+
+### What the audit found
+
+Atlas already had 154 skills and a real native layer (Phases 11–13), and every
+*primitive* for that sentence existed. What it lacked was not power but four
+things that make power safe to hand a real folder:
+
+| Gap | Effect before |
+| --- | --- |
+| **Nothing built a plan from a folder's contents.** Only the AI planner could compose `list → classify → move`, and the AI tier is the one that may be absent. | The headline sentence worked only with a model connected — violating the rule that the AI tier may never be the *only* route to a documented phrasing. |
+| **Approval was per step, and about arguments, not consequences.** `files.move` × 200 = 200 cards; `storage.emptyFolder` asked about "downloads" and deleted a list nobody was shown. | Either click-fatigue or blind consent. |
+| **`move_path` keeps the source's name and fails on any clash.** | A bulk tidy hits clashes constantly; each one would abort or need special-casing. |
+| **No record, so no undo and no honest report.** | "Reports exactly what changed" was unanswerable after the fact. |
+
+### Built (this phase)
+
+- **`Skill.preview`** — a read-only hook the executor calls in place of the generic
+  prompt, so the card shows the real plan; one approval; the approval is for that
+  list (fingerprint re-checked in `run`). Never softened by any mode. ARCHITECTURE §6.8.
+- **`files.organize`** — loose files by type into subfolders, into folders the
+  person names ("installers in Software, images in Images", quoted names, absolute
+  destinations). No delete in it at all. Leaves folders, unrecognised files,
+  unfinished downloads and files modified in the last two minutes alone, and
+  counts them. Clashes become `name (2).ext`.
+- **`files.undo` / `files.history`** over a journal (`atlas.file-journal`) written
+  as it goes. Undo re-checks every move, never overwrites, resumes if interrupted.
+- **`move_path_to`** (Rust) — exact-destination move, never overwrites, both ends
+  vetted, halt-swept.
+- **`storage.emptyFolder`** now lists what it will send to the recycle bin.
+- Grammar: "clean up / organize / tidy / sort out / declutter my downloads (folder)",
+  "undo that", "what did you just change" — no model needed. The `tidy` text rule
+  used to swallow "clean up my downloads" as a text-trim; the new rule sits above it.
+- Verified: 68 engine tests over an in-memory disk, plus a test over a **real
+  folder on disk** (real timestamps, real renames, a real fresh file, a real name
+  clash), plus a real-disk Rust test for the command.
+
+### Next, in order of leverage
+
+Each of these is one more instance of the rails above — a `preview`, one approval,
+the journal — not a new safety model.
+
+1. ~~**Journal every file change, not just the organizer's.**~~ ✅ **Done 2026-09-23** —
+   `withFileJournal` wraps the single-file skills; move and rename are undoable, the rest are
+   recorded with a stated reason. "Undo that" means the newest change of any kind
+   (ARCHITECTURE §6.8). Verified in the real app with a plain `files.move`.
+2. **Read-only scan foundation.** A bounded recursive `files.scan` returning size,
+   age, kind and hash-on-demand. Everything below is a query over it.
+3. **Bulk skills on the same rails:** `files.findDuplicates` (read) →
+   `files.removeDuplicates` (recycle bin only, preview, keeps one); `files.cleanOld`
+   ("installers older than 90 days" → recycle, preview); `files.renameBatch`
+   (pattern, preview); `files.sortByDate`; `files.zip` / `files.extract` (a fixed
+   API, never a command line).
+4. **The unbuilt Phase 11 groups** — installed apps (list; uninstall = confirm),
+   startup items, scheduled tasks, default apps, audio/display devices, firewall and
+   users (read first), and a **closed list of `ms-settings:` deep links** ("open Bluetooth
+   settings") — the highest capability-per-line item in the Windows layer, because a
+   URI from a fixed table needs no new native code. Fixed executables with validated
+   arguments only, as before.
+5. **Routines** (Phase 5, still unbuilt) — save a plan under a name ("my morning
+   routine"), run it on a phrase or a schedule. The plan already carries steps,
+   risks and previews, so a routine inherits every gate. This is what makes Atlas
+   *run* the desktop rather than answer it.
+6. **Conversational referents** — "this"/"that"/"those" resolving to the clipboard,
+   the last result, or the last batch ("undo *those*"). The reachability debt above
+   is mostly this. A design question about what a referent may point at, not a regex.
+7. **A files agent** on the shared `agent/loop.ts` (as devagent and uiagent are):
+   an allow-list of read skills + the bulk skills, for jobs that need looking before
+   deciding ("find the biggest things I haven't opened this year and tidy them").
+   Only worth building once 2–3 exist to give it something to look with.
+8. **Proactive strategic clarification** — deferred by Brandon; still deferred.
+
+### Not doing, and why
+
+- **`exec`.** Unchanged (Phase 11). Every item above is a fixed operation.
+- **An "Other" folder.** A catch-all turns a tidy folder into a tidy folder plus a
+  junk drawer. Unknown stays put and is counted.
+- **Recursing into subfolders by default.** A project directory is one unit.
+- **Deleting empty folders after an undo.** Atlas does not delete folders on its own
+  initiative; it says they are still there.
+- **Acting unprompted.** "Downloads has 400 files — want me to tidy it?" is a
+  Phase 9 *suggestion*; the tidy itself still goes through a card.
+
+---
+
 ## Deliberately not doing
 
 - **A general `exec`.** Discussed and rejected in ARCHITECTURE §6.1.

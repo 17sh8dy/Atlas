@@ -56,3 +56,14 @@ test('project.create gets the same softening as its twin files.createFolder', ()
 test('dependency.install is deliberately never preapproved — it always asks', () => {
   assert.isUndefined(PREAPPROVABLE_PATH_ARGS['dependency.install']);
 });
+
+// Softening was agreed for *one file at a time* inside a folder the person
+// added on purpose. A tidy-up moves hundreds at once, and an undo puts them
+// back — those approvals have to be about a list the person can see, which is
+// what `Skill.preview` shows. The executor never consults this table for a skill
+// that has one, and this pins the table agreeing with it.
+test('bulk file skills are deliberately never preapproved — they show a plan and ask', () => {
+  for (const id of ['files.organize', 'files.undo', 'storage.emptyFolder']) {
+    assert.isUndefined(PREAPPROVABLE_PATH_ARGS[id], `${id} must always ask`);
+  }
+});

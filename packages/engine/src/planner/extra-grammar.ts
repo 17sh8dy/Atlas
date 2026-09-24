@@ -1077,6 +1077,82 @@ export function createExtraGrammar(): GrammarRule[] {
       },
     },
 
+    // ---- tidying a folder ---------------------------------------------------
+    //
+    // Sits at -7.2, *above* the text pack's `tidy` rule (-7.11), which turns
+    // any "clean up <words>" into a trim of those words. "clean up my downloads
+    // folder" is a request about a folder, so this one has to see it first —
+    // and it only claims a message whose object is a known folder or a path,
+    // which leaves "tidy up: some  spaced   text" to the rule that owns it.
+
+    {
+      name: 'filesOrganize',
+      order: -7.2,
+      pathSafe: true,
+      questionSafe: ['files-organize'],
+      test(_lower, raw) {
+        const m = raw.match(
+          new RegExp(
+            '^\\s*(?:please\\s+)?(?:(?:can|could|would)\\s+you\\s+(?:please\\s+)?)?' +
+              '(?:clean\\s*up|clean\\s+out|tidy(?:\\s+up)?|organi[sz]e|declutter|sort(?:\\s+out)?)\\s+' +
+              '(?:(?:all\\s+)?(?:the\\s+)?(?:files|stuff)\\s+(?:in|on)\\s+)?(?:my\\s+|the\\s+)?' +
+              '(downloads|documents|desktop|pictures|music|videos|"[^"]+"|[A-Za-z]:\\\\[^\\s:,;]*)' +
+              '(?:\\s+folder)?(?!\\w)\\s*(.*)$',
+            'i',
+          ),
+        );
+        if (!m?.[1]) return null;
+
+        let rules = (m[2] ?? '').trim();
+        // "…and ask me before deleting anything" is a promise this skill
+        // keeps by having no delete in it, not an instruction to parse.
+        rules = rules
+          .replace(/[,;.]?\s*(?:and\s+)?(?:please\s+)?(?:ask\s+me\s+(?:first\s+)?before\s+(?:you\s+)?delet\w+(?:\s+\w+)?|(?:do\s+not|don'?t)\s+delete\s+(?:anything|any\w*))\s*[.!?]*$/i, '')
+          .replace(/\bby\s+(?:file\s+)?type\b/gi, '')
+          .replace(/^[\s:,.\-–—]+/, '')
+          .replace(/^and\s+/i, '')
+          .replace(/[.!?]+$/, '')
+          .trim();
+
+        const path = m[1].replace(/^"|"$/g, '');
+        return plan(
+          step('files.organize', rules ? { path, rules } : { path }),
+          'files-organize',
+        );
+      },
+    },
+
+    {
+      name: 'filesUndo',
+      order: -7.19,
+      questionSafe: ['files-undo'],
+      test(lower) {
+        if (
+          /^\s*(?:please\s+)?(?:undo|revert|reverse)\s+(?:that|it|this|all\s+of\s+that|the\s+(?:last\s+)?(?:clean\s*up|tidy(?:\s*-?\s*up)?|organi[sz]ing|sorting|move|moves|changes?))\s*[.!]*$/.test(lower) ||
+          /^\s*(?:please\s+)?put\s+(?:those|the|them|everything)(?:\s+files)?\s+back(?:\s+where\s+(?:they|it)\s+(?:were|was))?\s*[.!]*$/.test(lower) ||
+          /^\s*(?:please\s+)?undo\s+(?:the\s+)?(?:last\s+)?(?:file\s+)?(?:change|move|clean\s*up)s?\s*[.!]*$/.test(lower)
+        ) {
+          return plan(step('files.undo', {}), 'files-undo');
+        }
+        return null;
+      },
+    },
+
+    {
+      name: 'filesHistory',
+      order: -7.18,
+      questionSafe: ['files-history'],
+      test(lower) {
+        if (
+          /\bwhat\s+(?:did\s+you|have\s+you)\s+(?:just\s+)?(?:change|move|rearrange|do\s+to\s+my\s+files)\b/.test(lower) ||
+          /\b(?:show|list)\s+(?:me\s+)?(?:my\s+)?(?:recent\s+)?file\s+changes\b/.test(lower)
+        ) {
+          return plan(step('files.history', {}), 'files-history');
+        }
+        return null;
+      },
+    },
+
     // ---- windows ----------------------------------------------------------
     //
     // Every rule below requires the literal word "window", the same way the

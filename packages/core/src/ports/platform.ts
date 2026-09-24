@@ -584,6 +584,14 @@ export interface Platform {
   createFolder?(path: string): Promise<boolean>;
   renamePath?(path: string, newName: string): Promise<boolean>;
   movePath?(path: string, destDir: string): Promise<boolean>;
+  /**
+   * Move to an exact destination path, name included — `movePath` keeps the
+   * file's own name, so it cannot say "put it there as `setup (2).exe`". Never
+   * overwrites: something already at `to` is a refusal, not a replacement.
+   * Both ends are validated against the allowed folders, like every other
+   * file operation.
+   */
+  movePathTo?(from: string, to: string): Promise<boolean>;
   copyPath?(path: string, destDir: string): Promise<boolean>;
   /** Sends to the OS recycle bin, never a permanent delete. */
   deletePath?(path: string): Promise<boolean>;

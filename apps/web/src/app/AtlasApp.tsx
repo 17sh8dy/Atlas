@@ -80,16 +80,38 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
   // durations differ: without this an older, slower reload can finish last and
   // put stale settings back over the newer ones.
   const latest = useRef(0);
+  // What the last load learned, for a reload that has no reason to ask again.
+  const loadedRef = useRef<Loaded | null>(null);
+  loadedRef.current = loaded;
+  // Reloads still waiting on Ollama. A fast reload must not overtake one of
+  // these and throw its answer away (see `latest`), so while any is running the
+  // next reload does its own probe rather than reusing the old list.
+  const probing = useRef(0);
 
-  const reload = useCallback(() => {
+  /**
+   * Re-read every setting.
+   *
+   * `probe: false` is for a change that cannot alter what Ollama has — a voice,
+   * a pace, a switch — and reuses the last list instead of asking Ollama again.
+   * That ask is the slowest thing in here by far: with Ollama not running,
+   * Windows takes two to four seconds to refuse the connection, and this waits
+   * for every one of its nine reads together, so each click on the Voice tab
+   * used to take exactly that long to show. It is not a delay anyone chose.
+   */
+  const reload = useCallback((opts?: { probe?: boolean }) => {
     const mine = ++latest.current;
     let alive = true;
+    const known =
+      opts?.probe === false && probing.current === 0
+        ? loadedRef.current?.localAi.installed
+        : undefined;
+    if (!known) probing.current += 1;
     Promise.all([
       // A platform that can't answer is treated as one that can do nothing,
       // which degrades to a conversational Atlas rather than a broken one.
       platform.capabilities().catch(() => [] as CapabilityName[]),
       readVoiceProfile(storage).catch(() => ({}) as VoiceProfile),
-      loadLocalAiRuntime(storage),
+      loadLocalAiRuntime(storage, known),
       readActiveProvider(storage).catch(() => undefined),
       readCloudProviders(storage).catch(() => [] as CloudProviderConfig[]),
       readSpeechPreferences(storage).catch(() => DEFAULT_SPEECH),
@@ -110,6 +132,7 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
         listening,
         executionMode,
       ]) => {
+        if (!known) probing.current -= 1;
         if (alive && mine === latest.current)
           setLoaded({
             capabilities,
@@ -130,6 +153,12 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
   }, [platform, storage]);
 
   useEffect(() => reload(), [reload]);
+
+  // Saving a preference — speech, listening, execution mode, the name Atlas
+  // calls you — re-reads settings but has no reason to ask Ollama again.
+  // Provider changes are the ones that can change what Ollama has, and keep
+  // the full `reload`.
+  const reloadPreferences = useCallback(() => reload({ probe: false }), [reload]);
 
   if (!loaded) {
     return (
@@ -152,9 +181,9 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
       speechVoices={loaded.speechVoices}
       listening={loaded.listening}
       executionMode={loaded.executionMode}
-      onVoiceProfileChange={reload}
+      onVoiceProfileChange={reloadPreferences}
       onProviderChange={reload}
-      onPreferencesSaved={reload}
+      onPreferencesSaved={reloadPreferences}
     />
   );
 }

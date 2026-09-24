@@ -93,6 +93,7 @@ export function createTauriPlatform(): Platform {
     createFolder: (path) => invoke<boolean>('create_folder', { path }),
     renamePath: (path, newName) => invoke<boolean>('rename_path', { path, newName }),
     movePath: (path, destDir) => invoke<boolean>('move_path', { path, destDir }),
+    movePathTo: (from, to) => invoke<boolean>('move_path_to', { from, to }),
     copyPath: (path, destDir) => invoke<boolean>('copy_path', { path, destDir }),
     deletePath: (path) => invoke<boolean>('delete_path', { path }),
     readTextFile: (path) => invoke<string>('read_text_file', { path }),

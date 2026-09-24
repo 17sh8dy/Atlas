@@ -66,6 +66,7 @@ export const COMMAND_VERBS = [
   'open', 'launch', 'start', 'run', 'show', 'find', 'search', 'go', 'take',
   'close', 'hide', 'set', 'turn', 'enable', 'disable', 'make', 'create',
   'build', 'delete', 'move', 'copy', 'play', 'stop', 'remind', 'save',
+  'organize', 'organise', 'tidy', 'clean',
 ] as const;
 
 const COMMAND_VERB_PATTERN = new RegExp(`\\b(${COMMAND_VERBS.join('|')})\\b`);

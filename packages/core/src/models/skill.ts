@@ -132,9 +132,32 @@ export interface SkillContext {
    * back. Never reasoning, intent or deliberation — see `models/activity.ts`.
    */
   activity?: ActivityReporter;
+  /**
+   * The fingerprint of the preview the person just approved, set by the
+   * executor on a skill that has `preview`. `run` re-derives its plan and
+   * refuses to act if it no longer matches — a folder can change in the seconds
+   * between being shown a list and saying yes, and an approval covers *that*
+   * list, not whatever is there now.
+   */
+  approvedPreview?: string;
   /** Anything else the host chooses to expose. */
   [key: string]: unknown;
 }
+
+/**
+ * What a skill says it is about to do — see `Skill.preview`.
+ *
+ *  - `ask`     — show `detail` on the confirmation card. `fingerprint`, when
+ *                given, comes back to `run` as `ctx.approvedPreview`.
+ *  - `nothing` — there is nothing to do; say so and skip the card entirely. A
+ *                question with no consequence teaches people to click through.
+ *  - `refuse`  — it cannot happen (nothing found, too large to do safely); no
+ *                card is drawn in front of it.
+ */
+export type SkillPreview =
+  | { kind: 'ask'; detail: string; question?: string; fingerprint?: string }
+  | { kind: 'nothing'; message: string }
+  | { kind: 'refuse'; error: string };
 
 /** One actionable row in a result list. */
 export interface ResultRow {
@@ -249,6 +272,28 @@ export interface Skill<T = unknown> {
    * never consults the machine.
    */
   clarify?(args: SkillArgs): ClarifyNeed | null;
+  /**
+   * Look before leaping: work out what this call *would* do and say so, so the
+   * confirmation card can show the real consequence instead of the arguments.
+   *
+   * Exists for the bulk skills — "clean up my Downloads" is 200 moves whose
+   * names only exist once the folder has been read, so a card built from the
+   * arguments ("downloads") asks a person to approve something neither of them
+   * can see. The executor calls this on a `confirm` skill *instead of* the
+   * generic prompt, shows what it returns, and only then lets `run` start.
+   *
+   * ⚠️ Contract: **read-only.** It may list, stat and compute; it must never
+   * create, move, write or delete. It is the one hook that runs *before* the
+   * person has said yes, so anything it changed would be an action taken without
+   * asking. Unlike `guard` and `riskFor` it is async, because looking at the
+   * machine is the whole point — the price is that this rule is enforced by
+   * convention and by review, not by the type.
+   *
+   * Never softened by an execution mode or Allowed Folders: a batch is exactly
+   * where "just do it" is least wanted. Ignored on a skill whose risk is not
+   * `confirm`.
+   */
+  preview?(args: SkillArgs, ctx: SkillContext): Promise<SkillPreview>;
   /**
    * These arguments as a short phrase — "open Steam" — for the places Atlas
    * refers back to a step ("Just open Steam"). Falls back to the label.

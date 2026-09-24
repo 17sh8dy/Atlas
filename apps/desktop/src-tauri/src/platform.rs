@@ -850,6 +850,32 @@ pub fn move_path(path: String, dest_dir: String) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Move to an exact destination, name included. `move_path` keeps the file's
+/// own name, which cannot express "put it there as `setup (2).exe`" — and a
+/// bulk tidy-up hits name clashes constantly. Same rules as every other file
+/// operation: both ends inside the allowed folders (the destination is judged
+/// by its parent, since it does not exist yet), never an overwrite.
+#[tauri::command]
+pub fn move_path_to(from: String, to: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
+    let source = PathBuf::from(&from);
+    let target = PathBuf::from(&to);
+    if !is_permitted(&source) || !is_permitted_for_create(&target) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    // A name is not a path: a destination whose final component is empty or
+    // dots would land the file somewhere other than where the check above looked.
+    match target.file_name().and_then(|n| n.to_str()) {
+        Some(name) if is_bare_filename(name) => {}
+        _ => return Err("That's not a valid name.".into()),
+    }
+    if target.exists() {
+        return Err("Something is already there.".into());
+    }
+    std::fs::rename(&source, &target).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 #[tauri::command]
 pub fn copy_path(path: String, dest_dir: String) -> Result<bool, String> {
     crate::halt::global().check()?;
@@ -1073,6 +1099,52 @@ pub fn open_system_tool(id: String) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
+    /// `move_path_to` against a real folder: the rename happens, the name can
+    /// differ from the source's, and nothing is ever overwritten. Lives under
+    /// the temp directory, which sits inside the profile folder and so inside
+    /// the default allowed root — the same gate every real call goes through.
+    #[test]
+    fn move_path_to_renames_across_folders_and_never_overwrites() {
+        let base = std::env::temp_dir().join(format!("atlas-move-to-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let inbox = base.join("inbox");
+        let software = base.join("Software");
+        std::fs::create_dir_all(&inbox).unwrap();
+        std::fs::create_dir_all(&software).unwrap();
+
+        let source = inbox.join("setup.exe");
+        std::fs::write(&source, b"one").unwrap();
+        let clash = software.join("setup.exe");
+        std::fs::write(&clash, b"already here").unwrap();
+
+        let s = |p: &std::path::Path| p.to_string_lossy().to_string();
+
+        // The clash is refused, and both files are exactly as they were.
+        let refused = super::move_path_to(s(&source), s(&clash));
+        assert_eq!(refused.unwrap_err(), "Something is already there.");
+        assert_eq!(std::fs::read(&clash).unwrap(), b"already here");
+        assert!(source.exists());
+
+        // The same file lands fine under a name that does not clash.
+        let renamed = software.join("setup (2).exe");
+        assert_eq!(super::move_path_to(s(&source), s(&renamed)), Ok(true));
+        assert!(!source.exists());
+        assert_eq!(std::fs::read(&renamed).unwrap(), b"one");
+
+        // A destination that is not a bare name cannot smuggle a path in.
+        let other = inbox.join("second.txt");
+        std::fs::write(&other, b"two").unwrap();
+        assert!(super::move_path_to(s(&other), s(&software.join(".."))).is_err());
+        assert!(other.exists());
+
+        // And a destination under a folder that does not exist is not "allowed".
+        let nowhere = base.join("missing").join("x.txt");
+        assert!(super::move_path_to(s(&other), s(&nowhere)).is_err());
+        assert!(other.exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     /// "Open Discord on Brave" failed with os error 193 because the app's target
     /// is a `.lnk`, which can't be spawned. A real Start Menu shortcut must
     /// resolve to an executable that exists. Skipped where Brave isn't installed.

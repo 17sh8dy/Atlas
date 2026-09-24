@@ -175,8 +175,12 @@ export function LocalModels({ platform, storage, localAi, activeId, onChange }: 
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => void platform.openUrl?.(INSTALL_GUIDE_URL)}
-                    title="Opens a guide to downloading Ollama models"
+                    onClick={() => void platform.openUrl?.(p.pageUrl ?? INSTALL_GUIDE_URL)}
+                    title={
+                      p.pageUrl
+                        ? `Opens the ${p.label} model page`
+                        : 'Opens a guide to downloading Ollama models'
+                    }
                   >
                     Install
                   </Button>

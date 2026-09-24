@@ -526,6 +526,86 @@ way input's blanket `confirm` was.
 
 ---
 
+### 6.8 Bulk changes: preview, one approval, a journal, an undo (`Skill.preview`, `organize-skills.ts`)
+
+"Clean up my Downloads" is two hundred moves. The per-step safety model was
+built for one action at a time, and stretched over a batch it gives two bad
+answers: two hundred confirmation cards (which teaches people to hold Enter), or
+one card that says "downloads" (which asks for approval of something neither
+side can see). This is the pattern that replaces both, and it is the template
+for every bulk capability that follows.
+
+```
+request → grammar → files.organize
+            ├─ preview()        read-only: list, classify, plan     ← no card yet
+            ├─ ONE card         the actual list of moves            ← the approval
+            ├─ run()            re-derives the plan, checks the fingerprint,
+            │                   moves, journalling as it goes
+            └─ files.undo       reads the journal, previews, puts it back
+```
+
+**`Skill.preview(args, ctx)` is a read-only hook the executor calls instead of
+the generic prompt.** It returns `ask` (detail text for the card, plus a
+fingerprint), `nothing` (no card at all — a question with no consequence is how
+people learn to click through the ones that matter), or `refuse`. Contract: it
+may list and compute; it must never change anything, because it is the one hook
+that runs *before* the person has said yes. That is enforced by review and by
+tests over a fake disk that count every mutating call, not by the type.
+
+**An approval is for the list that was shown.** `run` rebuilds the plan and
+compares its fingerprint with `ctx.approvedPreview`; if a file arrived or left
+in the seconds between the card and the click, nothing moves and Atlas says why.
+A stale approval is a different action from the one consented to.
+
+**Never softened.** Do It mode and Allowed-Folder preapproval were agreed for one
+file at a time. A skill with a `preview` always shows it and always asks, in every
+mode, and `PREAPPROVABLE_PATH_ARGS` is pinned not to contain these skills.
+
+**The journal (`atlas.file-journal`, Storage port).** Every batch is recorded
+*as it happens* — flushed every twenty moves, not only at the end — so a run that
+dies at file 300 is still reportable and undoable. It keeps the last 20 batches,
+never loses a batch by marking it undone (history says what happened, including
+that), and a journal write failing never undoes a move that already landed.
+
+**Undo reverses what it can and says what it can't.** Each move is re-checked:
+gone from where Atlas put it, or something new sitting in its old place, and it is
+left alone and counted. Undo never overwrites. A partly finished undo stays open
+and remembers what it already restored, so a second "undo that" resumes.
+Folders Atlas created are left in place, empty — Atlas does not delete folders on
+its own initiative.
+
+**What the organizer will not do, on purpose.** It has *no delete in it* — "ask me
+before deleting anything" is satisfied the strong way, by there being no version of
+a tidy-up that removes anything. It moves loose files only, never folders, never
+recursing (a project directory in Downloads is one unit). It leaves alone what it
+doesn't recognise, rather than inventing an "Other" junk drawer, and counts it on
+the card. It skips unfinished downloads (`.crdownload`, `.part`…) and anything
+modified in the last two minutes — half a download filed as an installer is a
+corrupt installer. A name clash becomes `name (2).ext`; nothing is overwritten.
+A clause it cannot follow ("gibberish in Stuff") refuses the whole request rather
+than carrying out the half it understood.
+
+**Every single-file skill is journaled too (`withFileJournal`).** The single-file skills
+(`files.move`, `rename`, `copy`, `create`, `createFolder`, `delete`, `append`) are wrapped at
+registration, so each successful one lands in the same journal — the skills stay ignorant of
+it, only fire after the change has really happened, and a journal that fails to write never
+turns a finished move into an error. Only `move` and `rename` are pure reversals and can be
+undone. The rest are recorded (so "what did you just change" is true) but carry a
+`cannotUndo` sentence, because undoing a create or a copy means deleting something and a
+recycle-bin delete can only be reversed from the bin, which Atlas cannot reach. **"Undo that"
+means the newest change, of any kind** — never "the newest one that happens to be undoable":
+if the last thing done was a delete, it says so rather than quietly reversing an older move
+nobody meant.
+
+**`move_path_to(from, to)`** (`platform.rs`) exists because `move_path` keeps the
+source's file name and so cannot express the `(2)` rename. Both ends are checked
+against the allowed folders (the destination by its parent, since it does not yet
+exist), a destination that is not a bare name is refused, and it never overwrites.
+It is covered by the halt sweep like every other acting command.
+
+**`storage.emptyFolder` is the second consumer** — its card used to say only the
+folder's name and now lists what is about to go to the recycle bin.
+
 ## 7. Safety
 
 | Rule | Where | Why |

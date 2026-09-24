@@ -31,6 +31,11 @@ export interface LocalModelProfile {
   /** Rough download size, so nobody is surprised by 19 GB. */
   approxDownloadGb: number;
   /**
+   * The model's own page, for the Settings "Install" button. Absent means the
+   * shared Ollama download guide is used.
+   */
+  pageUrl?: string;
+  /**
    * How to set the model's "thinking" mode, or `undefined` to leave it alone.
    * Everyday chat runs with thinking off: on a home PC it is the difference
    * between a reply in seconds and a reply in minutes. A reasoning model keeps
@@ -72,6 +77,7 @@ export const LOCAL_MODEL_PROFILES: readonly LocalModelProfile[] = [
     role: 'compact',
     blurb: "OpenAI's open-weight reasoning model; small enough for a 16 GB graphics card",
     approxDownloadGb: 14,
+    pageUrl: 'https://huggingface.co/openai/gpt-oss-20b',
   },
 ];
 

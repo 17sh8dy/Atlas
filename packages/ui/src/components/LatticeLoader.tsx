@@ -21,7 +21,7 @@
  * The aurora's five-hue ramp is reserved for "a reply is arriving" (see
  * `AuroraBars`'s own doc comment) — the one moment colour moving is the
  * message. A lattice means something else: work is happening, the same
- * register the composer's `atlas-orbit` ring already uses for "Atlas is
+ * register the composer's working ring already uses for "Atlas is
  * doing something" with a single accent colour. Reusing that register here
  * rather than the aurora's keeps the two moments visually distinct.
  *

@@ -513,10 +513,49 @@ export class Executor {
         break;
       }
 
+      // A skill that can show what it is about to do (`Skill.preview`) is
+      // asked to, and the card carries *that* — the real list of moves, not
+      // "downloads". This runs in every mode and is never preapproved: Plan
+      // First's card names steps, not the two hundred files inside one, and
+      // Do It's Allowed-Folder softening was agreed to for one file at a time.
+      // A bulk change is where an approval has to be about something visible.
+      let approvedPreview: string | undefined;
+      if (skill.preview && effectiveRisk(skill, step.args) === 'confirm') {
+        const preview = await wait(skill.preview(step.args, ctx));
+
+        if (preview.kind === 'nothing') {
+          // No consequence, so no card: a question with nothing behind it is
+          // how people learn to click through the ones that matter.
+          report('done', preview.message);
+          outcomes.push({ skill: step.skill, ok: true, message: preview.message });
+          ctx.say(preview.message);
+          continue;
+        }
+
+        if (preview.kind === 'refuse') {
+          report('failed', preview.error);
+          outcomes.push({ skill: step.skill, ok: false, error: preview.error });
+          ctx.say(this.phrasing.failed(preview.error));
+          if (stopOnError) aborted = true;
+          continue;
+        }
+
+        const asked = this.phrasing.confirmPrompt(skill.description);
+        const approved = await wait(ctx.confirm(preview.question ?? asked.question, preview.detail));
+        if (!approved) {
+          report('skipped', 'You said no.');
+          outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
+          ctx.say(this.phrasing.declined());
+          aborted = true;
+          break;
+        }
+        approvedPreview = preview.fingerprint;
+      }
+
       // Plan First already put this exact step in front of the user as part
       // of the whole-plan approval above — asking again here would be the
       // "trip back to the keyboard" this mode exists to avoid.
-      if (effectiveRisk(skill, step.args) === 'confirm' && !usingPlanApproval) {
+      else if (effectiveRisk(skill, step.args) === 'confirm' && !usingPlanApproval) {
         // See this file's doc comment: the one case that quietly runs
         // without asking even though its risk is `confirm`. Checked only in
         // `doIt` — `confirmActions` picked "ask me anyway" and must keep
@@ -549,6 +588,7 @@ export class Executor {
       const result = await wait(
         this.skills.invoke(step.skill, step.args, {
           ...ctx,
+          approvedPreview,
           activity: options.onActivity
             ? reporterFor(activityAt, steps.length, step.skill, options.onActivity)
             : undefined,

@@ -144,6 +144,34 @@ export function createStorageSkills(platform: Platform): Skill[] {
     params: {
       path: { type: 'string', required: true, description: 'a known folder name or a path' },
     },
+    // The card used to say only "downloads" — an approval for something neither
+    // side could see. It now lists what is about to go to the recycle bin.
+    async preview(args) {
+      const raw = String(args.path ?? '');
+      const path = await resolveFolder(platform, raw);
+      if (!path) return { kind: 'refuse', error: `I couldn’t find “${raw}”.` };
+
+      const entries: FileEntry[] = (await platform.listDir?.(path, 500)) ?? [];
+      if (!entries.length) return { kind: 'nothing', message: `${path} is already empty.` };
+      if (entries.length >= 500) {
+        return { kind: 'refuse', error: `${path} has too many items for me to empty safely in one go.` };
+      }
+
+      const total = entries.reduce((sum, e) => sum + (e.isDirectory ? 0 : (e.sizeBytes ?? 0)), 0);
+      const shown = entries.slice(0, 12).map((e) => `• ${e.name}${e.isDirectory ? '  (folder)' : ''}`);
+      return {
+        kind: 'ask',
+        question: `🗑️ Empty ${path}?`,
+        detail: [
+          `${entries.length} item${entries.length === 1 ? '' : 's'} (${formatBytes(total)} of files) go to the recycle bin:`,
+          '',
+          ...shown,
+          ...(entries.length > 12 ? [`• …and ${entries.length - 12} more`] : []),
+          '',
+          'The folder itself stays, and everything can be restored from the recycle bin.',
+        ].join('\n'),
+      };
+    },
     async run(args) {
       const raw = String(args.path ?? '');
       const path = await resolveFolder(platform, raw);

@@ -166,122 +166,120 @@
   }
 }
 
-/* ── Motion ────────────────────────────────────────────────────────────────
-   One keyframe, used by the composer's working ring. It rotates an element
-   carrying a conic gradient rather than animating the gradient's angle,
-   because animating a gradient stop needs `@property` support and rotating a
-   box does not — and this has to be right in a WebView, not only in a browser
-   with the newest CSS engine.
+/* ── Working ring ──────────────────────────────────────────────────────────
+   The light that runs around the composer while Atlas is working — see
+   `WorkingRing` in apps/web for the reasoning. Every layer is a stroke on the
+   same rounded-rectangle path with `pathLength="100"`, so the keyframes are in
+   percent of the lap: constant speed along the edge at any size, and the light
+   follows the corners rather than cutting across them.
 
-   Guarded by prefers-reduced-motion: the ring's job is to say "working", and
-   a static ring still says it. */
-@keyframes atlas-orbit {
-  to {
-    transform: rotate(360deg);
-  }
+   Dash geometry, in lap-percent. The head is 9 long; every trailing layer starts
+   (its length − 9) further back so its leading edge sits exactly on the head's:
+   one comet, not several strokes. A *decreasing* dash offset moves the pattern
+   forward along the path.
+
+   The geometry is CSS (x/width/rx on the rects) so the ring tracks the box's
+   real size — the composer grows as you type. `rx` is the wrapper's
+   `rounded-xl`, 12px, and must change with it.
+
+   Fades in and out rather than popping, and the animation is paused while it
+   is hidden. Reduced motion keeps a steady full ring: it still says "working". */
+.atlas-ring rect {
+  x: 0.5px;
+  y: 0.5px;
+  width: calc(100% - 1px);
+  height: calc(100% - 1px);
+  rx: 12px;
+  ry: 12px;
+  fill: none;
+  stroke: rgb(var(--color-primary));
+  stroke-linecap: round;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .atlas-orbit {
-    animation: none !important;
-  }
+.atlas-ring {
+  opacity: 0;
+  transition: opacity 420ms ease-out;
 }
 
-.atlas-orbit {
-  animation: atlas-orbit 2.4s linear infinite;
+.atlas-ring[data-active='true'] {
+  opacity: 1;
 }
 
-/* ── Aurora ────────────────────────────────────────────────────────────────
-   The loading state, and the only place in the app where colour moves on its
-   own. Two animations, and both are deliberately the *cheap* kind.
+.atlas-ring-base {
+  stroke-width: 1px;
+  opacity: 0.22;
+}
 
-   Neither one animates a gradient. Interpolating colour stops needs
-   `@property` to register the custom properties as typed, repaints the
-   element on every frame, and runs on the main thread — which is exactly the
-   thread that has to stay free while Atlas is working, because "working" is
-   when this is on screen. Instead:
+/* The comet: a bright head and a tail that fades in three steps, so the back
+   end dissolves into the border instead of stopping. Each layer is longer and
+   dimmer than the one in front, and `--ring-lead` (its length minus the head's
+   9) starts it far enough back that every leading edge lines up with the head. */
+.atlas-ring-bloom,
+.atlas-ring-tail-far,
+.atlas-ring-tail-mid,
+.atlas-ring-tail-near,
+.atlas-ring-head {
+  animation: atlas-ring-run 3.2s linear infinite paused;
+}
 
-     · the wave is a tiled gradient on an over-wide element, moved with
-       `translate3d`. The tile is exactly one bar wide, so translating by one
-       tile loops with no seam and no keyframe ever touches a colour.
-     · the edge is a conic gradient on a square that *rotates*. Same trick the
-       composer's working ring already uses (see `atlas-orbit` above), for the
-       same reason it was chosen there.
+.atlas-ring-bloom {
+  --ring-lead: 21px;
+  stroke-width: 5px;
+  stroke-dasharray: 30 70;
+  opacity: 0.5;
+  filter: blur(4px);
+}
 
-   Both are transform-only, so they are composited on the GPU and the layout
-   and paint stages never run. That is what keeps this at 60fps while speech
-   is being synthesised on the same machine. */
+.atlas-ring-tail-far {
+  --ring-lead: 31px;
+  stroke-width: 1.5px;
+  stroke-dasharray: 40 60;
+  opacity: 0.14;
+}
 
-@keyframes atlas-aurora-wave {
+.atlas-ring-tail-mid {
+  --ring-lead: 15px;
+  stroke-width: 1.5px;
+  stroke-dasharray: 24 76;
+  opacity: 0.26;
+}
+
+.atlas-ring-tail-near {
+  --ring-lead: 5px;
+  stroke-width: 1.75px;
+  stroke-dasharray: 14 86;
+  opacity: 0.55;
+}
+
+.atlas-ring-head {
+  --ring-lead: 0px;
+  stroke-width: 2px;
+  stroke-dasharray: 9 91;
+}
+
+.atlas-ring[data-active='true'] rect {
+  animation-play-state: running;
+}
+
+@keyframes atlas-ring-run {
   from {
-    transform: translate3d(0, 0, 0);
+    stroke-dashoffset: var(--ring-lead, 0px);
   }
   to {
-    /* One tile. The element is 200% wide and the gradient tiles every 50% of
-       it, so this lands the pattern exactly where it started. */
-    transform: translate3d(-50%, 0, 0);
+    stroke-dashoffset: calc(var(--ring-lead, 0px) - 100px);
   }
 }
 
-/* The ramp, written once. Ends on the hue it starts with so the tile joins
-   itself invisibly — a ramp that ends on a different colour has a hard line
-   at every tile boundary, which is precisely what "shimmer" must not have. */
-.atlas-aurora-wave {
-  position: absolute;
-  inset: 0;
-  width: 200%;
-  background-image: linear-gradient(
-    90deg,
-    rgb(var(--aurora-1)) 0%,
-    rgb(var(--aurora-2)) 20%,
-    rgb(var(--aurora-3)) 40%,
-    rgb(var(--aurora-4)) 60%,
-    rgb(var(--aurora-5)) 80%,
-    rgb(var(--aurora-1)) 100%
-  );
-  background-size: 50% 100%;
-  background-repeat: repeat-x;
-  animation: atlas-aurora-wave var(--aurora-wave-duration, 2.6s) linear infinite;
-  will-change: transform;
-}
-
-/* The chase around the perimeter.
-
-   A square, not a rectangle, and oversized: rotating a square of the bar's
-   own width leaves the bar's corners outside the circle it sweeps, so they
-   sit un-lit at 45°. 140% covers them at every angle, and the overflow is
-   clipped by the bar anyway.
-
-   Percentage margins resolve against the containing block's *width* — both
-   axes — which is what lets a square defined only in percentages centre
-   itself without knowing a single pixel value. */
-.atlas-aurora-edge {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 140%;
-  margin-left: -70%;
-  margin-top: -70%;
-  aspect-ratio: 1 / 1;
-  background-image: conic-gradient(
-    from 0deg,
-    rgb(var(--aurora-1)),
-    rgb(var(--aurora-2)),
-    rgb(var(--aurora-3)),
-    rgb(var(--aurora-4)),
-    rgb(var(--aurora-5)),
-    rgb(var(--aurora-1))
-  );
-  animation: atlas-orbit var(--aurora-edge-duration, 3.4s) linear infinite;
-  will-change: transform;
-}
-
-/* Reduced motion keeps the colour and drops the movement. The bars still say
-   "not ready yet" by being bars; the shimmer was never the message. */
 @media (prefers-reduced-motion: reduce) {
-  .atlas-aurora-wave,
-  .atlas-aurora-edge {
-    animation: none !important;
+  .atlas-ring-bloom,
+  .atlas-ring-tail-far,
+  .atlas-ring-tail-mid,
+  .atlas-ring-tail-near,
+  .atlas-ring-head {
+    display: none;
+  }
+  .atlas-ring-base {
+    opacity: 0.6;
   }
 }
 
@@ -291,7 +289,7 @@
    beside a verb and (per the caller) a stopwatch, resolving to a fixed check
    or cross once the caller says the run has ended.
 
-   One colour — the accent `atlas-orbit`'s ring already uses for "Atlas is
+   One colour — the accent the composer's working ring already uses for "Atlas is
    doing something" — not the aurora's five-hue ramp above, which is reserved
    for "a reply is arriving" (see the Aurora note). A lattice is a different
    moment: work in progress rather than words being written, and it reads

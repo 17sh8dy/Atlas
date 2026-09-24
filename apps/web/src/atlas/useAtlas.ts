@@ -54,6 +54,8 @@ import {
   createServiceSkills,
   createEnvironmentSkills,
   createStorageSkills,
+  createOrganizeSkills,
+  withFileJournal,
   createDevToolsSkills,
   createDevAgentSkill,
   createUiAgentSkill,
@@ -69,8 +71,12 @@ import {
   readAffirmation,
   recordEpisodes,
   type EngineIO,
+  type FileJournal,
+  type JournalBatch,
 } from '@atlas/engine';
 import type { CapabilityName } from '@atlas/core';
+
+const FILE_JOURNAL_KEY = 'atlas.file-journal';
 
 export type EntryKind = 'you' | 'atlas' | 'results' | 'confirm' | 'clarify' | 'halted' | 'steps';
 
@@ -332,6 +338,18 @@ export function useAtlas(
   const phrasing = useMemo(() => createPhrasing(voiceProfile), [voiceProfile]);
   const memory = useMemo(() => new MemoryStore(storage), [storage]);
 
+  // The record of folder tidy-ups, in Atlas's own storage — what "undo that"
+  // and "what did you change" read. Lowercase-and-hyphens on purpose: the
+  // storage layer rejects any other spelling *silently* (see the sweep in
+  // `storage.rs`), and a journal that never saved is worse than none.
+  const fileJournal = useMemo<FileJournal>(
+    () => ({
+      read: async () => (await storage.get<JournalBatch[]>(FILE_JOURNAL_KEY)) ?? [],
+      write: (batches) => storage.set(FILE_JOURNAL_KEY, batches),
+    }),
+    [storage],
+  );
+
   /**
    * Do It's one "already permitted" exception — see the executor's own doc
    * comment in `@atlas/engine` for the policy and why it exists at all. This
@@ -393,7 +411,11 @@ export function useAtlas(
 
   const engine = useMemo(() => {
     const skills = new SkillRegistry({ capabilities: () => capabilities });
-    skills.registerMany(createCoreSkills(platform, memory, skills, phrasing));
+    // Every single-file skill is journaled, so "undo that" and "what did you
+    // change" cover all file work, not only the tidy-up.
+    skills.registerMany(
+      withFileJournal(createCoreSkills(platform, memory, skills, phrasing), fileJournal),
+    );
     skills.registerMany(createWebSearchSkills(platform, searchManager));
     skills.registerMany(createUtilitySkills());
     skills.registerMany(createTextSkills());
@@ -404,6 +426,7 @@ export function useAtlas(
     skills.registerMany(createServiceSkills(platform));
     skills.registerMany(createEnvironmentSkills(platform));
     skills.registerMany(createStorageSkills(platform));
+    skills.registerMany(createOrganizeSkills(platform, fileJournal));
     skills.registerMany(createDevToolsSkills(platform));
     skills.registerMany(createWindowSkills(platform));
     skills.registerMany(createInputSkills(platform));
@@ -459,6 +482,7 @@ export function useAtlas(
     builtIntelligence,
     capabilities,
     memory,
+    fileJournal,
     phrasing,
     voiceProfile,
     working,

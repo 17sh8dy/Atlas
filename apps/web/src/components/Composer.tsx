@@ -19,6 +19,7 @@ import type { Attachment, ExecutionMode } from '@atlas/core';
 import { EXECUTION_MODE_META } from '@atlas/core';
 import { Icons, Kbd, cn } from '@atlas/ui';
 import { AttachmentChips } from './AttachmentChips';
+import { WorkingRing } from './WorkingRing';
 import { fitComposer, lengthNote } from './composer-size';
 
 interface Props {
@@ -254,26 +255,11 @@ export function Composer({
         better than a permanently animated border, which would be decoration
         and would stop meaning anything within a day.
 
-        Built by rotating a box carrying a conic gradient inside a rounded,
-        clipped wrapper, with the input sitting a pixel inside it. Animating a
-        gradient's angle directly would need `@property`, and this has to be
-        right in a WebView rather than only in the newest CSS engine.
+        A light that runs along the border itself — see `WorkingRing` for why it
+        is not a spinning gradient. The input sits a pixel inside it.
       */}
       <div className="relative rounded-xl p-px">
-        {busy && (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl"
-          >
-            <span
-              className="atlas-orbit absolute left-1/2 top-1/2 aspect-square w-[160%] -translate-x-1/2 -translate-y-1/2"
-              style={{
-                background:
-                  'conic-gradient(from 0deg, transparent 0deg, transparent 250deg, rgb(var(--color-primary)) 320deg, transparent 360deg)',
-              }}
-            />
-          </span>
-        )}
+        <WorkingRing active={busy} />
 
         <div
           className={cn(

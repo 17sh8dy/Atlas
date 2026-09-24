@@ -86,6 +86,9 @@ export function Transcript({
   // (unless the person has scrolled up to read something else).
   const last = entries[entries.length - 1];
   const streamingNow = last?.streaming === true;
+  const awaitingYou = entries.some(
+    (e) => (e.kind === 'confirm' || e.kind === 'clarify') && !e.answered,
+  );
   useEffect(() => {
     if (streamingNow) followReveal();
   }, [streamingNow, last?.text, followReveal]);
@@ -110,7 +113,10 @@ export function Transcript({
           about to replace it — the text lands where the lattice was and
           nothing below it moves. A centred spinner would have to be pushed
           out of the way by the answer it was waiting for. */}
-      {busy && !streamingNow && (
+      {/* Not while a card is waiting on you: then Atlas is not thinking, it is
+          waiting, and a running "Thinking" clock beside a question is a
+          small lie. The card is the status. */}
+      {busy && !streamingNow && !awaitingYou && (
         <div className="max-w-[85%]">
           <LatticeRow run={activeRun} />
         </div>

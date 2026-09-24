@@ -86,3 +86,11 @@ test('a pick that no longer exists is treated as no pick, never as a failure', (
     assert.isNull(resolveActiveProviderId({ chosen: stale, known: KNOWN, localEnabled: false }));
   }
 });
+
+test('GPT-OSS 20B opens its own model page; nothing else carries a page link by accident', () => {
+  const gptOss = LOCAL_MODEL_PROFILES.find((p) => p.ollamaTag === 'gpt-oss:20b');
+  assert.equal(gptOss?.pageUrl, 'https://huggingface.co/openai/gpt-oss-20b');
+  for (const p of LOCAL_MODEL_PROFILES) {
+    if (p.pageUrl) assert.match(p.pageUrl, /^https:\/\//);
+  }
+});

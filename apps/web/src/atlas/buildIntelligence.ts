@@ -56,9 +56,19 @@ export const DEFAULT_LOCAL_AI_RUNTIME: LocalAiRuntime = {
  * Ollama what it has. Nothing is probed while the switch is off — a
  * connection to a port nobody asked Atlas to use would be one the user never
  * consented to. Never throws: an unreachable server is an empty list.
+ *
+ * `known` is a list from an earlier probe, to reuse instead of asking again.
+ * The probe is the slowest thing a settings change can trigger — with Ollama
+ * not running, Windows takes two to four seconds to refuse the connection — so
+ * a change that cannot possibly alter what Ollama has (a voice, a pace, a
+ * switch) passes the last answer rather than making the person wait for it.
  */
-export async function loadLocalAiRuntime(storage: Storage): Promise<LocalAiRuntime> {
+export async function loadLocalAiRuntime(
+  storage: Storage,
+  known?: readonly string[],
+): Promise<LocalAiRuntime> {
   const settings = await readLocalAiSettings(storage).catch(() => DEFAULT_LOCAL_AI_SETTINGS);
+  if (known) return { ...settings, installed: known };
   const models = settings.local.enabled
     ? await listInstalledLocalModels(settings.local.baseUrl)
     : null;
