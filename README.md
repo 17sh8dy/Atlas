@@ -24,9 +24,27 @@ Atlas  Open an app?  ·  steam            [Yes, do it] [Cancel]
 
 you    system status
 Atlas  📊 CPU 12% · memory 8.4/32.0 GB · C: 402/1024 GB.
+
+you    clean up my downloads, put installers in Software
+Atlas  Tidy up Downloads?  47 files into 5 folders — the list, then
+       Nothing is deleted or overwritten.       [Yes, do it] [Cancel]
+       Moved 47 of 47 files. Say “undo that” to put it all back.
 ```
 
-Press **Ctrl+Space** anywhere to summon it.
+Press **Ctrl+Space** anywhere to summon it. **F8** is the emergency stop.
+
+## Install
+
+Download `Atlas_<version>_x64-setup.exe` from the
+[latest release](https://github.com/17sh8dy/Atlas/releases/latest) and run it —
+Windows 10 or 11, 64-bit, no administrator rights needed. The first-run guide,
+including the SmartScreen warning (builds are not code-signed yet) and the
+optional local model, is [`docs/INSTALL.md`](docs/INSTALL.md).
+
+Atlas **updates itself**: it checks the releases page shortly after launch and
+every six hours, shows what changed, and installs on your say-so, rolling back
+to the version that worked if the new one fails to start. That check is the one
+network request Atlas makes on its own; turn it off in Settings → About.
 
 ## Why it's built this way
 
@@ -60,6 +78,8 @@ packages/
   engine/       The assistant runtime: bus, registry, grammar, planner,
                 executor. Depends only on core.
   platform/     Concrete Platform impls — Tauri and browser.
+  data/         Storage-backed preferences and settings.
+  updater/      The in-app update service (pure TS, no UI, no platform).
   tokens/       Design tokens → CSS variables (dark-first).
   ui/           Design-system components built on tokens.
   config/       Shared tsconfig, eslint, prettier, tailwind preset.
@@ -78,8 +98,10 @@ pnpm dev                            # the UI alone, in a browser, on :5173
 pnpm --filter @atlas/desktop dev    # the real desktop app
 
 pnpm typecheck                      # every package
-pnpm test                           # engine test suite
+pnpm lint                           # eslint, including the dependency rule
+pnpm test                           # every package's test suite
 pnpm build                          # production build
+pnpm release --dry-run              # build the installer + update manifest, publish nothing
 ```
 
 The desktop app additionally needs a Rust toolchain (`rustup`), and on Windows
@@ -97,18 +119,31 @@ reviewed in a diff.
 
 ## Where things stand
 
-**Version 0.5.0.** The engine kernel, the Tauri shell, memory, 137 skills
-(including operating other windows, synthetic input, UI Automation and screen
-capture — Phase 12), and voice (speaking and listening, both fully offline)
-are all built and working. Do It mode now asks only about genuinely
-consequential actions, never about the mechanism used to perform them — a
-click, a keystroke and typed text run immediately; deleting, shutting down or
-closing something still confirms. Ordinary conversation is deliberately stiff
-until you turn on a local model (Settings → Intelligence; Qwen3-8B is the default) — see
-[`docs/ROADMAP.md`](docs/ROADMAP.md) for exactly what's done, what's next
-(Phase 11's remaining eight groups), and what's deliberately not built yet.
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) explains why any of it is
-shaped the way it is.
+**Version 1.0.2**, released for Windows. Built and working:
+
+- **The engine and shell** — the kernel, the Tauri app, memory, and over 150
+  skills, every one declared with its arguments, risk and required capabilities.
+- **Operating your machine** — other windows, synthetic mouse and keyboard, UI
+  Automation, screen capture, services, environment variables, networking,
+  storage, and a developer agent (project scaffolding, builds, tests, git).
+- **Bulk file changes you can see and undo** — "clean up my downloads" sorts a
+  folder by type, shows the exact list first, asks once, never deletes or
+  overwrites, and every move or rename is journaled so "undo that" works.
+- **Voice, fully offline** — speaking (Piper and refined Kokoro voices) and
+  listening (Whisper), both on this machine.
+- **Safety you can rely on** — no `exec`; confirmation keyed to consequence
+  rather than mechanism (Do It mode asks only about genuinely consequential
+  actions); an emergency stop (F8) that halts everything at once.
+- **Local models, optional** — Qwen3-8B by default, up to Qwen3.5-35B and
+  GPT-OSS 20B, through [Ollama](https://ollama.com) (Settings → Intelligence).
+  Ordinary conversation is deliberately stiff until you turn one on. Cloud
+  providers are opt-in too.
+- **Self-updating**, with rollback (see Install above).
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for exactly what's done, what's next,
+and what's deliberately not built yet, and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for why any of it is shaped the
+way it is.
 
 > Atlas was previously a wallpaper and personalization platform. That work is
 > preserved on the `archive/wallpaper-platform` branch.
