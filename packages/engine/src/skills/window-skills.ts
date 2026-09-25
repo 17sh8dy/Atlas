@@ -17,7 +17,17 @@
  * that actually decides.
  */
 
-import type { Platform, ProcessEntry, ResultRow, Skill, SkillArgs, WindowEntry } from '@atlas/core';
+import type {
+  DisplayInfo,
+  Platform,
+  ProcessEntry,
+  ResultRow,
+  Skill,
+  SkillArgs,
+  WindowEntry,
+  WindowPosition,
+} from '@atlas/core';
+import { WINDOW_POSITIONS } from '@atlas/core';
 import { resolveWindow, liveWindows } from '../text/windows';
 
 const NEVER_END = [
@@ -233,6 +243,55 @@ export function createWindowSkills(platform: Platform): Skill[] {
   });
 
   skills.push({
+    id: 'window.place',
+    label: 'Put a window somewhere',
+    icon: '🪟',
+    domain: 'system',
+    description:
+      'Put a window on the left or right half, a quarter, the top or bottom, centred, or maximized — optionally on a particular display (1 = the first). Reads the display’s work area, so the taskbar is left alone.',
+    needs: ['window-control', 'screen'],
+    risk: 'safe',
+    examples: ['put discord on the left', 'move spotify to the right half', 'put obs on the top right of display 2'],
+    params: {
+      name: { type: 'string', required: true, description: 'the window, by its title or app name' },
+      position: {
+        type: 'string',
+        required: true,
+        enum: WINDOW_POSITIONS,
+        description: 'where on the display',
+      },
+      display: { type: 'number', required: false, description: 'which display, 1 = the first; defaults to the one it is on' },
+    },
+    summarize: (args) => `put ${String(args.name ?? 'the window')} ${describePosition(String(args.position) as WindowPosition)}`,
+    async run(args, ctx) {
+      const query = String(args.name ?? '');
+      const position = String(args.position) as WindowPosition;
+      const target = await targetWindow(query, ctx, (entry) => [
+        { label: 'Place this one', skill: 'window.place', args: { ...args, name: entry.id } },
+      ]);
+      if ('early' in target) return target.early;
+      const entry = target.entry;
+
+      const displays = (await platform.listDisplays?.().catch(() => [])) ?? [];
+      const display = pickDisplay(displays, entry, typeof args.display === 'number' ? args.display : undefined);
+      if (!display) {
+        return { ok: false, error: typeof args.display === 'number' ? `There’s no display ${args.display}.` : 'I couldn’t read your displays.' };
+      }
+
+      if (entry.minimized || entry.maximized) await platform.restoreWindow?.(entry.id);
+      const bounds = placementBounds(position, display);
+      const ok = await platform.setWindowBounds?.(entry.id, bounds);
+      if (ok && position === 'maximize') await platform.maximizeWindow?.(entry.id);
+      if (!ok) return { ok: false, error: `I couldn't move ${entry.title}.` };
+      return {
+        ok: true,
+        message: `Put ${entry.title} ${describePosition(position)}${displays.length > 1 ? ` of display ${displays.indexOf(display) + 1}` : ''}.`,
+        data: { windowId: entry.id, bounds },
+      };
+    },
+  });
+
+  skills.push({
     id: 'window.close',
     label: 'Close a window',
     icon: '🪟',
@@ -335,4 +394,74 @@ export function createWindowSkills(platform: Platform): Skill[] {
   });
 
   return skills;
+}
+
+/** "on the left", "in the top-right corner", "maximized". */
+export function describePosition(position: WindowPosition): string {
+  switch (position) {
+    case 'maximize':
+      return 'maximized';
+    case 'center':
+      return 'in the centre';
+    case 'left':
+    case 'right':
+    case 'top':
+    case 'bottom':
+      return `on the ${position}`;
+    default:
+      return `in the ${position} corner`;
+  }
+}
+
+/** The display a window is on (by its centre), a numbered one, or the primary. */
+export function pickDisplay(
+  displays: readonly DisplayInfo[],
+  entry: Pick<WindowEntry, 'x' | 'y' | 'width' | 'height'>,
+  oneBased?: number,
+): DisplayInfo | null {
+  if (!displays.length) return null;
+  if (oneBased !== undefined) return displays[Math.round(oneBased) - 1] ?? null;
+  const cx = entry.x + entry.width / 2;
+  const cy = entry.y + entry.height / 2;
+  return (
+    displays.find((d) => cx >= d.x && cx < d.x + d.width && cy >= d.y && cy < d.y + d.height) ??
+    displays.find((d) => d.primary) ??
+    displays[0]!
+  );
+}
+
+/** Where a position lands inside a display's work area, in pixels. */
+export function placementBounds(
+  position: WindowPosition,
+  d: Pick<DisplayInfo, 'workX' | 'workY' | 'workWidth' | 'workHeight'>,
+): { x: number; y: number; width: number; height: number } {
+  const halfW = Math.round(d.workWidth / 2);
+  const halfH = Math.round(d.workHeight / 2);
+  const x = d.workX;
+  const y = d.workY;
+  switch (position) {
+    case 'left':
+      return { x, y, width: halfW, height: d.workHeight };
+    case 'right':
+      return { x: x + halfW, y, width: d.workWidth - halfW, height: d.workHeight };
+    case 'top':
+      return { x, y, width: d.workWidth, height: halfH };
+    case 'bottom':
+      return { x, y: y + halfH, width: d.workWidth, height: d.workHeight - halfH };
+    case 'top-left':
+      return { x, y, width: halfW, height: halfH };
+    case 'top-right':
+      return { x: x + halfW, y, width: d.workWidth - halfW, height: halfH };
+    case 'bottom-left':
+      return { x, y: y + halfH, width: halfW, height: d.workHeight - halfH };
+    case 'bottom-right':
+      return { x: x + halfW, y: y + halfH, width: d.workWidth - halfW, height: d.workHeight - halfH };
+    case 'center': {
+      const width = Math.round(d.workWidth * 0.6);
+      const height = Math.round(d.workHeight * 0.7);
+      return { x: x + Math.round((d.workWidth - width) / 2), y: y + Math.round((d.workHeight - height) / 2), width, height };
+    }
+    case 'maximize':
+      return { x, y, width: d.workWidth, height: d.workHeight };
+  }
 }

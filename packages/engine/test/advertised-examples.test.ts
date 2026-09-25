@@ -45,6 +45,11 @@ import { createWindowSkills } from '../src/skills/window-skills';
 import { createInputSkills } from '../src/skills/input-skills';
 import { createUiaSkills } from '../src/skills/uia-skills';
 import { createScreenSkills } from '../src/skills/screen-skills';
+import { createDevToolsSkills } from '../src/skills/devtools-skills';
+import { createWatchSkills } from '../src/skills/watch-skills';
+import { createSetupSkills } from '../src/skills/setup-skills';
+import { SetupStore } from '../src/setup/store';
+import { SkillRegistry } from '../src/skills/registry';
 
 /**
  * Only the declarations are read — never `run` — so a platform that can do
@@ -71,6 +76,19 @@ function everySkill(): Skill[] {
     ...createInputSkills(NOTHING),
     ...createUiaSkills(NOTHING),
     ...createScreenSkills(NOTHING),
+    ...createDevToolsSkills(NOTHING),
+    ...createWatchSkills({
+      platform: NOTHING,
+      skills: new SkillRegistry(),
+      manager: () => null,
+      planFor: async () => null,
+    }),
+    ...createSetupSkills({
+      platform: NOTHING,
+      skills: new SkillRegistry(),
+      store: new SetupStore({ get: async () => undefined, set: async () => {}, remove: async () => {} }),
+      getExecutionMode: () => 'doIt',
+    }),
   ];
 }
 
@@ -109,6 +127,10 @@ const NOT_YET_REACHABLE = new Map<string, string>([
   ['decode this jwt', '“this” is the clipboard — no referent resolution yet'],
   ['turn it down a bit', '“a bit” is a degree, not a number — system.volume takes steps'],
   ['where are my screenshots', 'question-shaped, and files.find is not question-safe for it'],
+  // Found 2026-09-24, when devtools skills were first added to this sweep: both
+  // say “this project”, and nothing yet knows which project that is.
+  ['add express to this project', '“this project” has no referent — dependency.install needs a folder and a manager'],
+  ['install pytest as a dev dependency', 'no project folder named — same referent gap as “this project”'],
 ]);
 
 /**

@@ -57,6 +57,9 @@ const CATEGORIES: readonly Category[] = [
   { label: 'Text', icon: Icons.FileText, domains: ['text', 'clipboard'] },
   { label: 'Utilities', icon: Icons.Calculator, domains: ['utility', 'math', 'time'] },
   { label: 'Notes', icon: Icons.StickyNote, domains: ['notes', 'memory'] },
+  /* 1.0.3: the doing-not-answering layer — watching for something and carrying on,
+     and getting the PC ready for an activity. */
+  { label: 'Watch & setups', icon: Icons.Eye, domains: ['watch', 'setup'] },
   {
     label: 'Developer',
     icon: Icons.Terminal,

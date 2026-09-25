@@ -57,6 +57,7 @@ import { useAtlas } from '../atlas/useAtlas';
 import { useSpeech } from '../speech/useSpeech';
 import { useListening } from '../speech/useListening';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { WatchIndicator } from '../components/WatchIndicator';
 import { UpdateBubble } from '../components/UpdateBubble';
 import { useUpdater } from '../update/useUpdater';
 
@@ -98,59 +99,62 @@ export function AtlasApp({ platform, storage }: { platform: Platform; storage: S
    * for every one of its nine reads together, so each click on the Voice tab
    * used to take exactly that long to show. It is not a delay anyone chose.
    */
-  const reload = useCallback((opts?: { probe?: boolean }) => {
-    const mine = ++latest.current;
-    let alive = true;
-    const known =
-      opts?.probe === false && probing.current === 0
-        ? loadedRef.current?.localAi.installed
-        : undefined;
-    if (!known) probing.current += 1;
-    Promise.all([
-      // A platform that can't answer is treated as one that can do nothing,
-      // which degrades to a conversational Atlas rather than a broken one.
-      platform.capabilities().catch(() => [] as CapabilityName[]),
-      readVoiceProfile(storage).catch(() => ({}) as VoiceProfile),
-      loadLocalAiRuntime(storage, known),
-      readActiveProvider(storage).catch(() => undefined),
-      readCloudProviders(storage).catch(() => [] as CloudProviderConfig[]),
-      readSpeechPreferences(storage).catch(() => DEFAULT_SPEECH),
-      // An empty list is the honest answer for a build without the engine;
-      // the Voice tab renders that case rather than pretending otherwise.
-      platform.speechVoices?.().catch(() => [] as SpeechVoice[]) ?? Promise.resolve([]),
-      readListeningPreferences(storage).catch(() => DEFAULT_LISTENING),
-      readExecutionMode(storage).catch(() => DEFAULT_EXECUTION_MODE),
-    ]).then(
-      ([
-        capabilities,
-        voiceProfile,
-        localAi,
-        activeProviderId,
-        cloudProviders,
-        speech,
-        speechVoices,
-        listening,
-        executionMode,
-      ]) => {
-        if (!known) probing.current -= 1;
-        if (alive && mine === latest.current)
-          setLoaded({
-            capabilities,
-            voiceProfile,
-            localAi,
-            activeProviderId: activeProviderId ?? null,
-            cloudProviders,
-            speech,
-            speechVoices,
-            listening,
-            executionMode,
-          });
-      },
-    );
-    return () => {
-      alive = false;
-    };
-  }, [platform, storage]);
+  const reload = useCallback(
+    (opts?: { probe?: boolean }) => {
+      const mine = ++latest.current;
+      let alive = true;
+      const known =
+        opts?.probe === false && probing.current === 0
+          ? loadedRef.current?.localAi.installed
+          : undefined;
+      if (!known) probing.current += 1;
+      Promise.all([
+        // A platform that can't answer is treated as one that can do nothing,
+        // which degrades to a conversational Atlas rather than a broken one.
+        platform.capabilities().catch(() => [] as CapabilityName[]),
+        readVoiceProfile(storage).catch(() => ({}) as VoiceProfile),
+        loadLocalAiRuntime(storage, known),
+        readActiveProvider(storage).catch(() => undefined),
+        readCloudProviders(storage).catch(() => [] as CloudProviderConfig[]),
+        readSpeechPreferences(storage).catch(() => DEFAULT_SPEECH),
+        // An empty list is the honest answer for a build without the engine;
+        // the Voice tab renders that case rather than pretending otherwise.
+        platform.speechVoices?.().catch(() => [] as SpeechVoice[]) ?? Promise.resolve([]),
+        readListeningPreferences(storage).catch(() => DEFAULT_LISTENING),
+        readExecutionMode(storage).catch(() => DEFAULT_EXECUTION_MODE),
+      ]).then(
+        ([
+          capabilities,
+          voiceProfile,
+          localAi,
+          activeProviderId,
+          cloudProviders,
+          speech,
+          speechVoices,
+          listening,
+          executionMode,
+        ]) => {
+          if (!known) probing.current -= 1;
+          if (alive && mine === latest.current)
+            setLoaded({
+              capabilities,
+              voiceProfile,
+              localAi,
+              activeProviderId: activeProviderId ?? null,
+              cloudProviders,
+              speech,
+              speechVoices,
+              listening,
+              executionMode,
+            });
+        },
+      );
+      return () => {
+        alive = false;
+      };
+    },
+    [platform, storage],
+  );
 
   useEffect(() => reload(), [reload]);
 
@@ -351,7 +355,6 @@ function Ready({
   }, [share.frame, share.target, attachments]);
 
   const startShare = useCallback((target: ShareTarget) => share.start(target), [share]);
-
 
   /**
    * Keep the shell told whether there is anything to stop.
@@ -647,10 +650,15 @@ function Ready({
     atlas.clear();
   }, [voice, atlas]);
 
-  const openSettings = useCallback(() => {
-    setReturnTo(screen === 'voice' ? 'voice' : 'conversation');
-    setScreen('settings');
-  }, [screen]);
+  const [settingsSection, setSettingsSection] = useState<string | undefined>(undefined);
+  const openSettings = useCallback(
+    (section?: string) => {
+      setSettingsSection(section);
+      if (screen !== 'settings') setReturnTo(screen === 'voice' ? 'voice' : 'conversation');
+      setScreen('settings');
+    },
+    [screen],
+  );
 
   const closeSettings = useCallback(() => {
     setScreen(returnTo);
@@ -733,6 +741,7 @@ function Ready({
         }
         right={
           <>
+            <WatchIndicator watches={atlas.watches} onOpen={() => openSettings('watches')} />
             <ThemeToggle />
             {atlas.entries.length > 0 && screen === 'conversation' && (
               <ChromeButton label="Clear conversation" onClick={clearConversation}>
@@ -894,6 +903,8 @@ function Ready({
           />
         ) : (
           <Settings
+            key={settingsSection ?? 'general'}
+            initialSection={settingsSection}
             platform={platform}
             storage={storage}
             capabilities={capabilities}
@@ -917,6 +928,8 @@ function Ready({
             listeningSupported={listening.supported}
             onListeningChange={onListeningChange}
             updater={updater}
+            watches={atlas.watches}
+            setups={atlas.setups}
           />
         )}
       </div>

@@ -39,6 +39,7 @@ import type {
   IntelligenceRegistry,
   Plan,
   PlanOutcome,
+  PlanStep,
   ResultRow,
   Skill,
   SkillArgs,
@@ -361,16 +362,57 @@ export class Engine {
     return text.trim().endsWith('?');
   }
 
-  /** Run a plan built elsewhere — a button, a result row, a saved routine. */
-  async run(plan: Plan, io: EngineIO): Promise<PlanOutcome> {
+  /**
+   * Run a plan built elsewhere — a button, a result row, a saved routine, a
+   * watch's continuation. `approvedStep` is forwarded to the executor unchanged:
+   * see `ExecutorOptions.approvedStep` for exactly what an earlier approval may
+   * and may not skip.
+   */
+  async run(
+    plan: Plan,
+    io: EngineIO,
+    extra: { approvedStep?: (step: PlanStep) => boolean } = {},
+  ): Promise<PlanOutcome> {
     const controller = new HaltController();
     this.live.add(controller);
     try {
-      return await this.executor.run(
-        plan,
-        this.context(io, controller.signal),
-        this.executorOptions(controller.signal),
-      );
+      return await this.executor.run(plan, this.context(io, controller.signal), {
+        ...this.executorOptions(controller.signal),
+        approvedStep: extra.approvedStep,
+      });
+    } finally {
+      this.live.delete(controller);
+    }
+  }
+
+  /**
+   * What would Atlas do about this sentence? The same tiers `ask` uses — the
+   * grammar (as written, without filler, with a corrected leading verb), then
+   * the AI planner for an instruction the grammar missed — but nothing runs.
+   *
+   * Exists for things that hold a plan for later: a watch's "then run the
+   * tests and open it" is understood *now*, shown on the approval card, and
+   * run when the condition holds. The content policy is not skipped by this —
+   * whatever runs the plan later goes through the executor, which screens it.
+   */
+  async planFor(text: string): Promise<Plan | null> {
+    const raw = String(text ?? '').trim();
+    if (!raw) return null;
+    const normalized = normalizeRequest(raw);
+    const corrected = correctLeadingVerb(normalized || raw);
+    const parsed =
+      this.grammar.parse(raw) ??
+      (normalized && normalized !== raw ? this.grammar.parse(normalized) : null) ??
+      (corrected ? this.grammar.parse(corrected) : null);
+    if (parsed) return parsed;
+    if (!this.grammar.looksActionable(raw) || this.isQuestion(raw)) return null;
+    const controller = new HaltController();
+    this.live.add(controller);
+    try {
+      return await this.planWithAI(corrected ?? normalized ?? raw, controller.signal);
+    } catch (err) {
+      if (err instanceof HaltedError) return null;
+      throw err;
     } finally {
       this.live.delete(controller);
     }

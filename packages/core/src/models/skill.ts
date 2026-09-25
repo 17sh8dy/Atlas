@@ -153,11 +153,18 @@ export interface SkillContext {
  *                question with no consequence teaches people to click through.
  *  - `refuse`  — it cannot happen (nothing found, too large to do safely); no
  *                card is drawn in front of it.
+ *  - `proceed` — having looked, nothing in *this* call is consequential (a
+ *                setup whose apps only need opening and checking), so there is
+ *                nothing to ask; run it. It is not a way round a card: whatever
+ *                `run` then does still goes through the gates it always would,
+ *                and `fingerprint` is still handed back so `run` acts on the plan
+ *                that was looked at, not a new one.
  */
 export type SkillPreview =
   | { kind: 'ask'; detail: string; question?: string; fingerprint?: string }
   | { kind: 'nothing'; message: string }
-  | { kind: 'refuse'; error: string };
+  | { kind: 'refuse'; error: string }
+  | { kind: 'proceed'; fingerprint?: string };
 
 /** One actionable row in a result list. */
 export interface ResultRow {

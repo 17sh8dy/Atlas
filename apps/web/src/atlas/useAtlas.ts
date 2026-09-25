@@ -30,6 +30,7 @@ import type {
   SpeechPreferences,
   Storage,
   VoiceProfile,
+  Watch,
 } from '@atlas/core';
 import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH } from '@atlas/core';
 import { MemoryStore } from '@atlas/data';
@@ -70,6 +71,11 @@ import {
   createPhrasing,
   readAffirmation,
   recordEpisodes,
+  createWatchSkills,
+  watchRow,
+  createSetupSkills,
+  WatchManager,
+  SetupStore,
   type EngineIO,
   type FileJournal,
   type JournalBatch,
@@ -280,6 +286,12 @@ export function useAtlas(
    * back, silently erasing it.
    */
   const loaded = useRef(false);
+  /**
+   * Set once the saved transcript is back. Watches are restored only after
+   * that, because restoring the transcript *replaces* the entries — a
+   * "picked up 2 watches" line pushed before it would vanish.
+   */
+  const [transcriptReady, setTranscriptReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -307,7 +319,10 @@ export function useAtlas(
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) loaded.current = true;
+        if (!cancelled) {
+          loaded.current = true;
+          setTranscriptReady(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -381,6 +396,54 @@ export function useAtlas(
   // whenever a skill renders a result list) — see WorkingMemory's doc comment.
   const working = useMemo(() => new WorkingMemory(), []);
 
+  /**
+   * Saved setups ("get my PC ready for recording"). Loaded straight away: the
+   * "ready for what?" question offers saved names synchronously.
+   */
+  const setupStore = useMemo(() => new SetupStore(storage), [storage]);
+  useEffect(() => {
+    void setupStore.load();
+  }, [setupStore]);
+
+  /**
+   * Atlas Watch. Lives as long as the window, not as long as one engine: the
+   * engine is rebuilt whenever a provider or preference changes, and a watch
+   * must not be dropped because someone changed their voice. So it reaches
+   * the *current* engine through a ref, and says things through one too.
+   */
+  const engineRef = useRef<Engine | null>(null);
+  const announceRef = useRef<(text: string) => void>(() => {});
+  const needsYouRef = useRef<(watch: Watch) => void>(() => {});
+  const watchManager = useMemo(
+    () =>
+      new WatchManager({
+        storage,
+        platform,
+        host: {
+          run: (plan, runIo, extra) =>
+            engineRef.current
+              ? engineRef.current.run(plan, runIo, extra)
+              : Promise.resolve({
+                  ok: false,
+                  ran: 0,
+                  aborted: true,
+                  outcomes: [
+                    {
+                      skill: plan.steps[0]?.skill ?? '',
+                      ok: false,
+                      error: 'Atlas is still starting.',
+                    },
+                  ],
+                }),
+          announce: (text) => announceRef.current(text),
+          needsYou: (watch) => needsYouRef.current(watch),
+          notify: (title, body) => void platform.notify?.(title, body).catch(() => false),
+        },
+      }),
+    [storage, platform],
+  );
+  useEffect(() => () => watchManager.dispose(), [watchManager]);
+
   // Which search backends recently refused lives here, not inside the engine
   // memo below: the engine is rebuilt whenever a provider setting changes, and
   // a spent Tavily allowance should not be forgotten every time it is.
@@ -432,6 +495,25 @@ export function useAtlas(
     skills.registerMany(createInputSkills(platform));
     skills.registerMany(createUiaSkills(platform));
     skills.registerMany(createScreenSkills(platform));
+    skills.registerMany(
+      createSetupSkills({
+        platform,
+        skills,
+        store: setupStore,
+        phrasing,
+        getExecutionMode: () => executionModeRef.current,
+      }),
+    );
+    // `built` is assigned below; planFor is only ever called later, by a request.
+    let built: Engine | null = null;
+    skills.registerMany(
+      createWatchSkills({
+        platform,
+        skills,
+        manager: () => watchManager,
+        planFor: (text) => (built ? built.planFor(text) : Promise.resolve(null)),
+      }),
+    );
 
     const grammar = new Grammar();
     grammar.addMany(createCoreGrammar(working));
@@ -467,7 +549,7 @@ export function useAtlas(
       }),
     );
 
-    return new Engine({
+    built = new Engine({
       skills,
       grammar,
       voice: voiceProfile,
@@ -476,7 +558,10 @@ export function useAtlas(
       getExecutionMode: () => executionModeRef.current,
       isPreapproved,
     });
+    return built;
   }, [
+    setupStore,
+    watchManager,
     platform,
     searchManager,
     builtIntelligence,
@@ -491,6 +576,24 @@ export function useAtlas(
 
   // Episodic memory doesn't touch the ask/io path at all — it just listens.
   useEffect(() => recordEpisodes(engine.bus, memory, engine.skills), [engine, memory]);
+
+  useEffect(() => {
+    engineRef.current = engine;
+  }, [engine]);
+
+  // Watches speak into the conversation; a restored one says so once, after
+  // the saved transcript is back (see `transcriptReady`).
+  announceRef.current = (text: string) => push({ kind: 'atlas', text });
+  // A watch that stopped to ask arrives as its question *with* the answers —
+  // the same row "what are you watching?" shows — not a line to go and act on
+  // somewhere else.
+  needsYouRef.current = (watch: Watch) => {
+    push({ kind: 'atlas', text: `✋ A watch needs you: ${watch.question?.question ?? ''}` });
+    push({ kind: 'results', rows: [watchRow(watch)] });
+  };
+  useEffect(() => {
+    if (transcriptReady) void watchManager.load();
+  }, [transcriptReady, watchManager]);
 
   /**
    * A record of what a multi-step run did, as one collapsed row.
@@ -687,6 +790,8 @@ export function useAtlas(
   const applyHalt = useCallback(
     (event: { epoch: number | null; source: HaltSource }) => {
       engine.halt();
+      // Every watch pauses too, and stays paused until the person resumes it.
+      void watchManager.haltAll();
       queued.current = null;
       onHaltRef.current();
 
@@ -716,7 +821,7 @@ export function useAtlas(
         { id: nextId++, kind: 'halted', source: event.source, at: Date.now() },
       ]);
     },
-    [engine],
+    [engine, watchManager],
   );
 
   useEffect(() => {
@@ -953,6 +1058,10 @@ export function useAtlas(
     engineBus: engine.bus,
     skillCount: engine.skills.available().length,
     skills: engine.skills,
+    /** Atlas Watch — for Settings → Watches. */
+    watches: watchManager,
+    /** Saved setups — for Settings → Setups. */
+    setups: setupStore,
     greeting: phrasing.greeting(),
     atlasName: voiceProfile.atlasName?.trim() || 'Atlas',
     /**

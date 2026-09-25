@@ -14,6 +14,7 @@
  */
 
 import { createIncompleteRules } from './incomplete-grammar';
+import { createAgentGrammar } from './agent-grammar';
 import type { GrammarRule } from './grammar';
 import { plan, step } from './grammar';
 
@@ -44,6 +45,10 @@ export function createExtraGrammar(): GrammarRule[] {
     // Requests that name an action and leave out what it needs: last in line,
     // so they only ever catch what every more specific rule declined.
     ...createIncompleteRules(),
+
+    // Watch, setups, plain developer phrasings, window placement, the mic —
+    // see agent-grammar.ts for why these sit ahead of the core rules.
+    ...createAgentGrammar(),
 
     // ---- text -------------------------------------------------------------
 

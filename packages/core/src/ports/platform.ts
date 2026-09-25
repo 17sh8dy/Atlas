@@ -52,6 +52,7 @@ export type CapabilityName =
   | 'apps' // enumerate and launch installed applications
   | 'system' // CPU/memory/disk/battery readings
   | 'processes' // what's running
+  | 'audio-devices' // which microphone and speakers are the defaults (read-only)
   | 'clipboard'
   | 'notifications'
   | 'os' // the machine itself: lock, power, volume, media keys
@@ -114,6 +115,16 @@ export type KnownFolder =
 
 export type PowerAction = 'shutdown' | 'restart' | 'sign-out';
 export type MediaKey = 'play-pause' | 'next' | 'previous' | 'stop';
+
+/**
+ * The default audio devices, by the name Windows shows for them — "Shure MV7+"
+ * — or null when there is no such device. Read-only: Atlas reports which
+ * microphone is in use; changing the default device has no documented API.
+ */
+export interface AudioDevices {
+  input: string | null;
+  output: string | null;
+}
 
 export interface ProcessEntry {
   pid: number;
@@ -209,6 +220,8 @@ export interface Platform {
 
   systemInfo?(): Promise<SystemSnapshot>;
   runningProcesses?(limit?: number): Promise<ProcessEntry[]>;
+  /** The default microphone and speakers. See `AudioDevices`. */
+  audioDevices?(): Promise<AudioDevices>;
 
   readClipboard?(): Promise<string>;
   writeClipboard?(text: string): Promise<boolean>;

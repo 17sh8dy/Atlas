@@ -115,6 +115,19 @@ export interface ExecutorOptions {
    * asking stays true without touching a single one of them).
    */
   isPreapproved?(skill: Skill, args: SkillArgs): Promise<boolean>;
+  /**
+   * The person already approved *this exact step* on an earlier card — a watch's
+   * continuation, approved when the watch was made, or a setup's plan, approved
+   * on its preview. Returning true skips the generic confirmation for that one
+   * step, in every execution mode, because the question was already asked and
+   * answered about precisely these arguments.
+   *
+   * Deliberately narrower than it sounds. It never skips a `guard` refusal or the
+   * content policy (both run before this is consulted), and it is never consulted
+   * for a skill with `preview`: a bulk skill's card shows a list read off the
+   * machine at the moment it runs, which an earlier approval cannot have seen.
+   */
+  approvedStep?(step: PlanStep): boolean;
   /** The emergency stop. Defaults to `ctx.signal`. */
   signal?: HaltSignal;
 }
@@ -413,8 +426,12 @@ export class Executor {
     // to the ordinary "right then" announcement below, same as every other
     // mode — this is what keeps harmless requests just as quiet under this
     // mode as under the other two.
+    // A step the person already approved on an earlier card is not asked about
+    // again here either — see `ExecutorOptions.approvedStep`.
     const hasConsequentialStep = planned.some(
-      (s) => effectiveRisk(this.skills.get(s.skill), s.args) === 'confirm',
+      (s) =>
+        effectiveRisk(this.skills.get(s.skill), s.args) === 'confirm' &&
+        options.approvedStep?.(s) !== true,
     );
     // Same reasoning as the per-step guard check below, applied to the whole
     // plan: a card must never appear in front of something that would then be
@@ -540,16 +557,20 @@ export class Executor {
           continue;
         }
 
-        const asked = this.phrasing.confirmPrompt(skill.description);
-        const approved = await wait(ctx.confirm(preview.question ?? asked.question, preview.detail));
-        if (!approved) {
-          report('skipped', 'You said no.');
-          outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
-          ctx.say(this.phrasing.declined());
-          aborted = true;
-          break;
+        if (preview.kind === 'proceed') {
+          approvedPreview = preview.fingerprint;
+        } else {
+          const asked = this.phrasing.confirmPrompt(skill.description);
+          const approved = await wait(ctx.confirm(preview.question ?? asked.question, preview.detail));
+          if (!approved) {
+            report('skipped', 'You said no.');
+            outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
+            ctx.say(this.phrasing.declined());
+            aborted = true;
+            break;
+          }
+          approvedPreview = preview.fingerprint;
         }
-        approvedPreview = preview.fingerprint;
       }
 
       // Plan First already put this exact step in front of the user as part
@@ -561,8 +582,9 @@ export class Executor {
         // `doIt` — `confirmActions` picked "ask me anyway" and must keep
         // meaning that.
         const preapproved =
-          mode === 'doIt' &&
-          (await wait(options.isPreapproved?.(skill, step.args) ?? Promise.resolve(false)));
+          options.approvedStep?.(step) === true ||
+          (mode === 'doIt' &&
+            (await wait(options.isPreapproved?.(skill, step.args) ?? Promise.resolve(false))));
 
         if (!preapproved) {
           const argsDetail = Object.values(step.args)

@@ -12,6 +12,8 @@
 
 mod allowed_folders;
 #[cfg(windows)]
+mod audio;
+#[cfg(windows)]
 mod cloud_intelligence;
 mod diagnostics;
 #[cfg(windows)]
@@ -118,6 +120,7 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
         "apps",
         "system",
         "processes",
+        "audio-devices",
         "clipboard",
         "notifications",
         "os",
@@ -200,6 +203,7 @@ pub fn run() {
             platform::open_url_with_app,
             platform::system_info,
             platform::running_processes,
+            audio::audio_devices,
             platform::list_apps,
             platform::launch_app,
             platform::create_file,

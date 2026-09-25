@@ -81,5 +81,10 @@ export {
   // the update bubble
   Download,
   TriangleAlert,
+  // Settings → Watches and Setups (1.0.3)
+  Eye,
+  Pause,
+  Clapperboard,
+  Hand,
   type LucideIcon,
 } from 'lucide-react';

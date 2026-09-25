@@ -64,6 +64,16 @@ function previewOutput(text: string, lines = 40): string {
   return shown.join('\n') + (rest > 0 ? `\n… ${rest} more line${rest === 1 ? '' : 's'}` : '');
 }
 
+/** Script names that mean "package this", most specific first. */
+export const PACKAGE_SCRIPTS = [
+  'package',
+  'dist',
+  'pack',
+  'make',
+  'tauri:build',
+  'electron:build',
+] as const;
+
 export function createDevToolsSkills(platform: Platform): Skill[] {
   const skills: Skill[] = [];
 
@@ -358,6 +368,49 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
   });
 
   const BUILD_SYSTEMS = ['cmake', 'cargo', 'npm', 'pnpm', 'dotnet', 'make'] as const;
+
+  /**
+   * The system named, or — when the request didn't name one ("run the tests in
+   * D:\Dev\App") — the first supported one `project.detect` finds there. A
+   * project with both pnpm and npm markers prefers pnpm, which is what the
+   * lockfile being there means.
+   */
+  async function detectSystem(
+    path: string,
+    supported: readonly string[],
+    named: unknown,
+  ): Promise<{ system: string } | { error: string }> {
+    if (typeof named === 'string' && named) return { system: named };
+    const info = await platform.detectProject?.(path).catch(() => null);
+    const found = info?.systems ?? [];
+    const preference = ['pnpm', 'npm', 'cargo', 'dotnet', 'cmake', 'make', 'pytest'];
+    const system = preference.find((s) => supported.includes(s) && found.includes(s as never));
+    return system
+      ? { system }
+      : {
+          error: `I couldn’t find a project I know how to handle in ${path}${found.length ? ` (found ${found.join(', ')})` : ''}.`,
+        };
+  }
+
+  /** The script "package it" means in this project, if it has one. */
+  async function packageScript(
+    path: string,
+    system: string,
+  ): Promise<{ script: string } | { error: string }> {
+    if (system !== 'npm' && system !== 'pnpm') {
+      return {
+        error: `Packaging is something I can do for npm/pnpm projects with a "package" or "dist" script; this one builds with ${system}.`,
+      };
+    }
+    const info = await platform.detectProject?.(path).catch(() => null);
+    const scripts = info?.npmScripts ?? [];
+    const script = PACKAGE_SCRIPTS.find((n) => scripts.includes(n));
+    return script
+      ? { script }
+      : {
+          error: `${path} has no packaging script I recognise${scripts.length ? ` (its scripts: ${scripts.slice(0, 8).join(', ')})` : ''}.`,
+        };
+  }
   const TEST_SYSTEMS = ['cmake', 'cargo', 'npm', 'pnpm', 'dotnet', 'pytest'] as const;
   const DEP_MANAGERS = ['npm', 'pnpm', 'cargo', 'pip'] as const;
 
@@ -407,9 +460,9 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
       path: { type: 'string', required: true, description: 'the project folder' },
       system: {
         type: 'string',
-        required: true,
+        required: false,
         enum: BUILD_SYSTEMS,
-        description: 'which build system to use',
+        description: 'which build system to use; detected from the folder when left out',
       },
       target: {
         type: 'string',
@@ -417,10 +470,19 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
         description: 'a build target or npm/pnpm script name',
       },
     },
+    examples: ['build D:\\Dev\\MyApp', 'package the project in D:\\Dev\\MyApp'],
     async run(args) {
       const path = String(args.path);
-      const system = String(args.system);
-      const target = args.target !== undefined ? String(args.target) : undefined;
+      const detected = await detectSystem(path, BUILD_SYSTEMS, args.system);
+      if ('error' in detected) return { ok: false, error: detected.error };
+      const system = detected.system;
+      let target = args.target !== undefined ? String(args.target) : undefined;
+      // "package it": whichever packaging script this project actually has.
+      if (target === 'package') {
+        const script = await packageScript(path, system);
+        if ('error' in script) return { ok: false, error: script.error };
+        target = script.script;
+      }
 
       const tool = buildTool(system, target);
       if (!tool) return { ok: false, error: `I don't know how to build with "${system}".` };
@@ -447,15 +509,18 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
       path: { type: 'string', required: true, description: 'the project folder' },
       system: {
         type: 'string',
-        required: true,
+        required: false,
         enum: TEST_SYSTEMS,
-        description: 'which test tool to use',
+        description: 'which test tool to use; detected from the folder when left out',
       },
       filter: { type: 'string', required: false, description: 'restrict to tests matching this' },
     },
+    examples: ['run the tests in D:\\Dev\\MyApp'],
     async run(args) {
       const path = String(args.path);
-      const system = String(args.system);
+      const detected = await detectSystem(path, TEST_SYSTEMS, args.system);
+      if ('error' in detected) return { ok: false, error: detected.error };
+      const system = detected.system;
       const filter = args.filter !== undefined ? String(args.filter) : undefined;
 
       const tool = testTool(system, filter);

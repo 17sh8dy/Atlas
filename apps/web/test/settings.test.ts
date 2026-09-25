@@ -36,11 +36,18 @@ test('every tab in the rail has a panel behind it', () => {
 });
 
 test('the default tab is one that exists', () => {
-  const fallback = /defaultValue="([a-z-]+)"/.exec(SETTINGS_TSX)?.[1];
+  // `defaultValue={initialSection ?? 'general'}` since 1.0.3: the title bar's
+  // watch indicator opens Settings on Watches, everything else on the fallback.
+  const fallback = /defaultValue=\{initialSection \?\? '([a-z-]+)'\}/.exec(SETTINGS_TSX)?.[1];
   assert.isDefined(fallback);
   assert.include(
     SECTIONS.map((s) => s.id),
     fallback!,
+  );
+  // …and the section the indicator asks for is a real one.
+  assert.include(
+    SECTIONS.map((s) => s.id),
+    'watches',
   );
 });
 
@@ -53,7 +60,8 @@ test('the placeholder tabs are gone and have not come back', () => {
       gone,
     );
   }
-  assert.lengthOf(SECTIONS, 9);
+  // 11 since 1.0.3: Watches and Setups are real pages with real controls, not placeholders.
+  assert.lengthOf(SECTIONS, 11);
 });
 
 test('the Account tab is optional in the way it claims to be', () => {

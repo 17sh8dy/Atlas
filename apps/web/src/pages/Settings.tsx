@@ -31,12 +31,14 @@ import type {
   VoiceProfile,
 } from '@atlas/core';
 import type { LocalAiRuntime } from '../atlas/buildIntelligence';
-import type { SkillRegistry } from '@atlas/engine';
+import type { SetupStore, SkillRegistry, WatchManager } from '@atlas/engine';
 import { General } from './settings/General';
 import { Appearance } from './settings/Appearance';
 import { Voice } from './settings/Voice';
 import { Personalization } from './settings/Personalization';
 import { Activity } from './settings/Activity';
+import { Watches } from './settings/Watches';
+import { Setups } from './settings/Setups';
 import { Notifications } from './settings/Notifications';
 import { Intelligence } from './settings/Intelligence';
 import { Account } from './settings/Account';
@@ -68,6 +70,10 @@ interface Props {
   listeningSupported: boolean;
   onListeningChange(next: Partial<ListeningPreferences>): void;
   updater: Updater;
+  watches: WatchManager;
+  setups: SetupStore;
+  /** Open on this section instead of General — the title bar's watch indicator lands on Watches. */
+  initialSection?: string;
 }
 
 /**
@@ -87,6 +93,8 @@ export const SECTIONS: readonly SettingsSection[] = [
   { id: 'voice', label: 'Voice', icon: Icons.Mic },
   { id: 'personalization', label: 'Personalization', icon: Icons.UserCircle },
   { id: 'activity', label: 'Activity', icon: Icons.Activity },
+  { id: 'watches', label: 'Watches', icon: Icons.Eye },
+  { id: 'setups', label: 'Setups', icon: Icons.Clapperboard },
   { id: 'notifications', label: 'Notifications', icon: Icons.Bell },
   { id: 'intelligence', label: 'Intelligence', icon: Icons.Brain },
   /* Second to last, above About. Atlas is complete signed out, and an account entry near the
@@ -119,6 +127,9 @@ export function Settings({
   listeningSupported,
   onListeningChange,
   updater,
+  watches,
+  setups,
+  initialSection,
 }: Props) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -128,7 +139,11 @@ export function Settings({
           Everything optional lives here. Atlas is complete without any of it.
         </p>
 
-        <Tabs defaultValue="general" orientation="vertical" className="mt-7 flex gap-8">
+        <Tabs
+          defaultValue={initialSection ?? 'general'}
+          orientation="vertical"
+          className="mt-7 flex gap-8"
+        >
           <TabsList aria-label="Settings sections" className="w-44 shrink-0">
             {SECTIONS.map(({ id, label, icon: Icon }) => (
               <TabsTrigger key={id} value={id}>
@@ -173,6 +188,12 @@ export function Settings({
             </TabsContent>
             <TabsContent value="activity">
               <Activity memory={memory} />
+            </TabsContent>
+            <TabsContent value="watches">
+              <Watches watches={watches} />
+            </TabsContent>
+            <TabsContent value="setups">
+              <Setups setups={setups} />
             </TabsContent>
             <TabsContent value="notifications">
               <Notifications platform={platform} capabilities={capabilities} storage={storage} />

@@ -29,6 +29,16 @@ you    clean up my downloads, put installers in Software
 Atlas  Tidy up Downloads?  47 files into 5 folders — the list, then
        Nothing is deleted or overwritten.       [Yes, do it] [Cancel]
        Moved 47 of 47 files. Say “undo that” to put it all back.
+
+you    when this build finishes, run the tests, package it, and open the result
+Atlas  Set up this watch?  When: the build finishes (cargo.exe exits)
+       Then: 1. Run tests  2. Package  3. Open the result
+       Approving now lets these run when it happens, even if you’re away.
+       👁 Watching until the build finishes.
+
+you    get my PC ready for recording
+Atlas  Recording setup complete. OBS is running, Shure MV7+ is your
+       microphone, 347 GB free on D:, and Discord is on the left.
 ```
 
 Press **Ctrl+Space** anywhere to summon it. **F8** is the emergency stop.
@@ -119,7 +129,7 @@ reviewed in a diff.
 
 ## Where things stand
 
-**Version 1.0.2**, released for Windows. Built and working:
+**Version 1.0.3**, the “doing, not answering” update. Built and working:
 
 - **The engine and shell** — the kernel, the Tauri app, memory, and over 150
   skills, every one declared with its arguments, risk and required capabilities.
@@ -129,6 +139,15 @@ reviewed in a diff.
 - **Bulk file changes you can see and undo** — "clean up my downloads" sorts a
   folder by type, shows the exact list first, asks once, never deletes or
   overwrites, and every move or rename is journaled so "undo that" works.
+- **Atlas Watch** — “watch this download”, “let me know when OBS closes”, “when the
+  build finishes, run the tests and open the result”. Atlas waits for the condition,
+  then runs the follow-up steps you approved when you set it up — and only those.
+  Watches survive a restart: nothing is repeated blind, anything uncertain stops and
+  asks, and the emergency stop pauses them all. Settings → Watches shows every one.
+- **Setups that check their work** — “get my PC ready for recording” opens and closes
+  apps, puts windows where you want them, and checks your microphone, free space and
+  internet, then reports what it *verified*, not what it tried. The first time, it asks
+  what that setup should mean. Settings → Setups keeps them editable.
 - **Voice, fully offline** — speaking (Piper and refined Kokoro voices) and
   listening (Whisper), both on this machine.
 - **Safety you can rely on** — no `exec`; confirmation keyed to consequence
@@ -139,6 +158,11 @@ reviewed in a diff.
   Ordinary conversation is deliberately stiff until you turn one on. Cloud
   providers are opt-in too.
 - **Self-updating**, with rollback (see Install above).
+
+**Being considered, not built:** optional subscriptions that add things (never fence
+off what Atlas already does): memory that follows you across devices, and **Atlas
+Mobile**, which talks to your PC's Atlas from your phone to check status, approve a
+waiting step, or start a saved setup. See the ROADMAP's “Ideas for later”.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for exactly what's done, what's next,
 and what's deliberately not built yet, and

@@ -606,6 +606,110 @@ It is covered by the halt sweep like every other acting command.
 **`storage.emptyFolder` is the second consumer** — its card used to say only the
 folder's name and now lists what is about to go to the recycle bin.
 
+### 6.9 Atlas Watch: wait for something, then carry on (`watch/manager.ts`, `watch/conditions.ts`, `watch-skills.ts`)
+
+"Watch this download." "Let me know when OBS closes." "When this build finishes, run
+the tests, package it, and open the result." A watch is a **condition** Atlas can read
+off the machine, an optional **continuation** of validated plan steps, and the
+**approval** the person gave for exactly those steps.
+
+**Conditions are a closed set of reads.** `process-exits`, `process-starts`,
+`downloads-finish`, `path-exists`, `online`, `after`. Each one is checked with a Platform
+call Atlas already had (`runningProcesses`, `listDir`, `pathInfo`, `networkReachable`),
+every few seconds, only while an active watch exists. A probe that throws counts as "not
+yet". It never counts as "it happened". `watch.create` resolves the condition against the
+machine while the person is still there to answer: "the build" becomes whichever of cargo,
+MSBuild, dotnet, CMake, Ninja or make is running (it asks if there are several), "OBS"
+becomes `obs64.exe` (`text/processes.ts`), and "this download" becomes the `.crdownload` /
+`.part` files in Downloads right now. Watching something that isn't running is refused
+with the fix ("if you mean when it starts, say …").
+
+**The continuation is understood up front and approved once.** The "then …" text goes
+through `Engine.planFor`: the same grammar tiers `ask` uses, then the AI planner. Nothing
+runs at that point. The steps are validated, a project folder is asked for once if the steps
+need one, and the result goes on one card: *When: … Then: 1, 2, 3. Approving now lets these
+steps run when it happens, even if you're away.* `devagent.run`, `uiagent.run`, power
+actions and the watch controls themselves are refused as continuation steps. An open-ended
+agent choosing its own next steps is exactly what should not run unattended.
+
+**Only what was approved runs without a card.** The approval is `fingerprintSteps(steps)`
+(FNV-1a over canonical JSON). Each continuation step runs as its own one-step plan through
+`Engine.run(plan, io, { approvedStep })`, and `ExecutorOptions.approvedStep` skips the
+generic confirmation only when the step matches an approved one exactly and the stored steps
+still hash to the approval. It never skips a `guard`, the content policy, or a `Skill.preview`
+card. A bulk skill's list is read at run time, and nobody has seen it yet. That kind of step,
+and any card at all during an unattended run, puts the watch into **awaiting-approval**: a
+notification, a line in the conversation, and a question on the watch in Settings → Watches.
+Nothing more runs until it's answered. There is no `clarify` while the person is away, so a
+step that needs a choice stops and says so rather than guessing.
+
+**Crashes, shutdowns and restarts.** Watches are stored (`atlas.watches`, local storage, no
+account and no server) and restored at launch. The recovery rules:
+
+| Found on restart | What Atlas does |
+| --- | --- |
+| Past its expiry | Marked **expired**. It never fires, and the startup note says so. |
+| Steps no longer hash to the approval (edited on disk) | Marked **failed**. Nothing runs. |
+| A step still marked `started` | That step was mid-flight when Atlas stopped, so there's no way to know whether it happened. **Asks**: run it again, treat it as done, or cancel. It never repeats it blind. Each step is written `started` *before* it runs and `done`/`failed` after, and that ordering is what makes this answerable. |
+| Stopped cleanly between steps | Continues with the next approved step, and says so. |
+| Active, and the condition is now true | Depends on the kind of fact. A **state** (the download's file is there, the path exists, the app is running, the network is up) is acted on, and the startup note says it resumed. An **event** ("cargo exited") seen across a gap may be a reboot rather than a finished build, so Atlas **asks** instead of acting. A timer is trusted only if it's at most five minutes late. See `reliableAfterGap`. |
+| Waiting for the person | Still waiting. A card that was up before the restart asks again with the details as they are now, never the stale ones. |
+
+The first thing Atlas says after a restart is one line naming every watch it picked up and
+its state. The same states are always visible in Settings → Watches: active, paused, running
+its steps, waiting for you, done, stopped, expired, cancelled. That page shows each step's
+state and the log, and it can pause, resume, cancel and delete.
+
+**The emergency stop pauses every watch** (`WatchManager.haltAll`), including one running its
+steps. The step in flight is aborted by the engine's own halt and stays `started`, so resuming
+asks about it rather than assuming. Nothing resumes by itself. A revoked allowed folder or a
+missing capability fails the step the ordinary way, because every step goes through the
+registry and the Rust-side checks exactly as a typed request would.
+
+**Lifetime.** Default 24 hours, maximum 7 days. Finished watches are kept for the list (the
+newest 30), and a live one is never dropped.
+
+### 6.10 Setups: act, then verify, then report what was verified (`setup/runner.ts`, `setup-skills.ts`)
+
+"Get my PC ready for recording" should end with *"Recording setup complete. OBS is running,
+Shure MV7+ is your microphone, 347 GB free on D:, and Discord is on the left."* Every clause
+there is a reading taken after the action. None of them is a note that something was clicked.
+
+**A setup is a saved list of `SetupItem`s**, a closed set: `open`, `close`, `place` (a
+window's position), `mic` (optionally the one it should be), `storage` (a drive and a
+minimum), `online`. Each kind is an action paired with the check that proves it worked.
+
+**Unknown goal → ask, don't guess.** The first time a setup is named, `setup.run` asks five
+short questions (what to open, what to close, whether to check the mic, where to check
+space, where to put windows), offering what's actually there: the real default mic by name,
+the real drives with their free space. Then one card shows the whole setup: save and run?
+"Get my PC ready" with no goal asks "ready for what?" and offers the saved names. An inline
+spec ("… for streaming: open OBS, close Chrome") skips the questions, and anything it can't
+read is repeated back rather than saved as a guess (`setup/spec.ts`).
+
+**Cards only when something closes.** Opening, arranging and checking are all `safe`, so a
+known setup with nothing to close runs straight away (`SkillPreview` kind `proceed`, added for
+this). If it would close something, the card lists which apps and how many windows. `run`
+re-reads the machine and refuses if the list changed after the card was shown (Chrome opened
+in between), so an approval only ever closes what it listed.
+
+**Order:** close → open (then wait, up to 90 s, for each process to actually appear; games
+are slow) → place (once a window exists, then re-read where it landed) → mic, space and
+internet. Opening and placing go through the executor as ordinary `app.open` /
+`window.place` steps. Closing is done window by window under the setup's own card, the
+one-card-per-batch rule from §6.8. The report lists what didn't work first ("⚠️ Fortnite
+didn't start within 90 seconds"), then what did, and never claims a check it didn't make.
+
+**The microphone is read, never set.** `audio.rs` reads the default capture and render
+devices' friendly names through `IMMDeviceEnumerator`. Changing the default has no documented
+API (`IPolicyConfig` is undocumented), so a wrong mic is reported with a pointer to Sound
+settings. A virtual device (SteelSeries Sonar, Voicemeeter, Wave Link) is named as one, since
+the physical mic sits behind it.
+
+Setups are in `atlas.setups` and editable in Settings → Setups, which uses the same parser as
+the conversation. A setup can also be a watch's continuation ("when Fortnite updates, get
+ready for recording"). It then stops at its card like any preview step.
+
 ## 7. Safety
 
 | Rule | Where | Why |

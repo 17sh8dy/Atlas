@@ -182,5 +182,34 @@ export function createOsSkills(platform: Platform): Skill[] {
     },
   });
 
+  skills.push({
+    id: 'system.audioDevices',
+    label: 'Which mic and speakers are in use',
+    icon: '🎙️',
+    domain: 'system',
+    description:
+      'Say which microphone and which speakers or headphones Windows is using by default. Read-only: changing the default is done in Sound settings.',
+    needs: ['audio-devices'],
+    risk: 'safe',
+    examples: ['which mic am I using', 'what microphone is selected'],
+    params: {},
+    async run() {
+      const devices = await platform.audioDevices!();
+      const lines = [
+        `🎙️ Microphone: ${devices.input ?? 'none — Windows has no default recording device'}`,
+        `🔊 Output: ${devices.output ?? 'none'}`,
+      ];
+      if (
+        devices.input &&
+        /virtual|sonar|voicemeeter|nvidia broadcast|vb-audio|wave link/i.test(devices.input)
+      ) {
+        lines.push(
+          'That microphone is a virtual device — the real mic sits behind it in that app’s own settings.',
+        );
+      }
+      return { ok: true, message: lines.join('\n'), data: devices };
+    },
+  });
+
   return skills;
 }

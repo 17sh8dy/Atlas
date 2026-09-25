@@ -11,6 +11,7 @@
 
 import type {
   AppEntry,
+  AudioDevices,
   CapabilityName,
   FileEntry,
   Platform,
@@ -73,6 +74,7 @@ export function createTauriPlatform(): Platform {
     systemInfo: () => invoke<SystemSnapshot>('system_info'),
     runningProcesses: (limit) =>
       invoke<ProcessEntry[]>('running_processes', { limit: limit ?? null }),
+    audioDevices: () => invoke<AudioDevices>('audio_devices'),
 
     readClipboard: async () => {
       const { readText } = await import('@tauri-apps/plugin-clipboard-manager');

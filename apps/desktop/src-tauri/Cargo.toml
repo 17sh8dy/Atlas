@@ -133,6 +133,12 @@ windows = { version = "0.58", features = [
   "Win32_Security_WinTrust",
   "Win32_Security_Cryptography",
   "Win32_Storage_FileSystem",
+  # audio.rs: which microphone and speakers are the Windows defaults, by the
+  # name Windows shows for them (IMMDeviceEnumerator + the device's property
+  # store). Read-only — there is no documented API for *changing* the default.
+  "Win32_Media_Audio",
+  "Win32_UI_Shell_PropertiesSystem",
+  "Win32_Devices_FunctionDiscovery",
 ] }
 
 [dev-dependencies]

@@ -73,6 +73,26 @@ export type {
 } from './uiagent/loop';
 export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
+export { createAgentGrammar } from './planner/agent-grammar';
+
+export { WatchManager, WATCHES_KEY } from './watch/manager';
+export type { WatchHost, WatchManagerOptions, NewWatch, WatchAnswer } from './watch/manager';
+export {
+  describeCondition,
+  fingerprintSteps,
+  isPartialDownload,
+  probeCondition,
+  reliableAfterGap,
+} from './watch/conditions';
+export { createWatchSkills, watchRow } from './skills/watch-skills';
+export type { WatchSkillDeps } from './skills/watch-skills';
+export { SetupStore, SETUPS_KEY } from './setup/store';
+export { parseSpec, describeItem, setupKey, readPosition, splitNames } from './setup/spec';
+export { runSetup, planSetup, reportFor } from './setup/runner';
+export { createSetupSkills } from './skills/setup-skills';
+export type { SetupSkillDeps } from './skills/setup-skills';
+export { matchRunningProcess, BUILD_PROCESSES } from './text/processes';
+export { placementBounds, describePosition } from './skills/window-skills';
 
 export {
   matchKey,

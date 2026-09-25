@@ -471,6 +471,10 @@ and is preferable to it being fluent only for people who have paid for one.
 
 ## Phase 5 — Routines
 
+> **2026-09-24 (1.0.3): the first half is built as *setups*** — "run my morning routine" /
+> "get ready for work" runs a saved, validated list (Phase 16, ARCHITECTURE §6.10). Still
+> open: saving an arbitrary *plan you just ran* as a routine, and running one on a schedule.
+
 - "Save that as my morning routine", then "run my morning routine".
 - Stores *validated steps*, never free text — so a routine can't become a way
   to smuggle an unvalidated instruction past the registry later.
@@ -644,6 +648,9 @@ noise; the local one is what there is.
 - **Ship this as 0.5.0** — see Versioning below.
 
 ## Phase 9 — Awareness
+
+> **2026-09-24 (1.0.3):** "a build finished, a download completed" now exists, *when asked
+> for*: Atlas Watch (Phase 16). Noticing unprompted is still this phase, and still sparing.
 
 - What's focused, what changed, what you've been doing.
 - Proactive notices, sparingly: a build finished, a download completed. The bar
@@ -1587,6 +1594,154 @@ the journal — not a new safety model.
 
 ---
 
+## Phase 16 — 1.0.3: doing, not answering (2026-09-24)
+
+Brandon's brief: *Atlas should specialise in doing, not just answering. You tell it a goal,
+it understands your PC, plans, acts, **verifies**, and reports back.* Two concrete shapes:
+
+- **Atlas Watch**: "watch this download", "let me know when this finishes", "monitor this
+  process and continue when it's done", "when this build finishes, run the tests, package it,
+  and open the result". Background-agent behaviour for the PC.
+- **A true PC agent**: "get my PC ready for recording". Open OBS, check the mic, check
+  storage, close distracting apps, put Discord where it belongs, make sure the game launches,
+  and **check that it actually worked**. "Recording setup complete. OBS is active, MV7+ is
+  selected, 347 GB of recording storage is available" is a different feeling from "I clicked X."
+
+Decisions taken with Brandon before building:
+
+| Question | Decision |
+| --- | --- |
+| A watch fires while you're away. Who approves its steps? | **Up front.** One card when the watch is made lists every follow-up step, and approving it covers exactly that list. |
+| How far into OBS? | **Process level.** No OBS WebSocket setup. And not OBS-specific: setups work for any goal, and when a request isn't specific enough Atlas **asks**. |
+| How are setups defined? | **Guided questions the first time + Settings → Setups** to review and change them. |
+| Do watches survive a restart? | **Yes, with safe recovery.** Store condition, approval, expiry and step progress. Resume only what was approved, never repeat a possibly-finished step blind, ask when unsure, say what resumed, and respect the stop and every existing rule. No cloud needed. |
+
+### Built
+
+- **Atlas Watch** (ARCHITECTURE §6.9). `watch.create` / `list` / `pause` / `resume` / `cancel`
+  / `answer`, `WatchManager`, six condition kinds, persistence with the recovery table,
+  Settings → Watches. The emergency stop pauses every watch.
+- **Setups** (ARCHITECTURE §6.10). `setup.run` / `save` / `list` / `delete`. Guided first run
+  offering the real mic and real drives. A card only when something will close. Act, wait,
+  re-read, and report only what was verified. Settings → Setups.
+- **`window.place`**: "put Discord on the left", halves, quarters, centre, maximized, per
+  display, inside the work area.
+- **`system.audioDevices`** + Rust `audio_devices` (`audio.rs`): the default mic and speakers
+  by name. Read-only, and flags virtual devices.
+- **Build / test / package in plain words, no model needed**: "run the tests in D:\Dev\App",
+  "package it", "open the result". `build.run` / `test.run` now detect the project's system
+  themselves, and "package" maps to the project's own `package`/`dist` script.
+- **Executor**: `approvedStep` (an earlier approval covers exactly its steps, never a guard,
+  the policy or a preview) and `SkillPreview` kind `proceed` (looked, nothing consequential,
+  go ahead). `Engine.planFor` understands a sentence without running it.
+- **Tests**: watch manager and recovery (22), setups end to end through the real engine (9),
+  phrasing (35), spec parser (6). The advertised-examples sweep now covers the dev-tools skills
+  too. That surfaced five examples that never worked; three now do, and two are recorded as the
+  "this project" referent gap.
+
+### Not done in 1.0.3, and why
+
+- **Setting the default microphone.** No documented Windows API. Atlas reports and points
+  at Sound settings.
+- **OBS scenes and sources.** Process level only, by decision. The OBS WebSocket would be an
+  opt-in integration later.
+- **Agents as watch continuations.** `devagent.run` deciding its own steps with nobody
+  watching is exactly the thing the approval model can't cover. See Atlas Mobile below for
+  what would have to be true first.
+- **Watches on arbitrary predicates** (CPU below 10%, a window title changing, a file's
+  contents). Each would be one more closed condition kind with its own reliability rule. None
+  of them is a free-form expression.
+
+### Next, in order of leverage
+
+1. **Drive both features in the real app** end to end, including a real restart mid-watch and
+   a real recording setup. The unit tests use fakes; the Rust audio read was verified live.
+2. **Conversational referents** ("this project", "that folder", "those files"). It's now the
+   most common gap: two dev examples, and every "this build" whose folder had to be asked for.
+3. **More condition kinds**, each with a stated reliability rule: CPU/GPU idle (a render
+   finishing), a window title changing, a file stopping growing (a recording finishing).
+4. **Setups as watch triggers**, done well: "when Fortnite starts, get ready for recording"
+   works today but stops at the setup's card. A setup approved *at watch time* would need the
+   close list fixed at approval too.
+5. **Scheduled setups**: "every weekday at 9, get ready for work" (Phase 5's schedule half).
+
+---
+
+## Ideas for later — subscriptions, memory, Atlas Mobile (Brandon, 2026-09-24)
+
+Recorded, not decided. Each needs its own decision before any code, as every "Ideas"
+section in this file does. Three standing rules apply to all of it, and any plan that breaks
+one of them has to say so out loud:
+
+- **A Nova Account is optional and unlocks nothing that exists today** (see the Nova Accounts
+  rule: one shared identity, never per-product auth, never gating an existing feature). A
+  subscription can add new things. It may not take away or fence off anything Atlas already
+  does signed out.
+- **Local-first.** The local case is the whole product. Anything that needs a server is an
+  addition on top, and Atlas keeps working when that server is gone.
+- **Atlas does what it's asked.** Remote control is still the person asking. It is not Atlas
+  deciding on its own.
+
+### Possible subscription ideas
+
+| Idea | What it would add | Constraint it must respect |
+| --- | --- | --- |
+| **Atlas Memory (cloud)** | Memory that follows you across devices and reinstalls: preferences, people, projects, "what I was working on", setups and watches. Today Atlas has *local* memory (facts, episodes, notes, the transcript), and Brandon's read is that it "has near no memory" in practice. | Local memory stays free and gets better regardless. The paid part is sync and continuity, not remembering at all. Encrypted, exportable, deletable, and off until you turn it on. |
+| **Atlas Mobile** | Atlas on the phone: talk to your PC's Atlas from anywhere (below). | Needs a relay (below). Pairing via Nova Account. The PC stays the thing that acts. |
+| **Hosted models** | A capable model without running Ollama or bringing a key. | The AI tier never becomes the only route to a documented phrasing (existing rule). Local models stay first-class. |
+| **More background capacity** | Longer-lived watches, more of them, scheduled setups that run while you're away. | The approval model (§6.9) is unchanged. Paying buys capacity, not fewer safeguards. |
+
+Not proposed: charging for anything Atlas does today, ads, or selling usage data.
+
+### Atlas Mobile — your PC's Atlas, from your phone
+
+The pitch, in Brandon's words: *"Hey Atlas, I'm at the gym. Check what you're doing related
+to Nova OS. If the background command finished, continue adding the features that are in the
+roadmap."* The phone transcribes it, sends it to **your** Atlas, and Atlas checks its current
+job, reads the roadmap, works out what's done, carries on, sends progress, and **asks for
+approval when something needs it**. Later: *"Atlas, what's the status?"* → *"Navigation is
+finished. I'm on the settings architecture. I hit an authentication issue and paused before
+changing anything that could affect existing users."*
+
+That's far more compelling than a mobile chat app, and much of it now has a foundation:
+
+| Piece | Status |
+| --- | --- |
+| "What's the status?" answered from real state | **Built for watches**: `watch.list`, step states, logs, "waiting for you". |
+| Background jobs that survive and resume safely | **Built**: §6.9's recovery rules. |
+| Approval requests that wait for a person | **Built**: awaiting-approval questions. They would need to be delivered to a phone. |
+| Voice in, local transcription | **Built** on the PC (Whisper). A phone would record and send, or transcribe itself. |
+| A phone ↔ PC channel | **Not built.** The hard part. |
+| "Continue the roadmap" (an agent choosing its own steps unattended) | **Deliberately not allowed** today (Phase 16 "Not done"). |
+
+What has to be decided before building it:
+
+1. **The channel.** A relay the PC dials *out* to (no open ports on the home network), end-to-
+   end encrypted between the paired phone and PC, with the relay seeing only ciphertext.
+   Pairing through the Nova Account (the device grant already used by six products). The
+   relay is the first server Atlas would *depend on* for a feature, so it has to be
+   optional and fail closed.
+2. **What a phone may ask for.** Reading status and answering an approval card are safe to
+   allow remotely. Starting new actions remotely is a different trust level. A reasonable
+   first version is *status + approve/deny + start a saved setup or watch*, not free-form
+   commands.
+3. **Unattended agents.** "Continue adding features from the roadmap" means `devagent.run`
+   choosing its own steps while nobody watches the screen. That needs its own safety model
+   first: a budget, an allowlist that excludes anything irreversible, a stop condition on
+   "this could affect existing users" (Brandon's own example), a commit-per-step trail, and an
+   approval pushed to the phone before anything outside the project folder. The approve-
+   upfront model §6.9 uses for fixed steps doesn't cover a plan that doesn't exist yet.
+4. **The emergency stop, remotely.** The phone must be able to press it, and a remote stop has
+   to be at least as strong as F8.
+
+### Nova OS
+
+Brandon's example names *Nova OS* as the project Atlas is working on. It isn't in this repo
+or anywhere recorded yet. If it becomes a project, it gets its own entry. It is not a rename
+of Atlas.
+
+---
+
 ## Deliberately not doing
 
 - **A general `exec`.** Discussed and rejected in ARCHITECTURE §6.1.
@@ -1594,5 +1749,7 @@ the journal — not a new safety model.
   product, not the offline mode of a server product.
 - **An agent that acts unprompted.** Atlas does what you ask. Proactivity in
   Phase 9 means *noticing*, not deciding.
+  A watch (Phase 16) is not an exception: it was asked for, its steps were
+  approved when it was made, and anything else it meets stops and asks.
 - **Weather, by default.** See Phase 8 — the one exception to "no network
   calls," and only ever opt-in.
