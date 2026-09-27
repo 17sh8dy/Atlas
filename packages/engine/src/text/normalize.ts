@@ -52,8 +52,15 @@ const POLITE_PREFIX =
  * target directly — "click at 500, 300", "type 'hello'" — and those rules
  * match on their own without this wrapper ever being in the way.
  */
-const MECHANISM_PREFIX =
-  /^\s*(?:use|using|via|with)\s+(?:the\s+)?(?:keyboard|mouse)(?:\s*(?:and|\/|,)\s*(?:the\s+)?(?:keyboard|mouse))?(?:\s+control)?\s+to\s+/i;
+const INPUT_DEVICE =
+  // "kbm", "kb&m", "kb/m", "m&k", "mnk", "mkb" — how gamers write keyboard-and-mouse.
+  // 1.0.3 knew only the spelled-out words, so "use kbm control to open
+  // google chrome" missed this strip and hit "I couldn't reach that provider".
+  String.raw`(?:keyboard|mouse|kbm|kb\s*[&+/]\s*m|m\s*[&+/]\s*kb?|mnk|mkb)`;
+const MECHANISM_PREFIX = new RegExp(
+  String.raw`^\s*(?:use|using|via|with)\s+(?:the\s+)?${INPUT_DEVICE}(?:\s*(?:and|\/|,)\s*(?:the\s+)?${INPUT_DEVICE})?(?:\s+controls?|\s+input)?\s+to\s+`,
+  'i',
+);
 
 /** Trailing courtesies. */
 const TRAILING_FILLER =

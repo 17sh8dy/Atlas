@@ -78,6 +78,17 @@ interface Props {
    */
   prefill?: { text: string; at: number } | null;
   /**
+   * What was in the box last time this composer existed, and where to report
+   * what is in it now.
+   *
+   * Opening Settings (or the voice screen) unmounts the whole conversation,
+   * composer included, so a half-typed "open Discord on Brave" used to be
+   * gone on the way back. The shell keeps the draft; the composer only reads
+   * it once, when it mounts, and reports every change after that.
+   */
+  draft?: string;
+  onDraftChange?(text: string): void;
+  /**
    * The emergency stop. The button is the backup, not the mechanism — the key
    * works from anywhere, focused or not, and this is for when a mouse is
    * already in hand. Absent props mean no stop is on offer (never the case in
@@ -115,6 +126,8 @@ export function Composer({
   thinkLonger,
   dictated,
   prefill,
+  draft = '',
+  onDraftChange,
   onStop,
   contextButton,
   attachments = [],
@@ -124,10 +137,27 @@ export function Composer({
   halted = false,
   onResume,
 }: Props) {
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(draft);
   const ref = useRef<HTMLTextAreaElement>(null);
-  const lastDictation = useRef(0);
-  const lastPrefill = useRef(0);
+  // Seeded with what is already there, not 0: `dictated` outlives this
+  // component (it lives in the shell), so a remount after a trip to Settings
+  // would otherwise append the last dictation into the box a second time.
+  const lastDictation = useRef(dictated?.at ?? 0);
+  const lastPrefill = useRef(prefill?.at ?? 0);
+
+  useEffect(() => {
+    onDraftChange?.(value);
+  }, [value, onDraftChange]);
+
+  // A restored draft: caret at the end, where the person left off, not at 0.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !draft) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    // Mount only — `draft` is read once, see its doc comment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!dictated || dictated.at === lastDictation.current) return;

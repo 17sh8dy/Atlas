@@ -83,6 +83,9 @@ interface Props {
   shareBar?: ReactNode;
   /** The run in flight, for the live activity disclosure in the transcript. */
   activeRun?: ActivityRun | null;
+  /** The unsent text, kept by the shell so a trip to Settings doesn't lose it — see `Composer`. */
+  draft?: string;
+  onDraftChange?(text: string): void;
 }
 
 export function Conversation({
@@ -113,6 +116,8 @@ export function Conversation({
   onExtractAttachment,
   shareBar,
   activeRun,
+  draft,
+  onDraftChange,
 }: Props) {
   // A Home card was clicked: its starter text (possibly '') goes into the
   // composer and takes focus. `at` forces the effect in `Composer` to fire
@@ -156,6 +161,8 @@ export function Conversation({
         dictation={dictation}
         dictated={dictated}
         prefill={prefill}
+        draft={draft}
+        onDraftChange={onDraftChange}
         onStop={onStop}
         stopKey={stopKey}
         halted={halted}

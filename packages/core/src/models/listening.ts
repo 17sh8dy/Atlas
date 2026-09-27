@@ -37,6 +37,11 @@ export interface ListeningPreferences {
   /**
    * In the voice screen, listen again once Atlas has finished answering,
    * without being asked. Only ever consulted inside that screen.
+   *
+   * OFF by default (was on until 1.0.4). Brandon's rule: the microphone never
+   * records without the button being pressed. Hands-free keeps it open across
+   * turns after one press, so it has to be something a person switches on,
+   * not something they find on.
    */
   handsFree: boolean;
   /**
@@ -61,7 +66,7 @@ export interface ListeningPreferences {
 
 export const DEFAULT_LISTENING: ListeningPreferences = {
   enabled: false,
-  handsFree: true,
+  handsFree: false,
   bargeIn: true,
   silenceMs: 900,
 };

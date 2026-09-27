@@ -122,6 +122,22 @@ export class Recorder {
    */
   private duckedUntilQuiet = false;
 
+  /**
+   * Bumped by every `start` and every `stop`. An open still in flight
+   * compares its own number against this when the device arrives, and
+   * closes the stream at once if anything happened in between.
+   *
+   * ⚠️ The bug this closes: `getUserMedia` takes a moment, and `this.stream`
+   * stays null until it resolves. A second press in that gap started a
+   * second open, which overwrote the first stream without stopping it; a
+   * stop in that gap found nothing to stop. Either way a microphone stayed
+   * open that no button could close. "Never records unless the button was
+   * pressed" has to hold for pressing it off, too.
+   */
+  private session = 0;
+  /** An open is in flight — `getUserMedia` or the audio graph not ready yet. */
+  private opening = false;
+
   getState(): ListeningState {
     return this.state;
   }
@@ -165,7 +181,7 @@ export class Recorder {
   }
 
   async start(handlers: RecorderHandlers, options?: { silenceMs?: number }): Promise<void> {
-    if (this.stream) return;
+    if (this.stream || this.opening) return;
     this.handlers = handlers;
     this.silenceMs = options?.silenceMs ?? 900;
 
@@ -178,6 +194,13 @@ export class Recorder {
       );
       return;
     }
+
+    const mine = ++this.session;
+    this.opening = true;
+    // Shown as on from the press, not from when the device arrives: while it
+    // read "off" during the open, pressing again to cancel started a second
+    // open instead. Now the second press is a stop, and the stop wins.
+    this.setState('waiting');
 
     let stream: MediaStream;
     try {
@@ -194,6 +217,9 @@ export class Recorder {
         },
       });
     } catch (err) {
+      if (mine !== this.session) return; // stopped meanwhile; nothing to report
+      this.opening = false;
+      this.setState('idle');
       const denied = err instanceof DOMException && err.name === 'NotAllowedError';
       this.handlers.onError?.(
         denied
@@ -203,6 +229,12 @@ export class Recorder {
       return;
     }
 
+    if (mine !== this.session) {
+      // Stopped (or restarted) while the device was opening: this stream was
+      // never wanted by the time it arrived. Close it before anything uses it.
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     this.stream = stream;
 
     // Everything from here on is guarded, and that is not defensive habit: an
@@ -214,6 +246,7 @@ export class Recorder {
     try {
       await this.build(stream);
     } catch (err) {
+      if (mine !== this.session) return; // stop() already closed everything
       this.stop();
       handlers.onError?.(
         `The microphone opened but its audio graph failed (${
@@ -222,6 +255,10 @@ export class Recorder {
       );
       return;
     }
+    // `build` awaits too. A stop during it already closed this stream and
+    // graph (they were on `this` by then); only the bookkeeping is left.
+    if (mine !== this.session) return;
+    this.opening = false;
 
     this.reset();
     this.measuringUntil = performance.now() + FLOOR_SAMPLE_MS;
@@ -344,6 +381,9 @@ export class Recorder {
   }
 
   stop(): void {
+    // Invalidates any open still in flight — see `session`.
+    this.session++;
+    this.opening = false;
     this.processor?.disconnect();
     if (this.processor) this.processor.onaudioprocess = null;
     this.analyser?.disconnect();

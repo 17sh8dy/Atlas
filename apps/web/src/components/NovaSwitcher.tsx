@@ -8,9 +8,9 @@
  * The trigger reads "Product Switcher" rather than "Atlas" or "Nova" — it announces what it
  * does, not which product you're already in (the wordmark to its left already does that).
  *
- * Left out on purpose: Nova, Nova.Help and NovaLegal each already have their own way to switch
- * between the products they front, so neither gets this switcher nor is listed as a destination
- * in it. Online Earth was never asked for and isn't here either.
+ * Nova, Nova.Help and Nova Legal each already have their own way to switch between the products
+ * they front, so none of them gets this switcher; they appear here only as websites under View
+ * all. Online Earth was never asked for and isn't here at all.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -91,7 +91,14 @@ const SITES: NovaProduct[] = [
     url: 'https://atlas-website.shadylabs.workers.dev/',
   },
   { id: 'nova', label: 'Nova', tagline: 'The Nova home page', icon: Icons.Globe, kind: 'site', url: NOVA_HOME_URL },
-  { id: 'nova-legal', label: 'Nova Legal', tagline: 'Terms and privacy', icon: Icons.FileText, kind: 'soon' },
+  {
+    id: 'nova-legal',
+    label: 'Nova Legal',
+    tagline: 'Terms and privacy',
+    icon: Icons.FileText,
+    kind: 'site',
+    url: 'https://nova-legal.shadylabs.workers.dev/',
+  },
   { id: 'nova-cut-site', label: 'Nova Cut Website', tagline: 'Nova Cut, on the web', icon: Icons.Scissors, kind: 'soon' },
 ];
 

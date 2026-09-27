@@ -42,7 +42,7 @@ import { createPhrasing, type Phrasing } from '../phrasing';
 import { rankMatches, nearMatches, RANK } from '../text/fuzzy';
 import { resolveSite, exactSiteName } from '../text/sites';
 import { attemptGoal } from '../planner/attempts';
-import { evaluateExpression } from './math';
+import { evaluateExpression, formatNumber } from './math';
 import { convertUnit } from './units';
 import type { SkillRegistry } from './registry';
 
@@ -316,7 +316,7 @@ export function createCoreSkills(
     domain: 'math',
     description: 'Evaluate an arithmetic expression.',
     risk: 'safe',
-    examples: ["what's 12 * 7", 'calculate 200 / 8 + 1'],
+    examples: ["what's 12 * 7", 'calculate 200 / 8 + 1', '88 x 535'],
     params: {
       expression: { type: 'string', required: true, description: 'the arithmetic expression' },
     },
@@ -327,7 +327,7 @@ export function createCoreSkills(
       // Restates the expression rather than just the answer — "84." means
       // nothing on its own a minute later, in the transcript or in Recent
       // Activity; "12 * 7 = 84." does.
-      return { ok: true, message: `🧮 ${expression} = ${result}.`, data: result };
+      return { ok: true, message: `🧮 ${expression} = ${formatNumber(result)}.`, data: result };
     },
   });
 

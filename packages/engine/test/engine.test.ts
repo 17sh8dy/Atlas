@@ -1947,6 +1947,79 @@ test('math.calculate evaluates arithmetic and rejects nonsense', async () => {
   assert.equal(bad.ok, false);
 });
 
+// 1.0.3 bug: "88 x 535" with Ollama off answered "I couldn't reach that
+// provider." A sum typed on its own reached no rule, and `x` wasn't an
+// operator anyway. The calculator must answer with no model at all.
+test('a bare sum is answered by the calculator even when the AI provider is down', async () => {
+  const provider = makeProvider({ error: 'offline' });
+  const h = harness(undefined, { provider });
+  await h.engine.ask('88 x 535', io(h));
+  assert.lengthOf(provider.prompts, 0, 'the sum was sent to the AI tier');
+  assert.include(h.said.join('\n'), '47,080');
+  assert.notInclude(h.said.join('\n'), "couldn't reach");
+});
+
+test('math.calculate reads sums the way people type them', async () => {
+  const h = harness();
+  const cases: Array<[string, number]> = [
+    ['88 x 535', 47080],
+    ['88x535', 47080],
+    ['12 × 7', 84],
+    ['100 ÷ 4', 25],
+    ['9 times 8', 72],
+    ['5 minus 8 divided by 2', 1],
+    ['2 to the power of 10', 1024],
+    ['3 squared', 9],
+    ['square root of 144', 12],
+    ['sqrt(16) + 9', 13],
+    ['1,250 * 3', 3750],
+    ['5!', 120],
+    ['-5 + 3', -2],
+    ['-2^2', -4],
+    ['2^-1', 0.5],
+    ['2(3 + 4)', 14],
+    ['2pi', 6.28318530718],
+    ['50 * 10%', 5],
+    ['10 % 3', 1],
+    ['0.1 + 0.2', 0.3],
+    ['sin 30', 0.5],
+    ['cos 90', 0],
+    ['log of 1000', 3],
+    ['88 x 535 =', 47080],
+  ];
+  for (const [expression, expected] of cases) {
+    const r = await h.engine.skills.invoke('math.calculate', { expression }, io(h));
+    assert.equal(r.data, expected, `"${expression}"`);
+  }
+  for (const expression of ['2 3', '1.0.3', '10 / 0', 'tan 90', '2 x', 'x', 'two plus two']) {
+    const r = await h.engine.skills.invoke('math.calculate', { expression }, io(h));
+    assert.equal(r.ok, false, `"${expression}" should not evaluate`);
+  }
+});
+
+test('grammar: bare sums are claimed; numbers, dates and phone numbers are not', () => {
+  const h = harness();
+  for (const text of [
+    '88 x 535',
+    '12 × 7 =',
+    '9 times 8?',
+    'square root of 144',
+    'how much is 88 x 535',
+    'what is 88 x 535',
+    "what's 2 to the power of 10",
+    'work out 1,250 * 3',
+  ]) {
+    assert.equal(h.engine.grammar.parse(text)?.steps[0]?.skill, 'math.calculate', `"${text}"`);
+  }
+  for (const text of ['2024', '2 3', '1.0.3', '9/26/2026', '2026-09-26', '555-123-4567', 'what is pi', 'x']) {
+    assert.notEqual(
+      h.engine.grammar.parse(text)?.steps[0]?.skill,
+      'math.calculate',
+      `"${text}" was claimed as a sum`,
+    );
+  }
+});
+
 test('math.convert converts between compatible units', async () => {
   const h = harness();
   const r = await h.engine.skills.invoke('math.convert', { value: 1, from: 'km', to: 'm' }, io(h));
@@ -3313,6 +3386,29 @@ test('mechanism wrapper: other phrasings of the same wrapper all resolve the sam
     await h.engine.ask(cases[i], io(h));
     assert.deepEqual(h.journal.launched, [targets[i]], cases[i]);
   }
+});
+
+// 1.0.3: "use kbm control to open google chrome" → "I couldn't reach that
+// provider." The wrapper only knew the words spelled out.
+test('mechanism wrapper: gamer shorthand for keyboard and mouse is the same wrapper', async () => {
+  const offline = makeProvider({ error: 'offline' });
+  const cases = [
+    'use kbm control to open steam',
+    'use kb&m to open steam',
+    'using m&k controls to open steam',
+    'use mnk to open steam',
+    'use KB/M input to open steam',
+  ];
+  for (const text of cases) {
+    const h = harness(undefined, { provider: offline });
+    await h.engine.ask(text, io(h));
+    assert.deepEqual(h.journal.launched, ['steam'], text);
+  }
+  assert.equal(offline.prompts.length, 0, 'a model was asked');
+  assert.equal(stripFiller('use kbm control to open google chrome'), 'open google chrome');
+  // Not a wrapper: "kbm" alone, or a mechanism with no "to <verb>" after it.
+  assert.equal(stripFiller('kbm settings'), 'kbm settings');
+  assert.equal(stripFiller('use kbm'), 'use kbm');
 });
 
 test('mechanism wrapper: a literal coordinate instruction still resolves correctly once wrapped', async () => {

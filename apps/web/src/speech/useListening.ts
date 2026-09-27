@@ -49,6 +49,14 @@ interface Options {
    * talking, not a second and a half later when the sentence is understood.
    */
   onSpeechStart?(): void;
+  /**
+   * Called when an utterance has been recorded, BEFORE it is transcribed —
+   * whatever the transcriber later makes of it. The place to close the
+   * microphone for one-shot use: waiting for `onTranscript` left it open
+   * whenever the sound turned out to be a cough, silence, or a failed
+   * transcription, because those never produce a transcript.
+   */
+  onUtteranceCaptured?(): void;
   /** How long a quiet stretch ends an utterance. */
   silenceMs?: number;
   /**
@@ -103,6 +111,7 @@ export function useListening(platform: Platform, options: Options): Listening {
         onSpeechStart: () => latest.current.onSpeechStart?.(),
         onError: fail,
         onUtterance: async ({ audio }) => {
+          latest.current.onUtteranceCaptured?.();
           const target = platformRef.current;
           if (!target.transcribeSpeech) return;
           setTranscribing(true);

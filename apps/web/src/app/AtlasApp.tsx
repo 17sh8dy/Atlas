@@ -229,6 +229,13 @@ function Ready({
   // Updates: the service and its timer live here so the bubble and Settings → About share one.
   const updater = useUpdater(platform, storage);
   const [screen, setScreen] = useState<Screen>('conversation');
+  // The composer's unsent text. Here, not in the composer, because Settings
+  // and the voice screen replace the conversation outright and a draft that
+  // lived inside it died with it. A ref: nothing here renders from it.
+  const draft = useRef('');
+  const onDraftChange = useCallback((text: string) => {
+    draft.current = text;
+  }, []);
   // Settings has no conversation of its own, so opening it has to remember
   // which one it is covering — a voice session and a chat are not the same
   // "back", and before this existed Settings always returned to chat, quietly
@@ -466,6 +473,17 @@ function Ready({
      */
     onSpeechStart: () => {
       if (speakingRef.current && prefsRef.current.bargeIn) voice.stop();
+    },
+    /**
+     * One press, one utterance: close the microphone as soon as it has been
+     * recorded, before it is transcribed. Dictation used to close only on a
+     * non-empty transcript, so a cough, a door, or a transcriber error left it
+     * open and listening with nobody having pressed anything since. Hands-free
+     * on the voice screen is the one opt-in exception.
+     */
+    onUtteranceCaptured: () => {
+      if (screenRef.current === 'voice' && prefsRef.current.handsFree) return;
+      listening.stop();
     },
     onTranscript: (text) => {
       // Heard while Atlas was talking, with interruption switched off: that is
@@ -878,6 +896,8 @@ function Ready({
             halted={atlas.halt !== null}
             onResume={() => void atlas.resume()}
             activeRun={activeRun}
+            draft={draft.current}
+            onDraftChange={onDraftChange}
             attachments={attachments.items}
             onRemoveAttachment={attachments.remove}
             onExtractAttachment={(id) => void attachments.extractText(id)}

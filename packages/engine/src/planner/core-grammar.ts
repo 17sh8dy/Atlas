@@ -17,6 +17,7 @@ import { plan, step } from './grammar';
 import type { WorkingMemory } from '../working-memory';
 import { splitBrowserHint } from '../text/normalize';
 import { resolveSite } from '../text/sites';
+import { evaluateExpression, isBareCalculation } from '../skills/math';
 
 /** Strip filler so "open up the calculator please" leaves "calculator". */
 function clean(s: string): string {
@@ -513,20 +514,28 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
     },
 
     // --- Calculate -------------------------------------------------------------
-    // A guarded rule: it only claims the captured text if every character in
-    // it is arithmetic. That's what stops "what is the capital of Peru?" from
-    // being wrongly swallowed by the "what is X" phrasing this also matches.
+    // A guarded rule: it only claims the captured text if the calculator can
+    // actually evaluate it. That's what stops "what is the capital of Peru?"
+    // from being wrongly swallowed by the "what is X" phrasing this also matches.
+    //
+    // It also claims a sum typed on its own — "88 x 535", "12 × 7 =" — because
+    // the calculator is the one answer Atlas can always give with no model.
+    // Before this, a bare sum reached no rule, fell to the AI tier, and with
+    // Ollama off the reply was "I couldn't reach that provider" for 88 x 535.
     {
       name: 'mathCalculate',
       order: -7.5,
       questionSafe: ['calculate'],
       test(_lower, raw) {
         const captured = raw.match(
-          /^\s*(?:what(?:'s| is)|calculate|calc|compute)\s+(.+?)\s*[?]*$/i,
+          /^\s*(?:what(?:'s| is)|whats|how\s+much\s+is|calculate|calc|compute|evaluate|solve|work\s+out)\s+(.+?)\s*[?]*$/i,
         )?.[1];
-        if (!captured) return null;
-        if (!/^[\d\s+\-*/^().%]+$/.test(captured)) return null;
-        return plan(step('math.calculate', { expression: captured }), 'calculate');
+        if (captured && /\d/.test(captured) && evaluateExpression(captured) !== null) {
+          return plan(step('math.calculate', { expression: captured.trim() }), 'calculate');
+        }
+        if (!isBareCalculation(raw)) return null;
+        const expression = raw.trim().replace(/[\s?]+$/, '');
+        return plan(step('math.calculate', { expression }), 'calculate');
       },
     },
 
