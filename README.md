@@ -129,7 +129,9 @@ reviewed in a diff.
 
 ## Where things stand
 
-**Version 1.0.3**, the “doing, not answering” update. Built and working:
+**Version 1.0.4**, fixes on top of 1.0.3’s “doing, not answering” update: the
+calculator works with no model, drafts survive a trip to Settings, and the
+microphone never stays open without a press. Built and working:
 
 - **The engine and shell** — the kernel, the Tauri app, memory, and over 150
   skills, every one declared with its arguments, risk and required capabilities.
