@@ -1777,17 +1777,20 @@ the cause was a bug that had been in Atlas all along.
 
 - **Cause.** Setup registered the summon key (Ctrl+Space) with `?`. If another program already
   owned it, setup returned the error and Tauri panicked (`HotKey already registered`), which in a
-  release build is a fast-fail (`0xc0000409`). On that machine another program does own it. 1.0.4
-  has the same line, so it would have crashed on any cold start where the other program got there
-  first. It only showed up at the update because that is a fresh start.
+  release build is a fast-fail (`0xc0000409`). **What held the key at that moment is not proven**:
+  the likeliest cause is a race with the previous copy of Atlas still closing during the handoff,
+  the alternative another program. The second update attempt, minutes later, succeeded with the
+  same binary, which fits a transient holder. 1.0.4 has the same line, so it was equally exposed.
 - **How it was found.** Windows' Application log (`Application Error`, faulting module
   `atlas-desktop.exe` 1.0.5) and the updater log ("never confirmed its launch"), then the release
-  binary run by hand with stderr captured. A second process could not register Ctrl+Space either,
-  which showed the key was already taken.
+  binary run by hand with stderr captured while another copy held the key (which reproduced the
+  panic exactly).
 - **Fix.** Registering the summon key can no longer abort startup. Atlas starts, is reachable from
-  the tray icon, records the reason, and Settings → General says so. Pinned by a test that the
-  registration is handled and not propagated; checked for real by starting the old and the fixed
-  build while the key was held (old: crashed; fixed: stayed up).
+  the tray icon, records the reason, and Settings → General says so. It also keeps retrying for
+  about a minute, so a key that is only held briefly (the previous copy closing) is picked up
+  without a restart. Pinned by a test that the registration is handled and not propagated; checked
+  for real by starting the old and the fixed build while the key was held (old: crashed; fixed:
+  stayed up). **The retry's pickup was not exercised live** — that needed closing the running Atlas.
 - **"No message for the update."** The 1.0.5 manifest had `"releaseNotes": []`, so the update
   prompt had nothing to say. `pnpm release` now reads `release-notes/<version>.txt` (or `--note`)
   and **refuses to publish a release with no notes**.

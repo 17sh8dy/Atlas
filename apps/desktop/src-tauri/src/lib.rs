@@ -152,6 +152,9 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// How many times (two seconds apart) Atlas retries a summon key that was taken at startup.
+const SUMMON_KEY_RETRIES: u32 = 30;
+
 /// Whether the summon key could be reserved: `None` when it could, otherwise a
 /// sentence saying why not.
 struct SummonKeyStatus(std::sync::Mutex<Option<String>>);
@@ -360,6 +363,23 @@ pub fn run() {
                 Err(err) => {
                     let note = summon_key_problem(&err.to_string());
                     diagnostics::record("startup", &note);
+                    // A key that is held for a moment - the previous copy of
+                    // Atlas still closing during an update, say - frees up on its
+                    // own. Keep trying for a little while and pick it up when it
+                    // does, rather than staying without it until the next launch.
+                    let retry = app.handle().clone();
+                    std::thread::spawn(move || {
+                        for _ in 0..SUMMON_KEY_RETRIES {
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                            if retry.global_shortcut().register(summon_shortcut).is_ok() {
+                                if let Ok(mut status) = retry.state::<SummonKeyStatus>().0.lock() {
+                                    *status = None;
+                                }
+                                diagnostics::record("startup", "Ctrl+Space became free and is now reserved.");
+                                return;
+                            }
+                        }
+                    });
                     Some(note)
                 }
             };
