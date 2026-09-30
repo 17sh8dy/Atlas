@@ -32,6 +32,7 @@
 
 import type { Platform, ResultRow, Skill, SkillArgs, UiaNode, WindowEntry } from '@atlas/core';
 import { resolveWindow, liveWindows } from '../text/windows';
+import { assessControl } from '../safety/ui-consequence';
 
 function parsePath(raw: unknown): number[] {
   const s = String(raw ?? '').trim();
@@ -330,6 +331,48 @@ export function createUiaSkills(platform: Platform): Skill[] {
       },
       control: CONTROL_PARAM,
       path: { type: 'string', description: 'the control\'s path from uia.tree, e.g. "2,0,1" (empty for the root)' },
+    },
+    /**
+     * Weighs what this press would do before it happens: the control's own
+     * words, the dialog around it, and the text in that dialog. "Continue" on a
+     * checkout page asks; "File" does not. A window that shows no readable text
+     * asks too — see `safety/ui-consequence.ts`. Read-only: it reads the tree
+     * and shows nothing, so a window it cannot pin down is left to `run`, which
+     * puts up the usual choice of windows.
+     */
+    async assess(args) {
+      const windows = await liveWindows(platform);
+      const query = String(args.window ?? '').trim();
+      let target: { id: string; title: string } | null = null;
+      if (!query) {
+        if (windows.length === 1) target = { id: windows[0]!.id, title: windows[0]!.title };
+      } else {
+        const match = resolveWindow(windows, query);
+        if (match.kind !== 'none' && match.kind !== 'many') {
+          target = { id: match.entry.id, title: match.entry.title };
+        }
+      }
+      if (!target) return { kind: 'routine' };
+
+      const tree = await platform.uiaTree?.(target.id);
+      if (!tree) return { kind: 'routine' };
+
+      let node: UiaNode | null = null;
+      if (String(args.path ?? '').trim()) {
+        node = flatten(tree).find((n) => n.path.join(',') === parsePath(args.path).join(',')) ?? null;
+      } else {
+        node = findControlByName(tree, String(args.control ?? ''));
+      }
+      // Nothing to press: `run` reports that itself.
+      if (!node || !node.enabled) return { kind: 'routine' };
+
+      const verdict = assessControl({ root: tree, node, windowTitle: target.title });
+      if (verdict.kind === 'routine') return verdict;
+      return {
+        kind: 'ask',
+        question: `Press “${node.name || node.automationId || 'that control'}” in ${target.title}?`,
+        detail: `I checked what it does before pressing it: ${verdict.reason}.`,
+      };
     },
     async run(args, ctx) {
       const target = await targetWindowId(String(args.window ?? ''), ctx, 'uia.invoke', args);

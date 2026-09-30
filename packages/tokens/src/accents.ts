@@ -31,7 +31,17 @@ interface AccentVars {
   accent: string;
 }
 
-export type AccentId = 'purple' | 'red' | 'orange' | 'sunset' | 'ocean';
+export type AccentId =
+  | 'purple'
+  | 'red'
+  | 'orange'
+  | 'sunset'
+  | 'ocean'
+  | 'emerald'
+  | 'titanium'
+  | 'arctic'
+  | 'gold'
+  | 'rose';
 
 export interface AccentScheme {
   id: AccentId;
@@ -47,7 +57,10 @@ export const ACCENTS: readonly AccentScheme[] = [
     id: 'purple',
     label: 'Purple',
     mixed: false,
-    dark: { primary: '124 92 255', primaryForeground: '255 255 255', accent: '99 102 241' },
+    // Four points darker than the original `124 92 255`, as tokens.css says: white
+    // on the old value measured 4.35:1. This file overrides the stylesheet at
+    // runtime, so the stylesheet's fix had quietly stopped applying.
+    dark: { primary: '120 88 251', primaryForeground: '255 255 255', accent: '99 102 241' },
     light: { primary: '109 74 255', primaryForeground: '255 255 255', accent: '79 82 221' },
   },
   {
@@ -68,15 +81,64 @@ export const ACCENTS: readonly AccentScheme[] = [
     id: 'sunset',
     label: 'Sunset',
     mixed: true,
-    dark: { primary: '249 115 22', primaryForeground: '255 255 255', accent: '236 72 153' },
-    light: { primary: '234 88 12', primaryForeground: '255 255 255', accent: '219 39 119' },
+    // Same orange-to-pink, taken darker so a white label clears 4.5:1 on both
+    // stops — at rest and under the 10% brightening a hovered button gets.
+    dark: { primary: '172 79 15', primaryForeground: '255 255 255', accent: '184 56 119' },
+    light: { primary: '184 69 9', primaryForeground: '255 255 255', accent: '199 35 108' },
   },
   {
     id: 'ocean',
     label: 'Ocean',
     mixed: true,
-    dark: { primary: '14 165 233', primaryForeground: '255 255 255', accent: '20 184 166' },
-    light: { primary: '2 132 199', primaryForeground: '255 255 255', accent: '13 148 136' },
+    // Same blue-to-teal, taken darker for the same reason as Sunset.
+    dark: { primary: '10 113 160', primaryForeground: '255 255 255', accent: '13 119 107' },
+    light: { primary: '2 112 169', primaryForeground: '255 255 255', accent: '10 119 109' },
+  },
+  // ── Palettes that pair a bright accent with a near-black label ──────────────
+  // Each is three colours: the accent (#39D98A), its highlight (#A3FFD1, the
+  // second glow stop) and a deep tone (#101B17) that the button *label* uses in
+  // dark mode — bright fills want dark text, and it is what makes them read as
+  // one palette rather than a colour with white pasted on. Light mode takes the
+  // same hue down to a shade that still reads as text on white.
+  {
+    // Emerald / Matrix — clean green, subtle glow, a local-computing feel.
+    id: 'emerald',
+    label: 'Emerald',
+    mixed: false,
+    dark: { primary: '57 217 138', primaryForeground: '16 27 23', accent: '163 255 209' },
+    light: { primary: '8 127 75', primaryForeground: '255 255 255', accent: '11 107 69' },
+  },
+  {
+    // Titanium / Silver — minimal and hardware-like. #D1D5DB with #FFFFFF, on #17191D.
+    id: 'titanium',
+    label: 'Titanium',
+    mixed: false,
+    dark: { primary: '209 213 219', primaryForeground: '23 25 29', accent: '255 255 255' },
+    light: { primary: '71 85 105', primaryForeground: '255 255 255', accent: '100 116 139' },
+  },
+  {
+    // Arctic — ice cyan.
+    id: 'arctic',
+    label: 'Arctic',
+    mixed: false,
+    dark: { primary: '103 232 249', primaryForeground: '8 30 36', accent: '165 243 252' },
+    light: { primary: '14 116 144', primaryForeground: '255 255 255', accent: '21 94 117' },
+  },
+  {
+    // Gold — warm and understated.
+    id: 'gold',
+    label: 'Gold',
+    mixed: false,
+    dark: { primary: '245 197 66', primaryForeground: '30 22 4', accent: '253 230 138' },
+    light: { primary: '161 98 7', primaryForeground: '255 255 255', accent: '133 77 14' },
+  },
+  {
+    // Rose — soft pink, distinct from Red.
+    id: 'rose',
+    label: 'Rose',
+    mixed: false,
+    dark: { primary: '251 113 133', primaryForeground: '40 6 14', accent: '253 164 175' },
+    light: { primary: '190 18 60', primaryForeground: '255 255 255', accent: '159 18 57' },
   },
 ];
 
@@ -102,6 +164,16 @@ function gradient(vars: AccentVars): string {
 export function accentSwatch(scheme: AccentScheme, theme: ResolvedTheme): string {
   const vars = theme === 'light' ? scheme.light : scheme.dark;
   return scheme.mixed ? gradient(vars) : `rgb(${vars.primary})`;
+}
+
+/**
+ * The colour of a label drawn *on* a scheme's fill — the same one the primary
+ * button uses. A tick on a swatch needs it: white is right on purple and
+ * invisible on Titanium's silver.
+ */
+export function accentLabel(scheme: AccentScheme, theme: ResolvedTheme): string {
+  const vars = theme === 'light' ? scheme.light : scheme.dark;
+  return `rgb(${vars.primaryForeground})`;
 }
 
 /** Paint a scheme onto the document. Safe to call on every theme change. */

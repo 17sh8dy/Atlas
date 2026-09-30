@@ -1667,6 +1667,65 @@ Decisions taken with Brandon before building:
 
 ---
 
+## Phase 17 — 1.0.5: colours, modes that mean something, Nova Intelligence that starts (2026-09-29)
+
+Brandon's brief: more accent colours, Purple as the default, Nova Intelligence that starts when
+clicked, a broader Account line, and the three execution modes made real.
+
+### Built
+
+- **Accent colours:** Emerald (#39D98A / #A3FFD1 / #101B17) and Titanium (#D1D5DB / #FFFFFF /
+  #17191D) exactly as given, plus Arctic, Gold and Rose. The third colour is the button label in
+  dark mode. Light mode takes each hue down to a shade that reads on white. Contrast is pinned by
+  `packages/tokens/test/accents.test.ts`.
+- **Purple default:** it already was (`DEFAULT_ACCENT`, `tokens.css`, `theme.tsx`), so nothing
+  changed. Now pinned by a test. A person who had picked another accent keeps it.
+- **Nova Intelligence starts:** Settings → Intelligence finds the NovaIntelligence folder, starts
+  its server, shows Starting / Running / Not running, lets you choose the folder, and starts it on
+  launch unless "Start automatically" is off. See ARCHITECTURE §6.11 for why it is found rather
+  than shipped.
+- **Account:** the signed-in line says "across Nova products" instead of listing some of them.
+- **Modes:** Do It? is the default (it already was), with your descriptions. All three modes now
+  differ in behaviour, and a button is checked for what it does before it is pressed.
+
+### Behaviour changes worth knowing
+
+- **`files.delete` no longer runs silently in an Allowed Folder under Do It?** It did before.
+  Your spec lists deletion as needing approval, and being recoverable from the Recycle Bin did
+  not seem to make it routine. It is one line in `PREAPPROVABLE_PATH_ARGS` to change back.
+- **`uia.invoke` can now ask** where it used to press anything by name.
+
+### Added after review (same day)
+
+- **Deletes keep asking** in Do It? (Brandon's decision: do not revert).
+- **Coordinate clicks are checked.** `input.click`/`drag` and the new `kbm.*` look at what is at the
+  point (window, accessibility tree, the same judgement a named button gets) before clicking.
+  Harmless and verified: automatic. Would pay/send/delete/install, or cannot be identified: asks,
+  and the card names the target ("Click “Pay now” (button) in Checkout, at 400, 300"). Enter and
+  Space are judged by the focused control. See `safety/ui-target.ts`.
+- **`kbm.*` toolset:** click, double_click, right_click, middle_click, drag, move_mouse, scroll,
+  get_cursor_position, press_key, hotkey, type_text, key_sequence, get_active_window,
+  get_ui_elements (with click coordinates), click_element (by name). Also allowed for the UI agent.
+- **Add It? / Not Now:** a step refused for a path outside Allowed Folders offers to add that folder
+  (a file offers its folder) and retries once on yes. It never offers a whole drive, Windows,
+  Program Files, ProgramData or AppData.
+- **Sunset and Ocean** darkened (same hues) so a white label clears 4.5:1 on both gradient stops,
+  at rest and under the hover brightening. Purple's dark fill nudged to 120 88 251, which its own
+  stylesheet comment said it already was.
+
+### Not done, and why
+
+- **Nova Intelligence is not bundled.** It would add gigabytes to a 374 MB installer for a
+  model that cannot hold a conversation yet.
+- **Red (dark and hover), Orange (light) and Purple (hover)** are still below 4.5:1 for a white
+  label. They were not part of the request; pinned at a floor by `accents.test.ts`.
+- **Dark-mode Sunset/Ocean as text**: the darker fill is about 3.4:1 against the dark page, so
+  accent-coloured *text* (e.g. a link) is dimmer than before; buttons and rings are fine.
+- **A page with no accessibility tree** (games, canvases, browsers with accessibility off) is
+  asked about on every click, because there is nothing to verify.
+
+---
+
 ## Ideas for later — subscriptions, memory, Atlas Mobile (Brandon, 2026-09-24)
 
 Recorded, not decided. Each needs its own decision before any code, as every "Ideas"

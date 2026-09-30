@@ -8,20 +8,25 @@
  * aren't — so a mode can never make a safe action ask, and never makes a
  * refused one run.
  *
- * `doIt`           — the default, and the one this concept shipped as
- *                     originally. A safe step runs; a confirm step stops and
- *                     asks, immediately before it runs.
+ * `doIt`           — the default. A safe step runs. A confirm step stops and
+ *                     asks, immediately before it runs — except ordinary file
+ *                     work (create, rename, move, copy, append) inside a folder
+ *                     the person added to Allowed Folders, which is already an
+ *                     explicit grant and runs without a second question.
+ *                     Deleting is never in that group. What a UI control would
+ *                     *do* is also weighed before it is pressed, in every mode.
  * `planFirst`      — for a request whose plan contains anything consequential,
  *                     the whole plan is shown once, up front, and approving it
- *                     covers every step already named in it — no re-asking per
- *                     step. A plan made entirely of safe steps never shows a
- *                     card at all: this mode does not make harmless things
- *                     slower, only consequential ones more visible in advance.
- * `confirmActions` — the same per-step gate as `doIt`, kept as its own named
- *                     mode rather than folded into it: it is the guarantee
- *                     that a plan-approval shortcut never stands in for
- *                     asking about one specific action. Pick this one to mean
- *                     "always ask me right before it happens, never in bulk."
+ *                     covers exactly the steps shown — no re-asking per step,
+ *                     and no step that was not on the card. A plan made
+ *                     entirely of safe steps never shows a card at all: this
+ *                     mode does not make harmless things slower, only
+ *                     consequential ones more visible in advance.
+ * `confirmActions` — every consequential step is asked about on its own, right
+ *                     before it happens. Nothing softens it — not Allowed
+ *                     Folders, not a plan. It is the guarantee that a
+ *                     plan-approval shortcut never stands in for asking about
+ *                     one specific action.
  *
  * There is deliberately no fourth mode that removes confirmation altogether.
  * A consequential action always stops somewhere; these three only differ in
@@ -44,15 +49,18 @@ export interface ExecutionModeMeta {
 export const EXECUTION_MODE_META: Record<ExecutionMode, ExecutionModeMeta> = {
   doIt: {
     label: 'Do It?',
-    description: 'Handles harmless actions on its own; still asks before anything consequential.',
+    description:
+      'Handles harmless actions automatically. Always asks before consequential actions.',
   },
   planFirst: {
     label: 'Plan First',
-    description: 'Shows the plan and asks once before making any change, then carries it out.',
+    description:
+      'Shows you the plan and asks once before making approved changes. Carries out only the approved plan.',
   },
   confirmActions: {
     label: 'Confirm Actions',
-    description: 'Same as Do It?, but a plan can never stand in for asking about one action.',
+    description:
+      'Handles harmless actions automatically, but requires separate approval for every consequential action. A plan never counts as approval.',
   },
 };
 

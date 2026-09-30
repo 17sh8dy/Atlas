@@ -75,6 +75,21 @@ const UI_AGENT_SKILLS = new Set([
   'input.pressKey',
   'input.hotkey',
   'input.typeText',
+  'kbm.click',
+  'kbm.double_click',
+  'kbm.right_click',
+  'kbm.middle_click',
+  'kbm.drag',
+  'kbm.move_mouse',
+  'kbm.get_cursor_position',
+  'kbm.scroll',
+  'kbm.get_active_window',
+  'kbm.get_ui_elements',
+  'kbm.click_element',
+  'kbm.press_key',
+  'kbm.hotkey',
+  'kbm.type_text',
+  'kbm.key_sequence',
 ]);
 
 export type UiTaskStepLog = AgentTaskReport['steps'][number];

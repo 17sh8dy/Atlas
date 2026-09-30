@@ -1,0 +1,529 @@
+/**
+ * `kbm.*` — keyboard and mouse control, as one named toolset.
+ *
+ * The same hands as `input.*` (synthetic mouse and keyboard through the
+ * platform), with two things `input.*` did not have: names that say what they
+ * do — `kbm.double_click`, `kbm.key_sequence` — and eyes. `kbm.get_active_window`
+ * and `kbm.get_ui_elements` report what is on screen, with the centre of each
+ * control, so a caller can click something it has actually seen rather than a
+ * coordinate it guessed.
+ *
+ * ── Safe by what it lands on, not by what it is called ──────────────────────
+ * Every click and every Enter/Space is checked before it happens (see
+ * `safety/ui-target.ts`): a verified, harmless control goes ahead in Do It?; a
+ * control that would pay, send, delete or install asks, naming it; and a spot
+ * Atlas cannot identify asks too. An approval is therefore about the actual
+ * target, never about a bare coordinate. Typing, scrolling and moving the mouse
+ * change nothing by themselves and stay quiet — except that typing a line break
+ * is Enter, and is judged like Enter.
+ *
+ * Alt+F4 stays `confirm`, in `kbm.hotkey` and inside a `kbm.key_sequence`,
+ * exactly as it does in `input.hotkey`: it closes the foreground application.
+ *
+ * Nothing here can run a command. It has no argument that reaches a shell.
+ */
+
+import type {
+  MouseButton,
+  Platform,
+  ResultRow,
+  Skill,
+  SkillArgs,
+  SkillAssessment,
+  SkillRisk,
+  UiaNode,
+  WindowEntry,
+} from '@atlas/core';
+import { assessControl } from '../safety/ui-consequence';
+import { activatesFocused, assessFocused, assessPoint, type ClickKind } from '../safety/ui-target';
+import { liveWindows, resolveWindow } from '../text/windows';
+import { findControlByName } from './uia-skills';
+import { typedMessage } from './typed';
+
+const NEEDS = ['input'] as const;
+const ICON = '🖱️';
+
+const INTERACTIVE =
+  /^(button|menu item|menuitem|check box|checkbox|radio button|edit|combo box|combobox|link|hyperlink|list item|tab item|slider|split button|toggle|spinner)$/;
+
+function closesApp(combo: string): boolean {
+  return (
+    combo
+      .toLowerCase()
+      .split('+')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .sort()
+      .join('+') === 'alt+f4'
+  );
+}
+
+/** One token of a key sequence. */
+type Token = { kind: 'text'; text: string } | { kind: 'combo'; combo: string };
+
+/**
+ * "ctrl+a, delete, type:hello, enter" → tokens. A `type:` token runs to the next
+ * comma, so text that needs a comma is typed with `kbm.type_text` instead.
+ */
+export function parseSequence(raw: string): Token[] {
+  return raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) =>
+      /^type:/i.test(t) ? { kind: 'text', text: t.slice(5) } : { kind: 'combo', combo: t },
+    );
+}
+
+const centre = (n: UiaNode) => ({
+  x: Math.round(n.x + n.width / 2),
+  y: Math.round(n.y + n.height / 2),
+});
+
+export function createKbmSkills(platform: Platform): Skill[] {
+  const skills: Skill[] = [];
+
+  // ── Clicks ────────────────────────────────────────────────────────────────
+
+  const clickSkill = (
+    id: string,
+    label: string,
+    verb: ClickKind,
+    button: MouseButton,
+    double: boolean,
+  ): Skill => ({
+    id,
+    label,
+    icon: ICON,
+    domain: 'system',
+    description: `${label} at an absolute screen position. Checked first: Atlas looks at what is at that spot and asks if it would pay, send, delete or install, or if it cannot tell.`,
+    needs: NEEDS,
+    risk: 'safe',
+    params: {
+      x: { type: 'number', required: true, description: 'x position, in pixels' },
+      y: { type: 'number', required: true, description: 'y position, in pixels' },
+    },
+    assess: (args) => assessPoint(platform, Number(args.x), Number(args.y), verb),
+    async run(args) {
+      const ok = await platform.mouseClick?.(Number(args.x), Number(args.y), button, double);
+      if (!ok) return { ok: false, error: "I couldn't click there." };
+      return { ok: true, message: `${label} at ${args.x}, ${args.y}.` };
+    },
+  });
+
+  skills.push(clickSkill('kbm.click', 'Click', 'Click', 'left', false));
+  skills.push(clickSkill('kbm.double_click', 'Double-click', 'Double-click', 'left', true));
+  skills.push(clickSkill('kbm.right_click', 'Right-click', 'Right-click', 'right', false));
+  skills.push(clickSkill('kbm.middle_click', 'Middle-click', 'Middle-click', 'middle', false));
+
+  skills.push({
+    id: 'kbm.drag',
+    label: 'Drag',
+    icon: ICON,
+    domain: 'system',
+    description:
+      'Press the mouse down at one position, drag to another and release. Both ends are checked first.',
+    needs: NEEDS,
+    risk: 'safe',
+    params: {
+      fromX: { type: 'number', required: true, description: 'starting x position' },
+      fromY: { type: 'number', required: true, description: 'starting y position' },
+      toX: { type: 'number', required: true, description: 'ending x position' },
+      toY: { type: 'number', required: true, description: 'ending y position' },
+    },
+    async assess(args) {
+      // What is grabbed, and where it is dropped: a drop onto the Recycle Bin
+      // or a "Send" target is the consequence, not the grab.
+      const from = await assessPoint(platform, Number(args.fromX), Number(args.fromY), 'Drag from');
+      if (from.kind === 'ask') return from;
+      const to = await assessPoint(platform, Number(args.toX), Number(args.toY), 'Click');
+      if (to.kind === 'ask') {
+        return {
+          kind: 'ask',
+          question: `Drag from ${args.fromX}, ${args.fromY} and drop at ${args.toX}, ${args.toY}?`,
+          detail: `Where it would be dropped: ${to.detail}`,
+        };
+      }
+      return { kind: 'routine' };
+    },
+    async run(args) {
+      const ok = await platform.mouseDrag?.(
+        Number(args.fromX),
+        Number(args.fromY),
+        Number(args.toX),
+        Number(args.toY),
+        'left',
+      );
+      if (!ok) return { ok: false, error: "I couldn't drag that." };
+      return { ok: true, message: `Dragged to ${args.toX}, ${args.toY}.` };
+    },
+  });
+
+  // ── Reading the screen, so a click can be aimed at something seen ───────────
+
+  skills.push({
+    id: 'kbm.move_mouse',
+    label: 'Move the mouse',
+    icon: ICON,
+    domain: 'system',
+    description: 'Move the mouse cursor to an absolute screen position.',
+    needs: NEEDS,
+    risk: 'safe',
+    params: {
+      x: { type: 'number', required: true, description: 'x position, in pixels' },
+      y: { type: 'number', required: true, description: 'y position, in pixels' },
+    },
+    async run(args) {
+      const ok = await platform.moveMouse?.(Number(args.x), Number(args.y));
+      if (!ok) return { ok: false, error: "I couldn't move the mouse." };
+      return { ok: true, message: `Moved the mouse to ${args.x}, ${args.y}.` };
+    },
+  });
+
+  skills.push({
+    id: 'kbm.get_cursor_position',
+    label: 'Where the mouse is',
+    icon: ICON,
+    domain: 'system',
+    description: 'The current mouse cursor position.',
+    needs: NEEDS,
+    risk: 'safe',
+    async run() {
+      const pos = await platform.cursorPosition?.();
+      if (!pos) return { ok: false, error: "I couldn't read the cursor position." };
+      return { ok: true, message: `${pos.x}, ${pos.y}`, data: pos };
+    },
+  });
+
+  skills.push({
+    id: 'kbm.scroll',
+    label: 'Scroll',
+    icon: ICON,
+    domain: 'system',
+    description: 'Scroll the mouse wheel. Positive scrolls up, negative scrolls down.',
+    needs: NEEDS,
+    risk: 'safe',
+    params: {
+      amount: {
+        type: 'number',
+        default: -3,
+        description: 'notches; positive is up, negative is down',
+      },
+    },
+    async run(args) {
+      const ok = await platform.mouseScroll?.(Number(args.amount ?? -3));
+      if (!ok) return { ok: false, error: "I couldn't scroll." };
+      return { ok: true, message: 'Scrolled.' };
+    },
+  });
+
+  skills.push({
+    id: 'kbm.get_active_window',
+    label: 'The active window',
+    icon: '🪟',
+    domain: 'system',
+    description: 'Which window is in front right now: its title, app and position on screen.',
+    needs: ['windows'],
+    risk: 'safe',
+    async run() {
+      const win = await platform.activeWindow?.();
+      if (!win) return { ok: true, message: 'No window is active right now.' };
+      return {
+        ok: true,
+        message: `${win.title || '(untitled)'} — ${win.processName}, ${win.width}×${win.height} at ${win.x}, ${win.y}.`,
+        data: win,
+      };
+    },
+  });
+
+  /** The window a caller means: the one named, or the active one. */
+  async function targetWindow(query: unknown): Promise<WindowEntry | { error: string }> {
+    const wanted = String(query ?? '').trim();
+    if (!wanted) {
+      const active = await platform.activeWindow?.();
+      return active ?? { error: 'No window is active, and none was named.' };
+    }
+    const match = resolveWindow(await liveWindows(platform), wanted);
+    if (match.kind === 'none') return { error: `I can't find a window called "${wanted}".` };
+    if (match.kind === 'many') {
+      return { error: `More than one window matches "${wanted}" — say which.` };
+    }
+    return match.entry;
+  }
+
+  skills.push({
+    id: 'kbm.get_ui_elements',
+    label: 'What is on screen',
+    icon: '🧩',
+    domain: 'system',
+    description:
+      'List the buttons, fields, menus and links in a window (the active one by default), each with its name, role and the centre coordinates to click. Read this before clicking so the click lands on something Atlas has seen.',
+    needs: ['ui-automation', 'windows'],
+    risk: 'safe',
+    params: {
+      window: {
+        type: 'string',
+        description: 'the window, by title or app name — omit for the active window',
+      },
+      all: {
+        type: 'boolean',
+        default: false,
+        description: 'include labels and containers, not just things you can operate',
+      },
+    },
+    async run(args, ctx) {
+      const win = await targetWindow(args.window);
+      if ('error' in win) return { ok: false, error: win.error };
+      const tree = await platform.uiaTree?.(win.id);
+      if (!tree) return { ok: false, error: `I couldn't read the controls in ${win.title}.` };
+
+      const all: UiaNode[] = [];
+      const walk = (n: UiaNode) => {
+        all.push(n);
+        n.children.forEach(walk);
+      };
+      walk(tree);
+
+      const wantAll = args.all === true;
+      const shown = all
+        .filter((n) => n.width > 0 && n.height > 0 && (n.name.trim() || n.automationId))
+        .filter((n) => wantAll || INTERACTIVE.test(n.role))
+        .slice(0, 250);
+
+      const elements = shown.map((n) => ({
+        name: n.name,
+        role: n.role,
+        automationId: n.automationId,
+        enabled: n.enabled,
+        ...centre(n),
+        width: n.width,
+        height: n.height,
+      }));
+
+      const rows: ResultRow[] = shown.map((n, i) => ({
+        title: n.name || n.automationId || n.role,
+        subtitle: `${n.role} · click at ${elements[i]!.x}, ${elements[i]!.y}${n.enabled ? '' : ' · disabled'}`,
+        icon: '🧩',
+        payload: elements[i],
+      }));
+      ctx.showResults?.(rows, {
+        title: `${rows.length} control${rows.length === 1 ? '' : 's'} in ${win.title}`,
+      });
+      return { ok: true, spoken: true, message: '', data: { window: win.title, elements } };
+    },
+  });
+
+  /** Find a control by name and where to click it, or say why not. */
+  async function resolveElement(args: SkillArgs) {
+    const win = await targetWindow(args.window);
+    if ('error' in win) return { error: win.error };
+    const tree = await platform.uiaTree?.(win.id);
+    if (!tree) return { error: `I couldn't read the controls in ${win.title}.` };
+    const node = findControlByName(tree, String(args.control ?? ''));
+    if (!node)
+      return {
+        error: `I can't find a control called “${String(args.control ?? '')}” in ${win.title}.`,
+      };
+    if (!node.enabled) return { error: `“${node.name}” is there, but greyed out.` };
+    if (node.width <= 0 || node.height <= 0) {
+      return { error: `“${node.name}” has no size on screen, so I can't click it.` };
+    }
+    return { win, tree, node, at: centre(node) };
+  }
+
+  skills.push({
+    id: 'kbm.click_element',
+    label: 'Click a control by name',
+    icon: ICON,
+    domain: 'system',
+    description:
+      'Find a control by its name in a window (the active one by default) and click its centre with the mouse. Checked first, like any click.',
+    needs: ['input', 'ui-automation', 'windows'],
+    risk: 'safe',
+    params: {
+      control: { type: 'string', required: true, description: 'the control by name, e.g. "save"' },
+      window: {
+        type: 'string',
+        description: 'the window, by title or app name — omit for the active window',
+      },
+      double: { type: 'boolean', default: false, description: 'double-click instead' },
+    },
+    async assess(args): Promise<SkillAssessment> {
+      const found = await resolveElement(args);
+      if ('error' in found) return { kind: 'routine' }; // `run` says why it can't
+      const verdict = assessControl({
+        root: found.tree,
+        node: found.node,
+        windowTitle: found.win.title,
+      });
+      if (verdict.kind === 'routine') return verdict;
+      return {
+        kind: 'ask',
+        question: `Click “${found.node.name}” (${found.node.role}) in ${found.win.title}?`,
+        detail: `I checked what it does before clicking: ${verdict.reason}.`,
+      };
+    },
+    async run(args) {
+      const found = await resolveElement(args);
+      if ('error' in found) return { ok: false, error: found.error };
+      const ok = await platform.mouseClick?.(found.at.x, found.at.y, 'left', args.double === true);
+      if (!ok) return { ok: false, error: "I couldn't click there." };
+      return { ok: true, message: `Clicked “${found.node.name}” in ${found.win.title}.` };
+    },
+  });
+
+  // ── Keys ──────────────────────────────────────────────────────────────────
+
+  skills.push({
+    id: 'kbm.press_key',
+    label: 'Press a key',
+    icon: '⌨️',
+    domain: 'system',
+    description:
+      'Press one named key — enter, tab, escape, backspace, delete, an arrow key, home, end, page up/down, space, or f1 through f12. Enter and space press whatever has focus, so they are checked first.',
+    needs: NEEDS,
+    risk: 'safe',
+    params: { key: { type: 'string', required: true, description: 'the key name' } },
+    assess: async (args) =>
+      activatesFocused(String(args.key ?? ''))
+        ? assessFocused(platform, String(args.key))
+        : { kind: 'routine' },
+    async run(args) {
+      const key = String(args.key ?? '');
+      const ok = await platform.pressKey?.(key);
+      if (!ok)
+        return { ok: false, error: `I don't know a key called "${key}", or pressing it failed.` };
+      return { ok: true, message: `Pressed ${key}.` };
+    },
+  });
+
+  skills.push({
+    id: 'kbm.hotkey',
+    label: 'Press a key combination',
+    icon: '⌨️',
+    domain: 'system',
+    description:
+      'Press a key combination such as "ctrl+c" or "ctrl+shift+s" — modifiers joined to one key with "+". Alt+F4 asks first; a combination with Enter in it is checked like Enter.',
+    needs: NEEDS,
+    risk: 'safe',
+    riskFor: (args): SkillRisk | undefined =>
+      closesApp(String(args.combo ?? '')) ? 'confirm' : undefined,
+    params: {
+      combo: { type: 'string', required: true, description: 'e.g. "ctrl+c" or "ctrl+alt+t"' },
+    },
+    assess: async (args) =>
+      activatesFocused(String(args.combo ?? ''))
+        ? assessFocused(platform, String(args.combo))
+        : { kind: 'routine' },
+    async run(args) {
+      const parts = String(args.combo ?? '')
+        .split('+')
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const key = parts.pop();
+      if (!key) return { ok: false, error: 'That combination has no key in it.' };
+      const ok = await platform.hotkey?.(parts, key);
+      if (!ok) return { ok: false, error: `I couldn't send ${args.combo}.` };
+      return { ok: true, message: `Pressed ${args.combo}.` };
+    },
+  });
+
+  skills.push({
+    id: 'kbm.type_text',
+    label: 'Type text',
+    icon: '⌨️',
+    domain: 'system',
+    description:
+      'Type text into whatever currently has keyboard focus. A line break in the text is an Enter and is checked like one.',
+    needs: NEEDS,
+    risk: 'safe',
+    params: { text: { type: 'string', required: true, description: 'the text to type' } },
+    assess: async (args) =>
+      /[\r\n]/.test(String(args.text ?? ''))
+        ? assessFocused(platform, 'Enter')
+        : { kind: 'routine' },
+    async run(args) {
+      const text = String(args.text ?? '');
+      if (!text) return { ok: false, error: "There's nothing to type." };
+      const ok = await platform.typeText?.(text);
+      if (!ok) return { ok: false, error: "I couldn't type that." };
+      return { ok: true, message: await typedMessage(platform, text) };
+    },
+  });
+
+  skills.push({
+    id: 'kbm.key_sequence',
+    label: 'Press a sequence of keys',
+    icon: '⌨️',
+    domain: 'system',
+    description:
+      'Press several keys in order, separated by commas: "ctrl+a, delete, type:hello, enter". A token starting with "type:" types the text after it. Focus can change between keys, so an Enter that is not first is always asked about.',
+    needs: NEEDS,
+    risk: 'safe',
+    riskFor: (args): SkillRisk | undefined =>
+      parseSequence(String(args.sequence ?? '')).some(
+        (t) => t.kind === 'combo' && closesApp(t.combo),
+      )
+        ? 'confirm'
+        : undefined,
+    params: {
+      sequence: {
+        type: 'string',
+        required: true,
+        description: 'e.g. "ctrl+l, type:example.com, enter"',
+      },
+    },
+    async assess(args): Promise<SkillAssessment> {
+      const tokens = parseSequence(String(args.sequence ?? ''));
+      const isActivating = (t: Token) =>
+        t.kind === 'combo' ? activatesFocused(t.combo) : /[\r\n]/.test(t.text);
+      const firstIndex = tokens.findIndex(isActivating);
+      if (firstIndex === -1) return { kind: 'routine' };
+      // Only an Enter that comes first is pressing the control that has focus
+      // now. After any other key the focus may have moved, and Atlas cannot see
+      // where — so it asks, and shows the whole sequence.
+      if (firstIndex === 0) return assessFocused(platform, 'Enter');
+      return {
+        kind: 'ask',
+        question: 'Press this sequence of keys?',
+        detail: `${String(args.sequence)} — it includes Enter after other keys, and I cannot tell in advance what will have focus by then.`,
+      };
+    },
+    async run(args) {
+      const tokens = parseSequence(String(args.sequence ?? ''));
+      if (tokens.length === 0) return { ok: false, error: 'That sequence has no keys in it.' };
+      for (const [i, token] of tokens.entries()) {
+        let ok: boolean | undefined;
+        if (token.kind === 'text') {
+          ok = await platform.typeText?.(token.text);
+        } else {
+          const parts = token.combo
+            .split('+')
+            .map((p) => p.trim())
+            .filter(Boolean);
+          const key = parts.pop();
+          ok = key
+            ? parts.length
+              ? await platform.hotkey?.(parts, key)
+              : await platform.pressKey?.(key)
+            : false;
+        }
+        if (!ok) {
+          return {
+            ok: false,
+            error: `Stopped at step ${i + 1} of ${tokens.length}: I couldn't send “${token.kind === 'text' ? `type:${token.text}` : token.combo}”.`,
+          };
+        }
+      }
+      return {
+        ok: true,
+        message: `Pressed ${tokens.length} key${tokens.length === 1 ? '' : 's'} in order.`,
+      };
+    },
+  });
+
+  return skills;
+}
+
+/** Args re-exported for tests that build a call by hand. */
+export type KbmArgs = SkillArgs;

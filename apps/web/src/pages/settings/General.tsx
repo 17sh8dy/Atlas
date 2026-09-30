@@ -27,7 +27,7 @@
 import { useEffect, useState } from 'react';
 import type { SkillRegistry } from '@atlas/engine';
 import type { CapabilityName, ExecutionMode, Platform } from '@atlas/core';
-import { EXECUTION_MODES, EXECUTION_MODE_META } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE, EXECUTION_MODES, EXECUTION_MODE_META } from '@atlas/core';
 import { Button, Icons, Input, SegmentedControl } from '@atlas/ui';
 import { EmergencyStop } from './general/EmergencyStop';
 import { WebSearch } from './general/WebSearch';
@@ -146,9 +146,26 @@ export function General({
           value={executionMode}
           onChange={onExecutionModeChange}
         />
-        <p className="text-foreground-subtle mt-2 text-xs leading-relaxed">
-          {EXECUTION_MODE_META[executionMode].description}
-        </p>
+        <dl className="mt-3 space-y-2.5">
+          {EXECUTION_MODES.map((mode) => (
+            <div
+              key={mode}
+              className={
+                mode === executionMode
+                  ? 'text-foreground text-xs leading-relaxed'
+                  : 'text-foreground-subtle text-xs leading-relaxed'
+              }
+            >
+              <dt className="font-medium">
+                {EXECUTION_MODE_META[mode].label}
+                {mode === DEFAULT_EXECUTION_MODE && (
+                  <span className="text-foreground-subtle ml-2 font-normal">Default option</span>
+                )}
+              </dt>
+              <dd>{EXECUTION_MODE_META[mode].description}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
       <EmergencyStop platform={platform} />

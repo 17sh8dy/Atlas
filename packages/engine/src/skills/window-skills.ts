@@ -106,6 +106,63 @@ export function createWindowSkills(platform: Platform): Skill[] {
   });
 
   skills.push({
+    id: 'window.await',
+    label: 'Wait for an app’s window',
+    icon: '🪟',
+    domain: 'system',
+    description:
+      'Wait until an app’s window has appeared and bring it to the front. Used between opening an app and typing or clicking in it, so nothing is sent to a window that is not there yet — or to the wrong one. Fails, and stops the plan, if the window never shows up.',
+    needs: ['window-control'],
+    // Bringing a window forward is `window.focus`, which is safe.
+    risk: 'safe',
+    params: {
+      window: { type: 'string', required: true, description: 'the app or window, by name' },
+      seconds: { type: 'number', default: 15, description: 'how long to wait before giving up' },
+    },
+    async run(args, ctx) {
+      const wanted = String(args.window ?? '').trim();
+      const limit = Math.min(Math.max(Number(args.seconds ?? 15) || 15, 1), 60) * 1000;
+      const began = Date.now();
+
+      let found: WindowEntry | null = null;
+      while (Date.now() - began < limit) {
+        if (ctx.signal?.aborted) return { ok: false, error: 'Stopped.' };
+        const windows = await liveWindows(platform);
+        const match = resolveWindow(windows, wanted);
+        if (match.kind === 'one') found = match.entry;
+        else if (match.kind === 'many') {
+          found = match.candidates.find((w) => !w.minimized) ?? match.candidates[0]!;
+        }
+        if (found) break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      if (!found) {
+        return {
+          ok: false,
+          error: `I opened ${wanted} but never saw its window, so I stopped instead of typing into something else.`,
+        };
+      }
+
+      // In front, and confirmed by reading it back — asking is not the same as
+      // it having happened.
+      const target = found;
+      await platform.focusWindow?.(target.id);
+      for (let i = 0; i < 8; i += 1) {
+        const active = await platform.activeWindow?.();
+        if (active && active.id === target.id) {
+          return { ok: true, message: `${wanted} is open and in front (“${active.title}”).` };
+        }
+        await new Promise((r) => setTimeout(r, 250));
+        await platform.focusWindow?.(target.id);
+      }
+      return {
+        ok: false,
+        error: `${wanted} is open, but I couldn't bring it to the front, so I stopped instead of typing into another window.`,
+      };
+    },
+  });
+
+  skills.push({
     id: 'window.active',
     label: 'Active window',
     icon: '🪟',

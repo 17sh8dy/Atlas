@@ -5050,3 +5050,39 @@ test('engine.help: every row carries the domain its surface groups on', async ()
   assert.include([...groups], 'files');
   assert.include([...groups], 'system');
 });
+
+// ---- the AI planner keeps what the user wrote ----------------------------------
+//
+// A phrasing the grammar does not know goes to the model to plan. Whatever it
+// returns, the user's quoted text has to still be in the plan — a plan that
+// swapped it for something else is refused, not run.
+
+const WRITE_PLAN = (text: string) =>
+  JSON.stringify({
+    intent: 'write',
+    confidence: 0.9,
+    steps: [{ skill: 'input.typeText', args: { text } }],
+  });
+
+test('AI planner: a plan that keeps the quoted text runs with it unchanged', async () => {
+  const provider = makeProvider({ reply: WRITE_PLAN('Test "quoted" & more') });
+  const h = harness(undefined, { provider });
+  await h.engine.ask(`please jot down 'Test "quoted" & more' into the open window`, io(h));
+  assert.deepEqual(h.journal.typed, ['Test "quoted" & more']);
+});
+
+test('AI planner: a plan that replaced the quoted text is refused, and nothing is typed', async () => {
+  const provider = makeProvider({ reply: WRITE_PLAN('Something else entirely') });
+  const h = harness(undefined, { provider });
+  await h.engine.ask(`please jot down 'Test' into the open window`, io(h));
+  assert.deepEqual(h.journal.typed, []);
+});
+
+test('AI planner: the prompt tells the model to copy arguments exactly and not invent any', async () => {
+  const provider = makeProvider({ reply: WRITE_PLAN('Test') });
+  const h = harness(undefined, { provider });
+  await h.engine.ask(`please jot down 'Test' into the open window`, io(h));
+  const prompt = provider.prompts.join('\n');
+  assert.match(prompt, /exactly as written/);
+  assert.match(prompt, /Never invent an argument/);
+});

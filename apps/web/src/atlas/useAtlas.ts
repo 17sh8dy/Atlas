@@ -33,6 +33,7 @@ import type {
   Watch,
 } from '@atlas/core';
 import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH } from '@atlas/core';
+import { folderToOffer, isInsideAnyAllowedFolder } from './folderOffer';
 import { MemoryStore } from '@atlas/data';
 import {
   buildIntelligence,
@@ -63,6 +64,7 @@ import {
   createWindowSkills,
   createInputSkills,
   createUiaSkills,
+  createKbmSkills,
   createScreenSkills,
   createTextSkills,
   createUtilitySkills,
@@ -80,7 +82,7 @@ import {
   type FileJournal,
   type JournalBatch,
 } from '@atlas/engine';
-import type { CapabilityName } from '@atlas/core';
+import type { CapabilityName, ConfirmOptions } from '@atlas/core';
 
 const FILE_JOURNAL_KEY = 'atlas.file-journal';
 
@@ -99,6 +101,11 @@ export interface Entry {
   detail?: string;
   /** `halted`: the emergency stop ended the plan while this card was open. */
   answered?: 'yes' | 'no' | 'halted';
+  /** Confirmation entries: button wording and the note once answered (see `ConfirmOptions`). */
+  yesLabel?: string;
+  noLabel?: string;
+  yesNote?: string;
+  noNote?: string;
   /** `halted` entries: what stopped Atlas. */
   source?: HaltSource;
   /** `steps` entries: what a multi-step run actually did, one row per step. */
@@ -200,6 +207,12 @@ function summarizeForSpeech(rows: readonly ResultRow[], meta?: { title?: string 
  * (network access, postinstall scripts), a materially bigger consequence than
  * writing an empty file, so it keeps asking every time regardless of how
  * trusted the folder is.
+ *
+ * `files.delete` is deliberately **not** here (1.0.5). It was, back when this
+ * table only softened "one file at a time" — but Do It? is defined as
+ * automatic for routine work and asking before anything destructive, and
+ * removing someone's file is the clearest destructive step there is. Being
+ * recoverable from the Recycle Bin does not make it routine.
  */
 export const PREAPPROVABLE_PATH_ARGS: Readonly<Record<string, readonly string[]>> = {
   'files.create': ['path'],
@@ -207,7 +220,6 @@ export const PREAPPROVABLE_PATH_ARGS: Readonly<Record<string, readonly string[]>
   'files.rename': ['path'],
   'files.move': ['path', 'destDir'],
   'files.copy': ['path', 'destDir'],
-  'files.delete': ['path'],
   'files.append': ['path'],
   'project.create': ['path'],
 };
@@ -223,17 +235,7 @@ export const PREAPPROVABLE_PATH_ARGS: Readonly<Record<string, readonly string[]>
  * Rust then refuses anyway with its own error — never a file touched this
  * didn't mean to allow.
  */
-export function isInsideAnyAllowedFolder(path: string, allowedFolders: readonly string[]): boolean {
-  const normalize = (p: string) => p.trim().replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
-  const target = normalize(path);
-  return allowedFolders.some((root) => {
-    const normalizedRoot = normalize(root);
-    return (
-      Boolean(normalizedRoot) &&
-      (target === normalizedRoot || target.startsWith(`${normalizedRoot}\\`))
-    );
-  });
-}
+export { isInsideAnyAllowedFolder };
 
 export function useAtlas(
   platform: Platform,
@@ -494,6 +496,7 @@ export function useAtlas(
     skills.registerMany(createWindowSkills(platform));
     skills.registerMany(createInputSkills(platform));
     skills.registerMany(createUiaSkills(platform));
+    skills.registerMany(createKbmSkills(platform));
     skills.registerMany(createScreenSkills(platform));
     skills.registerMany(
       createSetupSkills({
@@ -643,6 +646,20 @@ export function useAtlas(
     [speak],
   );
 
+  /** A confirmation card, and the promise the engine is parked on until it is answered. */
+  const askConfirm = useCallback(
+    (question: string, detail?: string, options?: ConfirmOptions) =>
+      new Promise<boolean>((resolve) => {
+        pendingConfirm.current = resolve;
+        push({ kind: 'confirm', question, detail, ...options });
+        // Spoken as well as shown. A question that only exists on a card is
+        // a question someone who is talking never hears, and they are left
+        // waiting on an assistant that has quietly stopped.
+        speakIfEnabled(detail ? `${question} ${detail}` : question);
+      }),
+    [push, speakIfEnabled],
+  );
+
   const io = useMemo<EngineIO>(
     () => ({
       say: (text, options) => {
@@ -714,17 +731,35 @@ export function useAtlas(
           push({ kind: 'clarify', question: question.question, choices: [...question.choices] });
           speakIfEnabled(question.question);
         }),
-      confirm: (question, detail) =>
-        new Promise<boolean>((resolve) => {
-          pendingConfirm.current = resolve;
-          push({ kind: 'confirm', question, detail });
-          // Spoken as well as shown. A question that only exists on a card is
-          // a question someone who is talking never hears, and they are left
-          // waiting on an assistant that has quietly stopped.
-          speakIfEnabled(detail ? `${question} ${detail}` : question);
-        }),
+      confirm: (question, detail, options) => askConfirm(question, detail, options),
+      // Offered when a step was refused for naming a folder Atlas may not
+      // touch. The card names the folder; "Add It?" is the grant, and nothing
+      // is added on any other answer.
+      offerFolder: async (args) => {
+        if (!platform.pathInfo || !platform.addAllowedFolder) return false;
+        const allowed = (await platform.allowedFolders?.().catch(() => [])) ?? [];
+        const folder = await folderToOffer(args, allowed, platform.pathInfo.bind(platform));
+        if (!folder) return false;
+        const yes = await askConfirm(
+          'That folder is outside what Atlas is allowed to touch. Add it?',
+          folder,
+          {
+            yesLabel: 'Add It?',
+            noLabel: 'Not Now',
+            yesNote: '✓ Added to your allowed folders.',
+            noNote: 'Not added.',
+          },
+        );
+        if (!yes) return false;
+        try {
+          await platform.addAllowedFolder(folder);
+          return true;
+        } catch {
+          return false;
+        }
+      },
     }),
-    [push, speakIfEnabled, speakStream],
+    [push, speakIfEnabled, speakStream, askConfirm, platform],
   );
 
   /** Answer the outstanding question, and mark its card as answered. */

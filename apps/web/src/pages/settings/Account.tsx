@@ -83,9 +83,9 @@ export function Account({ platform, storage }: Props) {
             {account?.displayName ?? 'Signed in'}
           </h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
-            The same Nova Account as Nova.Help, Open Cut, Online Earth and Replay.GG. Atlas can
-            see who you are and file support tickets as you. It cannot see your password, and
-            nothing on this machine has been uploaded.
+            The same Nova Account you use across Nova products. Atlas can see who you are and file
+            support tickets as you. It cannot see your password, and nothing on this machine has
+            been uploaded.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="ghost" onClick={() => void signOut()} disabled={busy}>

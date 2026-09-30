@@ -324,18 +324,18 @@ function EntryView({
             {answered ? (
               <p className="text-foreground-subtle mt-2 text-xs">
                 {answered === 'yes'
-                  ? '✓ You approved this.'
+                  ? (entry.yesNote ?? '✓ You approved this.')
                   : answered === 'halted'
                     ? 'Halted before this ran.'
-                    : '✕ You declined this.'}
+                    : (entry.noNote ?? '✕ You declined this.')}
               </p>
             ) : (
               <div className="mt-3 flex gap-2">
                 <Button size="sm" onClick={() => onAnswerConfirm(true)}>
-                  Yes, do it
+                  {entry.yesLabel ?? 'Yes, do it'}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => onAnswerConfirm(false)}>
-                  Cancel
+                  {entry.noLabel ?? 'Cancel'}
                 </Button>
               </div>
             )}

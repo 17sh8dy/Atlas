@@ -92,6 +92,7 @@ export function Intelligence({
       />
 
       <NovaIntelligence
+        platform={platform}
         storage={storage}
         localAi={localAi}
         activeId={activeId}

@@ -42,6 +42,7 @@ import type {
   PlanStep,
   ResultRow,
   Skill,
+  ConfirmOptions,
   SkillArgs,
   SkillContext,
   VoiceProfile,
@@ -49,7 +50,7 @@ import type {
 import { DEFAULT_EXECUTION_MODE, HaltController, HaltedError, untilHalted } from '@atlas/core';
 import type { HaltSignal } from '@atlas/core';
 import { Bus } from './bus';
-import { Grammar } from './planner/grammar';
+import { Grammar, quotedTexts, waitForOpenedApps } from './planner/grammar';
 import { Executor } from './planner/executor';
 import { SkillRegistry } from './skills/registry';
 import { createPhrasing, type Phrasing } from './phrasing';
@@ -89,7 +90,9 @@ export interface EngineIO {
    * `SkillResult.aloud`. Surfaces that cannot speak may ignore it entirely.
    */
   say(text: string, options?: { aloud?: boolean }): void;
-  confirm(question: string, detail?: string): Promise<boolean>;
+  confirm(question: string, detail?: string, options?: ConfirmOptions): Promise<boolean>;
+  /** See `SkillContext.offerFolder`. */
+  offerFolder?(args: SkillArgs): Promise<boolean>;
   /**
    * Ask what a request left out, with choices — see `@atlas/core`'s
    * `models/clarify.ts`. Optional: a surface that cannot ask leaves it unset,
@@ -422,7 +425,8 @@ export class Engine {
     return {
       signal,
       say: (t: string, options?: { aloud?: boolean }) => io.say(t, options),
-      confirm: (q: string, d?: string) => io.confirm(q, d),
+      confirm: (q: string, d?: string, o?: ConfirmOptions) => io.confirm(q, d, o),
+      offerFolder: io.offerFolder ? (args) => io.offerFolder!(args) : undefined,
       clarify: io.clarify ? (question) => io.clarify!(question) : undefined,
       showResults: (items, meta) => {
         this.working.setResults(items);
@@ -449,6 +453,11 @@ export class Engine {
     const prompt = [
       'Turn the user request into a JSON plan. Reply with JSON only, no prose.',
       'Schema: {"intent":string,"confidence":number,"steps":[{"skill":string,"args":object}]}',
+      'Rules for the arguments:',
+      '- Copy anything the user wrote out into the step that needs it, exactly as written: text in quotes, file names, paths, app names, destinations. Do not reword, correct, shorten or translate it.',
+      '- Never invent an argument the user did not give. If a step cannot be filled from the request, leave that step out.',
+      '- Do not add a step that asks the user for something the request already states.',
+      '- Steps run in order. After opening an app, use window.await for that app before typing or clicking in it.',
       'You may ONLY use these actions:',
       this.skills.catalog(),
       '',
@@ -495,10 +504,18 @@ export class Engine {
       steps.push({ skill: s.skill, args: check.args });
     }
 
+    // Anything the user put in quotes is content they wrote on purpose. A plan
+    // that no longer contains it has replaced it, and is refused rather than
+    // run with something else in its place.
+    const planText = JSON.stringify(steps.map((step) => step.args));
+    if (quotedTexts(text).some((quoted) => quoted && !planText.includes(JSON.stringify(quoted).slice(1, -1)))) {
+      return null;
+    }
+
     return {
       source: 'ai',
       intent: candidate.intent ?? 'ai',
-      steps,
+      steps: waitForOpenedApps(steps),
       confidence: typeof candidate.confidence === 'number' ? candidate.confidence : 0.7,
     };
   }

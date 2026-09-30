@@ -74,7 +74,7 @@ fn http_client() -> Result<reqwest::Client, String> {
 /// Only loopback. A hostname that merely *contains* "localhost"
 /// (`localhost.evil.com`) is rejected, which is why this parses the host out
 /// rather than calling `contains`.
-fn validate_base_url(base_url: &str, default: &str) -> Result<String, String> {
+pub(crate) fn validate_base_url(base_url: &str, default: &str) -> Result<String, String> {
     let trimmed = base_url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
         return Ok(default.to_string());

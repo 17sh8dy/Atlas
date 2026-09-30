@@ -60,6 +60,7 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { WatchIndicator } from '../components/WatchIndicator';
 import { UpdateBubble } from '../components/UpdateBubble';
 import { useUpdater } from '../update/useUpdater';
+import { useNovaAutoStart } from '../atlas/useNovaAutoStart';
 
 type Screen = 'conversation' | 'settings' | 'voice';
 
@@ -228,6 +229,8 @@ function Ready({
   const voice = useSpeech(platform, speech.volume);
   // Updates: the service and its timer live here so the bubble and Settings → About share one.
   const updater = useUpdater(platform, storage);
+  // Nova Intelligence: for someone who switched it on, get its server running.
+  useNovaAutoStart(localAi.nova);
   const [screen, setScreen] = useState<Screen>('conversation');
   // The composer's unsent text. Here, not in the composer, because Settings
   // and the voice screen replace the conversation outright and a draft that

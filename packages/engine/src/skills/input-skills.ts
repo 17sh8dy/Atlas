@@ -30,6 +30,8 @@
  */
 
 import type { MouseButton, Platform, Skill, SkillRisk } from '@atlas/core';
+import { typedMessage } from './typed';
+import { activatesFocused, assessFocused, assessPoint } from '../safety/ui-target';
 
 /**
  * The one hotkey this pack still asks about, however it's spelled — the
@@ -103,6 +105,21 @@ export function createInputSkills(platform: Platform): Skill[] {
     // A click is a mechanism, not a consequence — see the file doc comment.
     risk: 'safe',
     examples: ['click at 500, 300', 'double-click at 500, 300', 'right-click at 500, 300'],
+    // A coordinate says where, not what. What is there is checked first — see
+    // `safety/ui-target.ts` — and a spot Atlas cannot identify asks.
+    assess: (args) =>
+      assessPoint(
+        platform,
+        Number(args.x),
+        Number(args.y),
+        args.double === true
+          ? 'Double-click'
+          : asButton(args.button) === 'right'
+            ? 'Right-click'
+            : asButton(args.button) === 'middle'
+              ? 'Middle-click'
+              : 'Click',
+      ),
     params: {
       x: { type: 'number', required: true, description: 'x position, in pixels' },
       y: { type: 'number', required: true, description: 'y position, in pixels' },
@@ -149,6 +166,18 @@ export function createInputSkills(platform: Platform): Skill[] {
     needs: ['input'],
     risk: 'safe',
     examples: ['drag from 100, 100 to 400, 400'],
+    async assess(args) {
+      const from = await assessPoint(platform, Number(args.fromX), Number(args.fromY), 'Drag from');
+      if (from.kind === 'ask') return from;
+      const to = await assessPoint(platform, Number(args.toX), Number(args.toY), 'Click');
+      return to.kind === 'ask'
+        ? {
+            kind: 'ask',
+            question: `Drag from ${args.fromX}, ${args.fromY} and drop at ${args.toX}, ${args.toY}?`,
+            detail: `Where it would be dropped: ${to.detail}`,
+          }
+        : { kind: 'routine' };
+    },
     params: {
       fromX: { type: 'number', required: true, description: 'starting x position' },
       fromY: { type: 'number', required: true, description: 'starting y position' },
@@ -179,6 +208,11 @@ export function createInputSkills(platform: Platform): Skill[] {
     needs: ['input'],
     risk: 'safe',
     examples: ['press enter', 'press escape', 'press tab'],
+    // Enter and Space press whatever has focus, so they are judged by it.
+    assess: async (args) =>
+      activatesFocused(String(args.key ?? ''))
+        ? assessFocused(platform, String(args.key))
+        : { kind: 'routine' },
     params: {
       key: { type: 'string', required: true, description: 'the key name' },
     },
@@ -206,6 +240,10 @@ export function createInputSkills(platform: Platform): Skill[] {
     // on its account. See the file doc comment.
     riskFor: (args): SkillRisk | undefined => (isCloseAppHotkey(args.combo) ? 'confirm' : undefined),
     examples: ['press ctrl+c', 'press ctrl+shift+s'],
+    assess: async (args) =>
+      activatesFocused(String(args.combo ?? ''))
+        ? assessFocused(platform, String(args.combo))
+        : { kind: 'routine' },
     params: {
       combo: { type: 'string', required: true, description: 'e.g. "ctrl+c" or "ctrl+alt+t"' },
     },
@@ -233,6 +271,9 @@ export function createInputSkills(platform: Platform): Skill[] {
     // Typing is a mechanism, not a consequence — see the file doc comment.
     risk: 'safe',
     examples: ['type "hello there"'],
+    // A line break in typed text is an Enter.
+    assess: async (args) =>
+      /[\r\n]/.test(String(args.text ?? '')) ? assessFocused(platform, 'Enter') : { kind: 'routine' },
     params: {
       text: { type: 'string', required: true, description: 'the text to type' },
     },
@@ -241,7 +282,7 @@ export function createInputSkills(platform: Platform): Skill[] {
       if (!text) return { ok: false, error: "There's nothing to type." };
       const ok = await platform.typeText?.(text);
       if (!ok) return { ok: false, error: "I couldn't type that." };
-      return { ok: true, message: 'Typed.' };
+      return { ok: true, message: await typedMessage(platform, text) };
     },
   });
 

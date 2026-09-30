@@ -209,6 +209,76 @@ export async function isNovaIntelligenceReachable(baseUrl?: string): Promise<boo
   }
 }
 
+/** A Nova Intelligence folder Atlas can start the server from. */
+export interface NovaIntelligenceFolder {
+  path: string;
+  /** The trained checkpoint is present; without it there is nothing to load. */
+  hasModel: boolean;
+}
+
+/**
+ * Find Nova Intelligence on this PC — the folder the person chose if it checks
+ * out, otherwise the usual places. Reads only. `null` means not found (or not
+ * the desktop app).
+ */
+export async function locateNovaIntelligence(
+  hint?: string,
+): Promise<NovaIntelligenceFolder | null> {
+  try {
+    return (
+      (await invoke<NovaIntelligenceFolder | null>('nova_intelligence_locate', {
+        hint: hint ?? '',
+      })) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+export type NovaStartResult = { ok: true; already: boolean } | { ok: false; error: string };
+
+/**
+ * Start Nova Intelligence's server from `folder`. It comes back at once — the
+ * model takes a while to load — so watch `isNovaIntelligenceReachable`.
+ */
+export async function startNovaIntelligence(
+  folder: string,
+  baseUrl?: string,
+): Promise<NovaStartResult> {
+  try {
+    const result = await invoke<string>('nova_intelligence_start', {
+      folder,
+      baseUrl: baseUrl?.trim() || NOVA_INTELLIGENCE_DEFAULT_BASE_URL,
+    });
+    return { ok: true, already: result === 'already-running' };
+  } catch (err) {
+    return { ok: false, error: typeof err === 'string' ? err : 'It would not start.' };
+  }
+}
+
+export interface NovaLaunchState {
+  /** `none` — Atlas has not started one; `running`; `exited` — with `detail` from its log. */
+  state: 'none' | 'running' | 'exited';
+  detail: string;
+}
+
+export async function novaIntelligenceLaunchState(): Promise<NovaLaunchState> {
+  try {
+    return await invoke<NovaLaunchState>('nova_intelligence_launch_state');
+  } catch {
+    return { state: 'none', detail: '' };
+  }
+}
+
+/** Stop the server Atlas started — never one the person started themselves. */
+export async function stopNovaIntelligence(): Promise<boolean> {
+  try {
+    return await invoke<boolean>('nova_intelligence_stop');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Cloud model providers — optional, user-configured, never required. See
  * `CloudProviderConfig`'s own doc comment (`@atlas/core`) and

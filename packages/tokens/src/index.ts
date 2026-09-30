@@ -22,6 +22,7 @@ export {
   ACCENTS,
   DEFAULT_ACCENT,
   accentById,
+  accentLabel,
   accentSwatch,
   applyAccent,
   isAccentId,

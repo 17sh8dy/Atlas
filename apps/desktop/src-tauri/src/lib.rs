@@ -24,6 +24,7 @@ mod environment;
 #[cfg(windows)]
 mod halt;
 mod intelligence;
+mod nova_launcher;
 #[cfg(windows)]
 mod net;
 #[cfg(windows)]
@@ -283,6 +284,10 @@ pub fn run() {
             intelligence::local_models_installed,
             intelligence::ask_nova_intelligence_stream,
             intelligence::nova_intelligence_reachable,
+            nova_launcher::nova_intelligence_locate,
+            nova_launcher::nova_intelligence_start,
+            nova_launcher::nova_intelligence_launch_state,
+            nova_launcher::nova_intelligence_stop,
             storage::storage_get,
             storage::storage_set,
             storage::storage_remove,

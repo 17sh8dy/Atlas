@@ -912,7 +912,10 @@ mod tests {
             "list_displays", "capture_display", "list_services", "service_detail", "uia_tree",
             "uia_focused_element", "web_search", "fetch_page", "speech_voices",
             "cursor_position", "list_windows", "active_window", "capabilities", "has_secret",
-            "audio_devices",
+            "audio_devices", "nova_intelligence_locate", "nova_intelligence_launch_state",
+            // Ends the one server Atlas itself started, never anything else. A stop that
+            // could not stop Atlas's own model server would be the wrong way round.
+            "nova_intelligence_stop",
             // The updater acts on Atlas itself, never on the person's machine, and only
             // when the person presses Update. An emergency stop that cancelled an install
             // half-way would leave a broken program, so it is deliberately not gated.

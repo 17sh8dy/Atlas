@@ -10,7 +10,9 @@ import {
   writeLocalModelsBaseUrl,
   writeLocalModelsEnabled,
   writeNovaIntelligenceBaseUrl,
+  writeNovaIntelligenceAutoStart,
   writeNovaIntelligenceEnabled,
+  writeNovaIntelligenceFolder,
 } from '../src/local-ai-settings';
 
 function makeStorage(): Storage {
@@ -76,7 +78,26 @@ test('no key-shaped field can exist in these settings', async () => {
   // Cloud keys live in Credential Manager only; this store must never be a
   // place one could be written to by accident.
   const s = await readLocalAiSettings(makeStorage());
-  for (const section of [s.local, s.nova]) {
-    assert.deepEqual(Object.keys(section).sort(), ['baseUrl', 'enabled']);
-  }
+  assert.deepEqual(Object.keys(s.local).sort(), ['baseUrl', 'enabled']);
+  // Nova Intelligence also remembers which folder it lives in and whether to
+  // start it for you — a path and a switch, neither of them a secret.
+  assert.deepEqual(Object.keys(s.nova).sort(), ['autoStart', 'baseUrl', 'enabled', 'folder']);
+});
+
+test('Nova Intelligence starts automatically unless that is explicitly turned off', async () => {
+  const storage = makeStorage();
+  assert.isTrue((await readLocalAiSettings(storage)).nova.autoStart);
+
+  await writeNovaIntelligenceAutoStart(storage, false);
+  assert.isFalse((await readLocalAiSettings(storage)).nova.autoStart);
+
+  await writeNovaIntelligenceAutoStart(storage, true);
+  assert.isTrue((await readLocalAiSettings(storage)).nova.autoStart);
+});
+
+test('the Nova Intelligence folder is remembered, trimmed, and empty by default', async () => {
+  const storage = makeStorage();
+  assert.equal((await readLocalAiSettings(storage)).nova.folder, '');
+  await writeNovaIntelligenceFolder(storage, '  D:/Dev/NovaIntelligence  ');
+  assert.equal((await readLocalAiSettings(storage)).nova.folder, 'D:/Dev/NovaIntelligence');
 });

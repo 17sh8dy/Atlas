@@ -18,12 +18,22 @@ export {
   createNovaIntelligenceProvider,
   listInstalledLocalModels,
   isNovaIntelligenceReachable,
+  locateNovaIntelligence,
+  startNovaIntelligence,
+  stopNovaIntelligence,
+  novaIntelligenceLaunchState,
   explainLocalFailure,
   OLLAMA_DEFAULT_BASE_URL,
   NOVA_INTELLIGENCE_DEFAULT_BASE_URL,
   NOVA_INTELLIGENCE_PROVIDER_ID,
 } from './providers';
-export type { LocalModelOptions, InstalledLocalModel } from './providers';
+export type {
+  LocalModelOptions,
+  InstalledLocalModel,
+  NovaIntelligenceFolder,
+  NovaStartResult,
+  NovaLaunchState,
+} from './providers';
 export {
   createCloudProvider,
   saveProviderSecret,

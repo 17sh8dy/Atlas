@@ -104,7 +104,14 @@ export interface SkillContext {
   /** Say something to the user. */
   say(text: string, options?: { aloud?: boolean }): void;
   /** Ask for approval. Resolves false if declined. */
-  confirm(question: string, detail?: string): Promise<boolean>;
+  confirm(question: string, detail?: string, options?: ConfirmOptions): Promise<boolean>;
+  /**
+   * The step failed because it named a place outside the folders Atlas may
+   * touch. Offer to add that folder — see `ExecutorOptions.offerFolder`.
+   * Resolves true only if it was added. Optional: a surface that cannot ask
+   * (a test, a voice-only build) leaves it unset and the failure stands.
+   */
+  offerFolder?(args: SkillArgs): Promise<boolean>;
   /**
    * Ask what a request left out, with choices — see `models/clarify.ts`.
    * Optional: a surface that cannot ask (a test, a voice-only build) leaves it
@@ -145,6 +152,18 @@ export interface SkillContext {
 }
 
 /**
+ * Wording for a confirmation whose answer is not "do it / cancel" — adding a
+ * folder is "Add It? / Not Now". Only the words change; a yes is still a yes.
+ */
+export interface ConfirmOptions {
+  yesLabel?: string;
+  noLabel?: string;
+  /** Shown once answered. */
+  yesNote?: string;
+  noNote?: string;
+}
+
+/**
  * What a skill says it is about to do — see `Skill.preview`.
  *
  *  - `ask`     — show `detail` on the confirmation card. `fingerprint`, when
@@ -165,6 +184,14 @@ export type SkillPreview =
   | { kind: 'nothing'; message: string }
   | { kind: 'refuse'; error: string }
   | { kind: 'proceed'; fingerprint?: string };
+
+/**
+ * What `Skill.assess` found. `routine` — go ahead as normal. `ask` — put a
+ * card in front of it; `question` is the sentence to ask, `detail` the reason
+ * shown beneath it.
+ */
+export type SkillAssessment =
+  { kind: 'routine' } | { kind: 'ask'; question: string; detail: string };
 
 /** One actionable row in a result list. */
 export interface ResultRow {
@@ -301,6 +328,25 @@ export interface Skill<T = unknown> {
    * `confirm`.
    */
   preview?(args: SkillArgs, ctx: SkillContext): Promise<SkillPreview>;
+  /**
+   * Look at what *this* call is aimed at and say whether it turns out to be
+   * consequential — for a skill that is `safe` as a mechanism but whose effect
+   * depends on what it lands on. Pressing a UI control is the case: most are
+   * harmless, and "Continue" is a payment on one page and a cookie banner on
+   * another. `riskFor` cannot see that because it is synchronous and pure;
+   * this can, because it reads the target.
+   *
+   * Return `ask` and the executor puts a card in front of the step, in every
+   * execution mode. It is never softened by Allowed Folders and never covered
+   * by an earlier approval — a plan's approval was given before anyone knew
+   * what the button was, and "a plan never counts as approval" for a
+   * consequence nobody had seen. Return `routine` to run as normal.
+   *
+   * ⚠️ Contract, the same as `preview`: **read-only.** It runs before the
+   * person has answered, so it may inspect but must never act. If it cannot
+   * tell what the call would do, the right answer is `ask`, not `routine`.
+   */
+  assess?(args: SkillArgs, ctx: SkillContext): Promise<SkillAssessment>;
   /**
    * These arguments as a short phrase — "open Steam" — for the places Atlas
    * refers back to a step ("Just open Steam"). Falls back to the label.

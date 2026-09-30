@@ -11,7 +11,7 @@
  * in the *resolved* theme, because each scheme is a shade deeper on white.
  */
 
-import { ACCENTS, accentSwatch } from '@atlas/tokens';
+import { ACCENTS, accentLabel, accentSwatch } from '@atlas/tokens';
 import type { AccentId, ThemeMode } from '@atlas/tokens';
 import { Icons, SegmentedControl, Switch, cn } from '@atlas/ui';
 import { useTheme } from '../../app/theme';
@@ -41,7 +41,7 @@ export function Appearance() {
         <h2 className="text-foreground mb-1 text-sm font-medium">Buttons &amp; highlights</h2>
         <p className="text-foreground-subtle mb-3 text-xs leading-relaxed">
           The accent colour used for buttons, your messages, the logo and focus rings. Sunset and
-          Ocean blend two colours; the rest are flat.
+          Ocean blend two colours; the rest are flat, with a soft glow in their highlight tone.
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -51,6 +51,7 @@ export function Appearance() {
               id={scheme.id}
               label={scheme.label}
               background={accentSwatch(scheme, resolved)}
+              tick={accentLabel(scheme, resolved)}
               selected={scheme.id === accent}
               onSelect={setAccent}
             />
@@ -85,12 +86,15 @@ function Swatch({
   id,
   label,
   background,
+  tick,
   selected,
   onSelect,
 }: {
   id: AccentId;
   label: string;
   background: string;
+  /** The tick's colour: whatever reads on this scheme's fill. */
+  tick: string;
   selected: boolean;
   onSelect(id: AccentId): void;
 }) {
@@ -114,7 +118,7 @@ function Swatch({
         style={{ background }}
         aria-hidden
       >
-        {selected && <Icons.Check className="h-3.5 w-3.5 text-white drop-shadow" />}
+        {selected && <Icons.Check className="h-3.5 w-3.5" style={{ color: tick }} />}
       </span>
       <span className="text-xs font-medium">{label}</span>
     </button>

@@ -298,6 +298,11 @@ export function createTauriPlatform(): Platform {
       if (!picked) return [];
       return Array.isArray(picked) ? picked : [picked];
     },
+    pickFolder: async (options) => {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = await open({ multiple: false, directory: true, title: options?.title });
+      return typeof picked === 'string' ? picked : null;
+    },
     windowsCompatibility: () => invoke<WindowsCompatibility>('windows_compatibility'),
 
     logDiagnostic: (scope, message) => invoke<void>('log_diagnostic', { scope, message }),

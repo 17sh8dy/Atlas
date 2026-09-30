@@ -710,6 +710,46 @@ Setups are in `atlas.setups` and editable in Settings → Setups, which uses the
 the conversation. A setup can also be a watch's continuation ("when Fortnite updates, get
 ready for recording"). It then stops at its card like any preview step.
 
+### 6.11 Execution modes, and judging a control by what it does (`executor.ts`, `safety/ui-consequence.ts`, `nova_launcher.rs`)
+
+Three modes decide *when* a consequential step is put to the person. They never change which
+steps are consequential (that is `Skill.risk`, `riskFor` and `guard`), and none removes the stop.
+
+| Mode | Behaviour |
+| --- | --- |
+| **Do It?** (default) | Harmless steps run. A consequential step asks, immediately before it runs, except ordinary file work (create, rename, move, copy, append, new project) inside a folder in Allowed Folders, which is already an explicit grant. **Deleting is never in that group**, and neither is emptying a folder or the Recycle Bin, ending a process, closing a window, installing, or power. |
+| **Plan First** | If the plan has anything consequential, it is shown once and approving it covers exactly the steps shown. A plan of harmless steps shows no card. The bulk skills (`Skill.preview`) and the button check below still ask their own question. |
+| **Confirm Actions** | Every consequential step asks on its own. Nothing softens it: not Allowed Folders, not a plan. |
+
+`Do It?` and `Confirm Actions` differ in exactly one place, `isPreapproved`. That is deliberate:
+the difference is small in code and large in what a person can rely on.
+
+**A button is judged by what it would do, not what it says.** Atlas has no vision, but it can
+read a window's UI Automation tree. `Skill.assess` is a read-only hook the executor consults
+for a step whose static risk is `safe`, in **every** mode, and never softened by a plan, an
+Allowed Folder or a watch's earlier approval, since all of those were given before anyone knew
+what the button was. `uia.invoke` uses `assessControl`:
+
+- the control names a consequential thing itself (Pay, Buy, Send, Delete, Install, …) → ask;
+- it is a generic go-ahead (Continue, Confirm, Submit, OK, Next, …) → ask if the window around
+  it mentions money, sending, deleting, installing or a secret, **and ask if the window shows
+  no text at all**;
+- it has no name → ask;
+- it names an ordinary thing (File, Play, Search) → press it.
+
+The rule when it cannot tell is to ask. Not covered, and said so: `input.click` at coordinates
+has nothing to inspect, and the tree is read twice (once to judge, once to act), so a window that
+changes in between is not caught.
+
+**Nova Intelligence is started by Atlas but not shipped with it.** It is a Python program with a
+trained model, several gigabytes with PyTorch, so the installer does not carry it. `nova_launcher.rs`
+finds a folder that really is one (it must hold `phase4_nova/server.py`, which must name itself, and
+`.venv/Scripts/python.exe`), then runs exactly that interpreter on exactly that script with
+`--port N`. There is no free-form argument. The process is placed in a Job Object set to kill on
+close, so it cannot outlive Atlas. Output goes to `%LOCALAPPDATA%/dev.atlas.assistant/nova-intelligence.log`
+and its tail is returned if the server dies. It runs only for someone who switched Nova
+Intelligence on, and "Start automatically" (on by default, per-user) can be turned off.
+
 ## 7. Safety
 
 | Rule | Where | Why |

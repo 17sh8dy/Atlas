@@ -57,6 +57,25 @@ test('dependency.install is deliberately never preapproved — it always asks', 
   assert.isUndefined(PREAPPROVABLE_PATH_ARGS['dependency.install']);
 });
 
+// Do It? runs routine work on its own and asks before anything destructive.
+// Removing a file is destructive even when the Recycle Bin can bring it back,
+// so no Allowed Folder makes it silent.
+test('destructive skills are never preapproved, whatever folder they touch', () => {
+  for (const id of [
+    'files.delete',
+    'storage.emptyFolder',
+    'system.emptyRecycleBin',
+    'environment.deleteSystem',
+    'notes.clear',
+    'system.endProcess',
+    'window.close',
+    'system.power',
+    'setup.delete',
+  ]) {
+    assert.isUndefined(PREAPPROVABLE_PATH_ARGS[id], `${id} must always ask`);
+  }
+});
+
 // Softening was agreed for *one file at a time* inside a folder the person
 // added on purpose. A tidy-up moves hundreds at once, and an undo puts them
 // back — those approvals have to be about a list the person can see, which is

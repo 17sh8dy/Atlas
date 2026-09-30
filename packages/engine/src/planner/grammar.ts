@@ -166,6 +166,55 @@ function aimAtBrowser(steps: Plan['steps']): Plan['steps'] {
   return out;
 }
 
+/** Where the quoted stretches of a sentence are — [from, to) — so nothing splits inside one. */
+export function quotedRanges(text: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  // An opening quote must start a word and its closer end one, so the
+  // apostrophe in "don't" or "Brandon's" is not mistaken for a quotation.
+  const pattern = /(?:^|[\s(])(['"“‘])(.*?)(?:\1|[”’])(?=$|[\s.,;:!?)])/g;
+  for (const m of text.matchAll(pattern)) {
+    const start = m.index! + m[0].indexOf(m[1]!);
+    out.push([start, m.index! + m[0].length]);
+  }
+  return out;
+}
+
+/** The text inside each quotation in a sentence, exactly as written. */
+export function quotedTexts(text: string): string[] {
+  return quotedRanges(text).map(([from, to]) => unquote(text.slice(from, to).trim()));
+}
+
+/** "'Test'" → "Test"; text with no wrapping quotes is returned as written. */
+function unquote(text: string): string {
+  const m = /^(['"“‘])(.*)(?:\1|[”’])$/s.exec(text);
+  return m ? m[2]! : text;
+}
+
+/** "create a new note" — after "open <app>", a new document in that app. */
+const NEW_DOCUMENT =
+  /^(?:please\s+)?(?:create|make|start|open|add)\s+(?:me\s+)?(?:a\s+|an\s+)?new\s+(note|document|doc|file|text\s+file|page|tab|window)\s*$/i;
+
+/** "type Test" / "write 'Hello there'" — the text is everything after the verb. */
+const TYPE_TEXT = /^(?:type|write|enter|input)\s+(?:the\s+(?:text|word|words|phrase)\s+)?(.+)$/is;
+
+/**
+ * "open notepad, then type hello": between opening an app and acting in it, wait
+ * for its window and bring it forward. Without this the keystrokes go wherever
+ * focus happens to be a moment after the launch — often not the new app at all.
+ */
+export function waitForOpenedApps(steps: Plan['steps']): Plan['steps'] {
+  const acts = (skill: string) => /^(input|kbm|uia)\./.test(skill);
+  const out: Plan['steps'] = [];
+  steps.forEach((step, i) => {
+    out.push(step);
+    const name = step.skill === 'app.open' ? String(step.args?.name ?? '').trim() : '';
+    if (name && steps.slice(i + 1).some((s) => acts(s.skill))) {
+      out.push({ skill: 'window.await', args: { window: name } });
+    }
+  });
+  return out;
+}
+
 export class Grammar {
   private rules: GrammarRule[] = [];
   private sorted: GrammarRule[] | null = null;
@@ -247,19 +296,24 @@ export class Grammar {
    * own multi-target resolution (`resolveSeveral`) already handles it as one
    * launch. Compounding only ever fires when *both* halves stand alone.
    */
-  private tryCompound(raw: string): Plan | null {
+  private tryCompound(raw: string, appOpened = false): Plan | null {
+    const quoted = quotedRanges(raw);
     // Every place the sentence could be cut. Each cut is tried in turn; the
     // right-hand side is itself allowed to be a chain, so a sentence of any
     // length falls apart into clauses — and every clause must still earn its
     // step by matching a real rule on its own.
     for (const m of raw.matchAll(COMPOUND_CONNECTOR)) {
+      // Never cut inside quotes: 'type "salt and pepper"' is one piece of text
+      // someone wrote on purpose, and splitting it would silently change it.
+      if (quoted.some(([from, to]) => m.index! >= from && m.index! < to)) continue;
       const left = raw.slice(0, m.index).trim();
       const right = raw.slice(m.index! + m[0].length).trim();
       if (!left || !right) continue;
 
-      const p1 = this.parseDirect(left);
+      const p1 = this.clause(left, appOpened);
       if (!p1) continue;
-      const p2 = this.tryCompound(right) ?? this.parseDirect(right);
+      const opened = appOpened || p1.steps.some((s) => s.skill === 'app.open');
+      const p2 = this.tryCompound(right, opened) ?? this.clause(right, opened);
       if (!p2) continue;
 
       // Two apps named together is one launch, not two — leave it to
@@ -276,11 +330,52 @@ export class Grammar {
       return {
         source: 'grammar',
         intent: 'compound',
-        steps: aimAtBrowser([...p1.steps, ...p2.steps]),
+        steps: waitForOpenedApps(aimAtBrowser([...p1.steps, ...p2.steps])),
         confidence: Math.min(p1.confidence, p2.confidence),
       };
     }
     return null;
+  }
+
+  /**
+   * One clause of a chain. Ordinarily just the rules — but a clause that
+   * follows "open <app>" is about *that app*, and two phrasings mean something
+   * different there than they do alone:
+   *
+   *  - "create a new note / document / file" is a new document in the app just
+   *    opened (Ctrl+N), not a note in Atlas's own notebook — which is what the
+   *    same words mean on their own, and asks "what should it say?" for text
+   *    the person had already given in the next breath.
+   *  - "type Test", with or without quotes, types exactly that, in the case it
+   *    was written. Unquoted, it is otherwise not a rule at all, so the whole
+   *    tail was swallowed into the app's name ("notepad and type hello").
+   */
+  private clause(text: string, appOpened: boolean): Plan | null {
+    if (appOpened) {
+      const fresh = NEW_DOCUMENT.exec(text);
+      if (fresh) {
+        const combo = /tab/i.test(fresh[1]!) ? 'ctrl+t' : 'ctrl+n';
+        return {
+          source: 'grammar',
+          intent: 'new-document',
+          steps: [{ skill: 'input.hotkey', args: { combo } }],
+          confidence: 0.85,
+        };
+      }
+      const typed = TYPE_TEXT.exec(text);
+      if (typed) {
+        const body = unquote(typed[1]!.trim());
+        if (body) {
+          return {
+            source: 'grammar',
+            intent: 'type-text',
+            steps: [{ skill: 'input.typeText', args: { text: body } }],
+            confidence: 0.85,
+          };
+        }
+      }
+    }
+    return this.parseDirect(text);
   }
 
   private allowedForQuestion(rule: GrammarRule, result: Plan): boolean {

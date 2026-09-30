@@ -25,11 +25,16 @@
  * plan-wide scan, the plan-approval labels and the per-step gate can never
  * disagree about which steps count as consequential.
  *
- * `doIt` and `confirmActions` run the identical per-step loop: a safe step
- * runs, a confirm step asks right there, immediately before it runs. They are
- * named separately because `confirmActions` is the guarantee that this stays
- * true even once something else (like `planFirst`) exists that could batch
- * approvals — picking it means "never batch mine."
+ * `doIt` and `confirmActions` share the per-step loop: a safe step runs, a
+ * confirm step asks right there, immediately before it runs. They differ in
+ * exactly one place, `isPreapproved` below: `doIt` lets ordinary file work in
+ * an Allowed Folder run without the second question, and `confirmActions`
+ * never does — picking it means "every consequential step, separately, and
+ * nothing standing in for it." Neither has a bulk approval; that is `planFirst`.
+ *
+ * `Skill.assess` sits outside the modes altogether: a step that turns out, on
+ * inspection, to be consequential (a button that would pay, send or delete)
+ * asks in all three, because no mode's approval was given about that button.
  *
  * `planFirst` only changes anything when the plan actually contains a confirm
  * step: it shows every step once, up front, and one approval covers the whole
@@ -92,6 +97,9 @@ import type { HaltSignal } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { refusalFor, screenPlan } from '../safety/content-policy';
+
+/** The native side's refusal for a path outside Allowed Folders. */
+const OUTSIDE_FOLDERS = /outside the folders Atlas can touch/i;
 
 export interface ExecutorOptions {
   /** Set false to run every step regardless of failures. */
@@ -530,6 +538,26 @@ export class Executor {
         break;
       }
 
+      // What this call is aimed at, for a skill whose effect depends on it
+      // (`Skill.assess`) — pressing a control being the case. Asked in every
+      // mode and never covered by an approval given earlier: the plan's card,
+      // an Allowed Folder and a watch's up-front approval were all given
+      // before anyone knew what the button was. A skill that cannot tell
+      // answers `ask`, so "I couldn't work out what it does" stops here.
+      if (skill.assess && effectiveRisk(skill, step.args) !== 'confirm') {
+        const assessed = await wait(skill.assess(step.args, ctx));
+        if (assessed.kind === 'ask') {
+          const approved = await wait(ctx.confirm(assessed.question, assessed.detail));
+          if (!approved) {
+            report('skipped', 'You said no.');
+            outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
+            ctx.say(this.phrasing.declined());
+            aborted = true;
+            break;
+          }
+        }
+      }
+
       // A skill that can show what it is about to do (`Skill.preview`) is
       // asked to, and the card carries *that* — the real list of moves, not
       // "downloads". This runs in every mode and is never preapproved: Plan
@@ -607,15 +635,25 @@ export class Executor {
       // Announced only once every gate has passed, so a step the user is
       // still being asked about does not appear in the panel as under way.
       report('running');
-      const result = await wait(
+      const invokeStep = () =>
         this.skills.invoke(step.skill, step.args, {
           ...ctx,
           approvedPreview,
           activity: options.onActivity
             ? reporterFor(activityAt, steps.length, step.skill, options.onActivity)
             : undefined,
-        }),
-      );
+        });
+      let result = await wait(invokeStep());
+
+      // The step named a place Atlas is not allowed to touch. Rather than only
+      // reporting that, offer to add the folder — the person's answer, on a
+      // card that names it, is the grant. Retried once, and only if they said
+      // yes; a no leaves the failure exactly as it was.
+      if (!result.ok && ctx.offerFolder && OUTSIDE_FOLDERS.test(result.error ?? '')) {
+        if (await wait(ctx.offerFolder(step.args))) {
+          result = await wait(invokeStep());
+        }
+      }
       report(result.ok ? 'done' : 'failed', result.ok ? result.message : result.error);
       outcomes.push({
         skill: step.skill,

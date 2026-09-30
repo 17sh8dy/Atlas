@@ -30,6 +30,8 @@ const LOCAL_ENABLED = 'local.enabled';
 const LOCAL_URL = 'local.baseUrl';
 const NOVA_ENABLED = 'nova.enabled';
 const NOVA_URL = 'nova.baseUrl';
+const NOVA_FOLDER = 'nova.folder';
+const NOVA_AUTOSTART = 'nova.autoStart';
 /** Which provider is active, or none. */
 const ACTIVE_SUBJECT = 'provider.active';
 
@@ -39,16 +41,32 @@ export interface EndpointSettings {
   baseUrl: string;
 }
 
+/**
+ * Nova Intelligence is a program that lives in its own folder (Python, plus a
+ * trained model), not something the Atlas installer carries — so besides where
+ * it listens, Atlas keeps where it is, and whether to start it for you.
+ */
+export interface NovaSettings extends EndpointSettings {
+  /** The NovaIntelligence folder the person chose. Empty means "look in the usual places". */
+  folder: string;
+  /**
+   * Start the server when Atlas opens, if Nova Intelligence is switched on and
+   * not already running. On by default — switching it on is the request. It
+   * only ever applies once the person has switched Nova Intelligence on.
+   */
+  autoStart: boolean;
+}
+
 export interface LocalAiSettings {
   /** Local models, served by Ollama on this machine. */
   local: EndpointSettings;
   /** The from-scratch Nova Intelligence model, served by its own local process. */
-  nova: EndpointSettings;
+  nova: NovaSettings;
 }
 
 export const DEFAULT_LOCAL_AI_SETTINGS: LocalAiSettings = {
   local: { enabled: false, baseUrl: '' },
-  nova: { enabled: false, baseUrl: '' },
+  nova: { enabled: false, baseUrl: '', folder: '', autoStart: true },
 };
 
 async function readEndpoint(
@@ -68,11 +86,21 @@ async function readEndpoint(
 
 export async function readLocalAiSettings(storage: Storage): Promise<LocalAiSettings> {
   const memory = new MemoryStore(storage);
-  const [local, nova] = await Promise.all([
+  const [local, novaEndpoint, folder, autoStart] = await Promise.all([
     readEndpoint(memory, LOCAL_ENABLED, LOCAL_URL),
     readEndpoint(memory, NOVA_ENABLED, NOVA_URL),
+    memory.fact('preference', NOVA_FOLDER),
+    memory.fact('preference', NOVA_AUTOSTART),
   ]);
-  return { local, nova };
+  return {
+    local,
+    nova: {
+      ...novaEndpoint,
+      folder: typeof folder?.value === 'string' ? folder.value : '',
+      // Unset means on; only an explicit 'false' turns it off.
+      autoStart: autoStart?.value !== 'false',
+    },
+  };
 }
 
 export async function writeLocalModelsEnabled(storage: Storage, enabled: boolean): Promise<void> {
@@ -95,6 +123,21 @@ export async function writeNovaIntelligenceBaseUrl(
   baseUrl: string,
 ): Promise<void> {
   await new MemoryStore(storage).remember('preference', NOVA_URL, baseUrl.trim());
+}
+
+export async function writeNovaIntelligenceFolder(storage: Storage, folder: string): Promise<void> {
+  await new MemoryStore(storage).remember('preference', NOVA_FOLDER, folder.trim());
+}
+
+export async function writeNovaIntelligenceAutoStart(
+  storage: Storage,
+  autoStart: boolean,
+): Promise<void> {
+  await new MemoryStore(storage).remember(
+    'preference',
+    NOVA_AUTOSTART,
+    autoStart ? 'true' : 'false',
+  );
 }
 
 export async function readActiveProvider(storage: Storage): Promise<string | undefined> {

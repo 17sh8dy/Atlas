@@ -26,11 +26,13 @@ export {
   writeLocalModelsBaseUrl,
   writeNovaIntelligenceEnabled,
   writeNovaIntelligenceBaseUrl,
+  writeNovaIntelligenceFolder,
+  writeNovaIntelligenceAutoStart,
   readActiveProvider,
   writeActiveProvider,
   DEFAULT_LOCAL_AI_SETTINGS,
 } from './local-ai-settings';
-export type { LocalAiSettings, EndpointSettings } from './local-ai-settings';
+export type { LocalAiSettings, EndpointSettings, NovaSettings } from './local-ai-settings';
 export { readCloudProviders, writeCloudProviders } from './cloud-provider-settings';
 
 /** The storage implementation for the given platform. */

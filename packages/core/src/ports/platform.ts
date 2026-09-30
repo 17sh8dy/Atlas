@@ -567,6 +567,13 @@ export interface Platform {
   }): Promise<string[]>;
 
   /**
+   * The system's folder chooser. One folder, or `null` if cancelled. Like
+   * `pickFiles` it hands back a path and grants nothing: choosing a folder
+   * here does not add it to Allowed Folders.
+   */
+  pickFolder?(options?: { title?: string }): Promise<string | null>;
+
+  /**
    * Which Windows this is — informational, shown in About. Not gated by a
    * `CapabilityName`: nothing in this port actually varies by version, so
    * there is no skill to hide and no planner decision this affects.
