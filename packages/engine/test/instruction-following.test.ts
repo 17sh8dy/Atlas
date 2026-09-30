@@ -197,8 +197,12 @@ test('the reported sentence runs end to end without asking anything', async () =
   assert.deepEqual(log, ['open:Notepad++']);
   // In order, exactly what was written, nothing added or dropped.
   assert.deepEqual(m.sent, ['hotkey:ctrl+n', 'type:Test']);
-  // And it reports where the text went, read back after the fact.
-  assert.match(said.join(' '), /Typed “Test” — in front: “new 1 - Notepad\+\+”/);
+  // And it says what it actually knows: this fake control cannot be read back,
+  // so the text was sent and not verified — and the window it went to is named.
+  assert.match(
+    said.join(' '),
+    /Typed “Test” — sent, not verified: this control doesn't let me read its text back \(in front: “new 1 - Notepad\+\+”\)/,
+  );
 });
 
 test('if the app never shows a window, nothing is typed anywhere', async () => {

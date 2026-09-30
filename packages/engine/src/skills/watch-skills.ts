@@ -68,6 +68,13 @@ const NOT_IN_A_CONTINUATION = new Set([
   'watch.resume',
   'watch.answer',
   'system.power',
+  // Anything that needs administrator rights. Those are approved one action at
+  // a time, with the person looking at the card; a watch acts when they are not.
+  'service.start',
+  'service.stop',
+  'service.restart',
+  'environment.setSystem',
+  'environment.deleteSystem',
 ]);
 
 /** Continuation steps that work on a project folder, and fill it from one question. */

@@ -56,11 +56,53 @@ function baseName(path: string): string {
 
 let nextId = 1;
 
+/**
+ * Paths -> attachments, as references. Nothing here reads a file: it asks how big
+ * each path is and what format it looks like, and that is all. A path already
+ * attached is skipped, and a folder is a fair thing to point at (Atlas can act on
+ * one), so nothing is refused for being a folder or an unfamiliar format — a PNG,
+ * a JPG, an MP4 and a spreadsheet all become the same kind of reference.
+ */
+export async function buildAttachments(
+  platform: Platform,
+  paths: readonly string[],
+  alreadyAttached: ReadonlySet<string> = new Set(),
+): Promise<Attachment[]> {
+  const have = new Set([...alreadyAttached].map((p) => p.toLowerCase()));
+  const added: Attachment[] = [];
+  for (const path of paths) {
+    if (have.has(path.toLowerCase())) continue;
+    have.add(path.toLowerCase());
+
+    const ext = extensionOf(path);
+    // Size comes from `path_info`, which every build with files has. Absent is
+    // fine — `extractionStateFor` then judges on format alone, and the cap is
+    // enforced again at read time regardless.
+    const info = await platform.pathInfo?.(path).catch(() => null);
+    const sizeBytes = info?.isDirectory ? undefined : info?.sizeBytes;
+    const image = isImageFile(path);
+
+    added.push({
+      id: `a${nextId++}`,
+      kind: image ? 'image' : 'file',
+      name: baseName(path),
+      path,
+      ext,
+      sizeBytes,
+      addedAt: Date.now(),
+      extraction: image || info?.isDirectory ? 'unsupported' : extractionStateFor(ext, sizeBytes),
+    });
+  }
+  return added;
+}
+
 export interface Attachments {
   items: Attachment[];
   /** True while a picker or a capture is in flight, so the button can say so. */
   busy: boolean;
   addFiles(options?: { imagesOnly?: boolean }): Promise<void>;
+  /** Attach files or folders by path — the picker's result, or a drop on the chat bar. */
+  addPaths(paths: readonly string[]): Promise<void>;
   addCapture(capture: {
     buffer: ArrayBuffer;
     name: string;
@@ -87,6 +129,18 @@ export function useAttachments(platform: Platform): Attachments {
     setItems((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   }, []);
 
+  const addPaths = useCallback(
+    async (paths: readonly string[]) => {
+      const added = await buildAttachments(
+        platform,
+        paths,
+        new Set(ref.current.flatMap((a) => (a.path ? [a.path] : []))),
+      );
+      if (added.length) setItems((prev) => [...prev, ...added]);
+    },
+    [platform],
+  );
+
   const addFiles = useCallback(
     async (options: { imagesOnly?: boolean } = {}) => {
       if (!platform.pickFiles) return;
@@ -99,35 +153,12 @@ export function useAttachments(platform: Platform): Attachments {
             ? [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'] }]
             : undefined,
         });
-
-        const added: Attachment[] = [];
-        for (const path of paths) {
-          const ext = extensionOf(path);
-          // Size comes from `path_info`, which every build with files has.
-          // Absent is fine — `extractionStateFor` then judges on format
-          // alone, and the cap is enforced again at read time regardless.
-          const info = await platform.pathInfo?.(path).catch(() => null);
-          const sizeBytes = info?.sizeBytes;
-          const image = isImageFile(path);
-
-          const attachment: Attachment = {
-            id: `a${nextId++}`,
-            kind: image ? 'image' : 'file',
-            name: baseName(path),
-            path,
-            ext,
-            sizeBytes,
-            addedAt: Date.now(),
-            extraction: image ? 'unsupported' : extractionStateFor(ext, sizeBytes),
-          };
-          added.push(attachment);
-        }
-        if (added.length) setItems((prev) => [...prev, ...added]);
+        await addPaths(paths);
       } finally {
         setBusy(false);
       }
     },
-    [platform],
+    [platform, addPaths],
   );
 
   const addCapture = useCallback<Attachments['addCapture']>((capture) => {
@@ -211,7 +242,7 @@ export function useAttachments(platform: Platform): Attachments {
     return [`[Attached: ${current.length}]`, ...lines, ...contents].join('\n');
   }, []);
 
-  return { items, busy, addFiles, addCapture, remove, clear, extractText, describeForEngine };
+  return { items, busy, addFiles, addPaths, addCapture, remove, clear, extractText, describeForEngine };
 }
 
 export { describeAttachment };

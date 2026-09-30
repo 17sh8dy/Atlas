@@ -34,15 +34,17 @@
 //! every capability it has, including the ones added after this comment, would
 //! inherit those rights for the sake of two verbs.
 //!
-//! So elevation is per action and belongs to the action (`send_elevated`):
-//! the ordinary call is tried first, and only once Windows has actually
-//! refused does the verb go back through `ShellExecuteEx` with the `runas`
-//! verb. Windows then shows its own consent dialog, naming `sc.exe`, and the
-//! elevated process exits when the verb is done. Atlas cannot draw that
-//! dialog, cannot suppress it, and cannot answer it.
+//! So elevation is per action, and since 1.0.5 it is **approved in Atlas first**.
+//! The ordinary call is tried; if Windows refuses, this module answers
+//! `NEEDS_ELEVATION` and does nothing else. The renderer then asks the person
+//! on a card that names the operation, `sc.exe`, the exact arguments and the
+//! reason, and only on Allow does `elevation.rs` run that one action, by
+//! absolute path, bound to a single-use token. Windows then shows its own
+//! consent dialog, which Atlas cannot draw, suppress or answer.
 //!
 //! Decided by Brandon on 2026-08-22, over both alternatives: reporting the
-//! failure honestly and doing nothing, and running the whole app elevated.
+//! failure honestly and doing nothing, and running the whole app elevated. The
+//! approval-first step was approved on 2026-09-29.
 
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -63,8 +65,6 @@ use serde::Serialize;
 /// sc stop  <name>
 /// ```
 const SC: &str = "sc.exe";
-/// The Windows verb that asks the user, not Atlas, for administrator rights.
-const RUNAS: &str = "runas";
 const QUERY_ALL: &[&str] = &["query", "state=", "all"];
 const VERB_QUERY: &str = "query";
 const VERB_CONFIG: &str = "qc";
@@ -148,9 +148,18 @@ struct Ran {
     text: String,
 }
 
+/// A Windows tool by absolute path under `System32`, never looked up on `PATH`
+/// or beside the executable: a lookalike planted in either place must not be
+/// what "sc.exe" means.
+fn system_tool(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:/Windows".into()))
+        .join("System32")
+        .join(name)
+}
+
 /// Run `sc` with a fixed verb and at most one validated name.
 fn run(args: &[&str]) -> Result<Ran, String> {
-    let mut cmd = Command::new(SC);
+    let mut cmd = Command::new(system_tool(SC));
     cmd.args(args);
 
     // Without this every reading flashes a console window — the same bug that
@@ -204,7 +213,7 @@ fn protected(name: &str) -> bool {
 /// ones this machine reported having — but it means a malformed value never
 /// reaches `sc` in the first place. The leading-character rule matters most: a
 /// name beginning `-` or `/` would arrive at `sc` looking like a switch.
-fn is_valid_name(name: &str) -> bool {
+pub(crate) fn is_valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 256
         && !name.starts_with('-')
@@ -291,7 +300,7 @@ fn parse_services(text: &str) -> Vec<ServiceEntry> {
 /// resolves friendly names against the same list for its own messages; this
 /// resolution is the one that counts, because it is the one next to the
 /// process.
-fn resolve(name: &str) -> Result<ServiceEntry, String> {
+pub(crate) fn resolve(name: &str) -> Result<ServiceEntry, String> {
     if !is_valid_name(name) {
         return Err(format!("\u{201c}{name}\u{201d} isn't a service name."));
     }
@@ -464,7 +473,7 @@ fn send(verb: &str, entry: &ServiceEntry) -> Result<(), String> {
     // dialog appears when none is needed: an Atlas that is already elevated,
     // or a service that did not need it, never reaches this line.
     if text.contains("ACCESS IS DENIED") || text.contains("FAILED 5") {
-        return send_elevated(verb, &entry.name);
+        return Err(crate::elevation::NEEDS_ELEVATION.to_string());
     }
     if text.contains("1051") {
         return Err(format!(
@@ -479,97 +488,6 @@ fn send(verb: &str, entry: &ServiceEntry) -> Result<(), String> {
         "Windows refused: {}",
         ran.text.trim().lines().next().unwrap_or("no reason given")
     ))
-}
-
-/// Run one `sc` verb with administrator rights, by asking Windows to ask.
-///
-/// ## Why this exists, and why it is not a loophole
-///
-/// Starting and stopping a service requires elevation. Atlas does not run
-/// elevated and should not: every capability it has — including the ones added
-/// after this comment — would inherit those rights, for the sake of two verbs.
-/// So the elevation is per action and belongs to the action: Windows shows its
-/// own consent dialog, naming `sc.exe`, and the elevated process exits the
-/// moment the verb is done.
-///
-/// The rule this project keeps is that a reader can enumerate everything the
-/// program will ever execute, and that still holds: the file is the constant
-/// `SC`, the verb is one of two constants, and the name is a service this
-/// machine reported having, checked by `resolve` before we get here. What
-/// changes is the rights the same short list runs with, and who grants them —
-/// which is the user, in a dialog Atlas cannot draw, suppress or answer.
-///
-/// ## The one real difference from `run`
-///
-/// `ShellExecuteEx` starts a *separate* process, so there is no stdout to read
-/// — the `[SC] FAILED 5` line that `send` translates never arrives here. That
-/// turns out to be an improvement rather than a loss: the caller checks the
-/// service's actual state afterwards, which is what it already does, and which
-/// is a better test than believing what the command said about itself.
-#[cfg(windows)]
-fn send_elevated(verb: &str, name: &str) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
-
-    use windows::core::PCWSTR;
-    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
-    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
-
-    fn wide(s: &str) -> Vec<u16> {
-        std::ffi::OsStr::new(s)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
-    }
-
-    // Quoted so a service name with a space in it ("AMD Crash Defender
-    // Service" is one on a real machine) arrives as one argument. Safe to do
-    // by hand only because `is_valid_name` has already excluded every
-    // character that could end the quote.
-    let params = wide(&format!("{verb} \"{name}\""));
-    let file = wide(SC);
-    let action = wide(RUNAS);
-
-    let mut info = SHELLEXECUTEINFOW {
-        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-        fMask: SEE_MASK_NOCLOSEPROCESS,
-        lpVerb: PCWSTR(action.as_ptr()),
-        lpFile: PCWSTR(file.as_ptr()),
-        lpParameters: PCWSTR(params.as_ptr()),
-        nShow: SW_HIDE.0,
-        ..Default::default()
-    };
-
-    // The only failure worth naming: the person said no. Everything else is
-    // reported as itself.
-    unsafe { ShellExecuteExW(&mut info) }.map_err(|e| {
-        const CANCELLED: i32 = -2_147_023_673; // HRESULT for ERROR_CANCELLED.
-        if e.code().0 == CANCELLED {
-            "You dismissed the Windows prompt, so nothing changed.".to_string()
-        } else {
-            format!("Windows wouldn't run that with administrator rights: {e}")
-        }
-    })?;
-
-    // Wait for it, so the state check that follows is looking at the machine
-    // after the verb rather than during it.
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    unsafe {
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::WaitForSingleObject;
-
-        if !info.hProcess.is_invalid() {
-            // Bounded rather than INFINITE: a hung `sc` must not hang Atlas.
-            let _ = WaitForSingleObject(info.hProcess, 30_000);
-            let _ = CloseHandle(info.hProcess);
-        }
-    }
-    Ok(())
-}
-
-/// Elevation is a Windows idea; nothing else compiles this path.
-#[cfg(not(windows))]
-fn send_elevated(_verb: &str, _name: &str) -> Result<(), String> {
-    Err("Starting and stopping services needs administrator rights.".into())
 }
 
 fn settled(entry: &ServiceEntry, note: Option<&str>) -> ServiceOutcome {

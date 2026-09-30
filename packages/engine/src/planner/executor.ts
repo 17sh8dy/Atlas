@@ -546,6 +546,15 @@ export class Executor {
       // answers `ask`, so "I couldn't work out what it does" stops here.
       if (skill.assess && effectiveRisk(skill, step.args) !== 'confirm') {
         const assessed = await wait(skill.assess(step.args, ctx));
+        if (assessed.kind === 'refuse') {
+          // Not asked about: a permission screen or a window above Atlas is not
+          // something a yes can unlock. The plan ends here, and says why.
+          report('failed', assessed.message);
+          outcomes.push({ skill: step.skill, ok: false, error: assessed.message });
+          ctx.say(assessed.message);
+          aborted = true;
+          break;
+        }
         if (assessed.kind === 'ask') {
           const approved = await wait(ctx.confirm(assessed.question, assessed.detail));
           if (!approved) {

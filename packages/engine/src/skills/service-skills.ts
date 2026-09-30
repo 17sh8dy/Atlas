@@ -32,9 +32,12 @@ import type {
   ResultRow,
   ServiceDetail,
   ServiceEntry,
+  ServiceOutcome,
   Skill,
   SkillArgs,
 } from '@atlas/core';
+import { needsElevation } from '@atlas/core';
+import { outcomeProblem, withAdminApproval } from './elevation-flow';
 
 /**
  * Services Atlas will not stop, matched against what the user typed.
@@ -298,12 +301,39 @@ export function createServiceSkills(platform: Platform): Skill[] {
         };
       }
 
-      const outcome = await platform.serviceControl?.(match.entry.name, action);
+      // Try it as Atlas is. If Windows says it needs administrator rights, ask
+      // — with a card that says exactly what will run — and only then let
+      // Windows show its own prompt. A restart can need two of those (stop, then
+      // start), each asked about on its own.
+      let outcome: ServiceOutcome | undefined;
+      let elevated = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          outcome = await platform.serviceControl?.(match.entry.name, action);
+          break;
+        } catch (err) {
+          if (!needsElevation(err)) throw err;
+          const wantsStop =
+            action === 'stop' ||
+            (action === 'restart' &&
+              ((await platform.serviceDetail?.(match.entry.name))?.running ?? match.entry.running));
+          const asked = await withAdminApproval(platform, ctx, {
+            kind: wantsStop ? 'serviceStop' : 'serviceStart',
+            name: match.entry.name,
+          });
+          if (!asked.ok) return { ok: false, error: asked.error };
+          const problem = outcomeProblem(asked.outcome);
+          if (problem) return { ok: false, error: `${match.entry.display}: ${problem}` };
+          elevated = true;
+        }
+      }
       if (!outcome) return { ok: false, error: `I couldn’t ${action} ${match.entry.display}.` };
 
       // The note carries "it was already running", which is a better answer
-      // than reporting a change that did not happen.
-      if (outcome.note) {
+      // than reporting a change that did not happen. After an approved change
+      // it would only be describing the change that was just made, so the
+      // state Windows now reports is what is said instead.
+      if (outcome.note && !elevated) {
         return { ok: true, message: `${outcome.display} — ${outcome.note}`, data: outcome };
       }
       return { ok: true, message: done(outcome.display, stateWord(outcome)), data: outcome };

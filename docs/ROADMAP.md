@@ -1713,6 +1713,49 @@ clicked, a broader Account line, and the three execution modes made real.
   at rest and under the hover brightening. Purple's dark fill nudged to 120 88 251, which its own
   stylesheet comment said it already was.
 
+### Administrator approval and protected input (approved 2026-09-29)
+
+Built as ARCHITECTURE section 6.12: a closed set of elevated operations approved on an Atlas card
+(operation, fixed program, exact arguments, reason, "Windows will show its own UAC prompt") before
+Windows is asked; a single-use, 60-second token bound to the operation, arguments, program identity
+and target state, cleared by F8; input refused for Windows permission screens and for windows above
+Atlas (by desktop, process image and token, not title), failing closed when it cannot tell; and
+input results that say `blocked` / `sent` / `changed` / `verified` instead of assuming success.
+
+Kept as approved: no elevated helper, no arbitrary elevated command, no unrestricted administrator
+access, and the fixed `sc.exe` / `reg.exe` allowlist. One tightening beyond the brief: machine-wide
+`Path`, `PATHEXT`, `ComSpec`, `SystemRoot`, `windir`, `PSModulePath` and `TEMP` are no longer
+settable with administrator rights (they decide what runs for every account).
+
+**Limits.** An elevated process that has already started may finish after F8 and cannot be
+recalled; F8 cannot dismiss the Windows prompt. Windows-catalog-signed tools are identified by path
+and content hash, not Authenticode. A control that will not expose its text cannot be verified
+(`sent, not verified`). The check of a target and the input itself are two steps, so a window that
+changes in between is not caught by the renderer (the native command checks again itself).
+Reading a control's text back is limited to the focused element; a page with no accessibility tree
+is asked about on every click.
+
+**Still to test by hand on a real desktop** (a script cannot answer a UAC prompt): allow and deny a
+real service stop end to end; press F8 with the Atlas card open and with the UAC prompt open; try to
+send input while the UAC prompt is showing; try a click into a genuinely elevated window (e.g. an
+elevated Notepad); confirm ordinary windows are not over-blocked in daily use.
+
+### Drag and drop onto the chat bar
+
+Files (and folders) dragged in from outside Atlas attach to the message: any number, any type
+(PNG, JPG, MP4, documents…), as references, never read. Nothing is drawn until a file is being
+dragged **over the chat bar**: the dashed "Drop to attach" overlay is not in the page at all at any
+other time, and never takes the pointer. A drop anywhere else attaches nothing. Capped at 25 files
+per drop; a path already attached is not added twice. It uses Tauri's native drag events
+(`Platform.onFileDrag`) because the webview swallows an OS drag and hands the DOM no paths; the
+browser build has no drop zone. Code: `atlas/useFileDrop.ts`, `components/DropOverlay.tsx`,
+`buildAttachments` in `atlas/useAttachments.ts`.
+
+**Not driven in the real app:** an OS-level drag cannot be scripted from here, so the overlay,
+its position over the bar and the drop itself want a hand test (see the steps given with 1.0.5).
+Dragging from an elevated Explorer will not work (Windows blocks it), and enabling native drops
+means in-page HTML drag-and-drop does not fire (nothing in Atlas uses it today).
+
 ### Not done, and why
 
 - **Nova Intelligence is not bundled.** It would add gigabytes to a 374 MB installer for a

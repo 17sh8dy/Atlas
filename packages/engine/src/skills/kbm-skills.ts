@@ -35,10 +35,16 @@ import type {
   WindowEntry,
 } from '@atlas/core';
 import { assessControl } from '../safety/ui-consequence';
-import { activatesFocused, assessFocused, assessPoint, type ClickKind } from '../safety/ui-target';
+import {
+  activatesFocused,
+  assessFocused,
+  assessPoint,
+  probeTarget,
+  type ClickKind,
+} from '../safety/ui-target';
 import { liveWindows, resolveWindow } from '../text/windows';
 import { findControlByName } from './uia-skills';
-import { typedMessage } from './typed';
+import { performInput } from './input-verify';
 
 const NEEDS = ['input'] as const;
 const ICON = '🖱️';
@@ -105,9 +111,15 @@ export function createKbmSkills(platform: Platform): Skill[] {
     },
     assess: (args) => assessPoint(platform, Number(args.x), Number(args.y), verb),
     async run(args) {
-      const ok = await platform.mouseClick?.(Number(args.x), Number(args.y), button, double);
-      if (!ok) return { ok: false, error: "I couldn't click there." };
-      return { ok: true, message: `${label} at ${args.x}, ${args.y}.` };
+      return performInput({
+        platform,
+        label: `${label} at ${args.x}, ${args.y}`,
+        failure: "I couldn't click there.",
+        send: () =>
+          platform.mouseClick?.(Number(args.x), Number(args.y), button, double) as Promise<
+            boolean | undefined
+          >,
+      });
     },
   });
 
@@ -135,8 +147,9 @@ export function createKbmSkills(platform: Platform): Skill[] {
       // What is grabbed, and where it is dropped: a drop onto the Recycle Bin
       // or a "Send" target is the consequence, not the grab.
       const from = await assessPoint(platform, Number(args.fromX), Number(args.fromY), 'Drag from');
-      if (from.kind === 'ask') return from;
+      if (from.kind !== 'routine') return from;
       const to = await assessPoint(platform, Number(args.toX), Number(args.toY), 'Click');
+      if (to.kind === 'refuse') return to;
       if (to.kind === 'ask') {
         return {
           kind: 'ask',
@@ -147,15 +160,19 @@ export function createKbmSkills(platform: Platform): Skill[] {
       return { kind: 'routine' };
     },
     async run(args) {
-      const ok = await platform.mouseDrag?.(
-        Number(args.fromX),
-        Number(args.fromY),
-        Number(args.toX),
-        Number(args.toY),
-        'left',
-      );
-      if (!ok) return { ok: false, error: "I couldn't drag that." };
-      return { ok: true, message: `Dragged to ${args.toX}, ${args.toY}.` };
+      return performInput({
+        platform,
+        label: `Dragged to ${args.toX}, ${args.toY}`,
+        failure: "I couldn't drag that.",
+        send: () =>
+          platform.mouseDrag?.(
+            Number(args.fromX),
+            Number(args.fromY),
+            Number(args.toX),
+            Number(args.toY),
+            'left',
+          ) as Promise<boolean | undefined>,
+      });
     },
   });
 
@@ -351,6 +368,8 @@ export function createKbmSkills(platform: Platform): Skill[] {
     async assess(args): Promise<SkillAssessment> {
       const found = await resolveElement(args);
       if ('error' in found) return { kind: 'routine' }; // `run` says why it can't
+      const refused = await probeTarget(platform, { windowId: found.win.id });
+      if (refused) return refused;
       const verdict = assessControl({
         root: found.tree,
         node: found.node,
@@ -366,9 +385,15 @@ export function createKbmSkills(platform: Platform): Skill[] {
     async run(args) {
       const found = await resolveElement(args);
       if ('error' in found) return { ok: false, error: found.error };
-      const ok = await platform.mouseClick?.(found.at.x, found.at.y, 'left', args.double === true);
-      if (!ok) return { ok: false, error: "I couldn't click there." };
-      return { ok: true, message: `Clicked “${found.node.name}” in ${found.win.title}.` };
+      return performInput({
+        platform,
+        label: `Clicked “${found.node.name}” in ${found.win.title}`,
+        failure: "I couldn't click there.",
+        send: () =>
+          platform.mouseClick?.(found.at.x, found.at.y, 'left', args.double === true) as Promise<
+            boolean | undefined
+          >,
+      });
     },
   });
 
@@ -390,10 +415,12 @@ export function createKbmSkills(platform: Platform): Skill[] {
         : { kind: 'routine' },
     async run(args) {
       const key = String(args.key ?? '');
-      const ok = await platform.pressKey?.(key);
-      if (!ok)
-        return { ok: false, error: `I don't know a key called "${key}", or pressing it failed.` };
-      return { ok: true, message: `Pressed ${key}.` };
+      return performInput({
+        platform,
+        label: `Pressed ${key}`,
+        failure: `I don't know a key called "${key}", or pressing it failed.`,
+        send: () => platform.pressKey?.(key) as Promise<boolean | undefined>,
+      });
     },
   });
 
@@ -422,9 +449,12 @@ export function createKbmSkills(platform: Platform): Skill[] {
         .filter(Boolean);
       const key = parts.pop();
       if (!key) return { ok: false, error: 'That combination has no key in it.' };
-      const ok = await platform.hotkey?.(parts, key);
-      if (!ok) return { ok: false, error: `I couldn't send ${args.combo}.` };
-      return { ok: true, message: `Pressed ${args.combo}.` };
+      return performInput({
+        platform,
+        label: `Pressed ${args.combo}`,
+        failure: `I couldn't send ${args.combo}.`,
+        send: () => platform.hotkey?.(parts, key) as Promise<boolean | undefined>,
+      });
     },
   });
 
@@ -445,9 +475,16 @@ export function createKbmSkills(platform: Platform): Skill[] {
     async run(args) {
       const text = String(args.text ?? '');
       if (!text) return { ok: false, error: "There's nothing to type." };
-      const ok = await platform.typeText?.(text);
-      if (!ok) return { ok: false, error: "I couldn't type that." };
-      return { ok: true, message: await typedMessage(platform, text) };
+      return performInput({
+        platform,
+        label: (secret) =>
+          secret
+            ? `Typed ${text.length} character${text.length === 1 ? '' : 's'} (hidden — password field)`
+            : `Typed “${text.length > 60 ? `${text.slice(0, 57)}…` : text}”`,
+        failure: "I couldn't type that.",
+        typed: text,
+        send: () => platform.typeText?.(text) as Promise<boolean | undefined>,
+      });
     },
   });
 
@@ -492,33 +529,40 @@ export function createKbmSkills(platform: Platform): Skill[] {
     async run(args) {
       const tokens = parseSequence(String(args.sequence ?? ''));
       if (tokens.length === 0) return { ok: false, error: 'That sequence has no keys in it.' };
-      for (const [i, token] of tokens.entries()) {
-        let ok: boolean | undefined;
-        if (token.kind === 'text') {
-          ok = await platform.typeText?.(token.text);
-        } else {
-          const parts = token.combo
-            .split('+')
-            .map((p) => p.trim())
-            .filter(Boolean);
-          const key = parts.pop();
-          ok = key
-            ? parts.length
-              ? await platform.hotkey?.(parts, key)
-              : await platform.pressKey?.(key)
-            : false;
-        }
-        if (!ok) {
-          return {
-            ok: false,
-            error: `Stopped at step ${i + 1} of ${tokens.length}: I couldn't send “${token.kind === 'text' ? `type:${token.text}` : token.combo}”.`,
-          };
-        }
-      }
-      return {
-        ok: true,
-        message: `Pressed ${tokens.length} key${tokens.length === 1 ? '' : 's'} in order.`,
-      };
+      let stoppedAt = '';
+      const texts = tokens.filter((t): t is Extract<Token, { kind: 'text' }> => t.kind === 'text');
+      const result = await performInput({
+        platform,
+        label: `Pressed ${tokens.length} key${tokens.length === 1 ? '' : 's'} in order`,
+        failure: 'That sequence could not be sent.',
+        // Only a lone typed string can be looked for afterwards.
+        typed: texts.length === 1 ? texts[0]!.text : undefined,
+        send: async () => {
+          for (const [i, token] of tokens.entries()) {
+            let ok: boolean | undefined;
+            if (token.kind === 'text') {
+              ok = await platform.typeText?.(token.text);
+            } else {
+              const parts = token.combo
+                .split('+')
+                .map((p) => p.trim())
+                .filter(Boolean);
+              const key = parts.pop();
+              ok = key
+                ? parts.length
+                  ? await platform.hotkey?.(parts, key)
+                  : await platform.pressKey?.(key)
+                : false;
+            }
+            if (!ok) {
+              stoppedAt = `Stopped at step ${i + 1} of ${tokens.length}: I couldn't send “${token.kind === 'text' ? `type:${token.text}` : token.combo}”.`;
+              return false;
+            }
+          }
+          return true;
+        },
+      });
+      return stoppedAt && !result.ok ? { ...result, error: stoppedAt } : result;
     },
   });
 

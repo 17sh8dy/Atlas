@@ -26,7 +26,7 @@
  * asked about every time, because there is nothing to verify.
  */
 
-import type { Platform, SkillAssessment, UiaNode, WindowEntry } from '@atlas/core';
+import type { InputTarget, Platform, SkillAssessment, UiaNode, WindowEntry } from '@atlas/core';
 import { assessControl, classifyText } from './ui-consequence';
 
 /** A container that says nothing about what a click inside it does. */
@@ -90,6 +90,37 @@ function ask(question: string, detail: string): SkillAssessment {
   return { kind: 'ask', question, detail };
 }
 
+/**
+ * Ask the native side whether input to this target is allowed at all, before
+ * anything is put to the person. A Windows permission screen, a window running
+ * above Atlas, or something it cannot identify comes back as a *refusal* — not
+ * a question a yes could unlock.
+ *
+ * A platform with no probe (the browser build, a test double) returns `null`
+ * and the native input commands remain the guarantee; a probe that exists but
+ * cannot answer is treated as a refusal, because not being able to check is not
+ * the same as it being safe.
+ */
+export async function probeTarget(
+  platform: Platform,
+  target: InputTarget,
+): Promise<SkillAssessment | null> {
+  if (!platform.inputProbe) return null;
+  try {
+    const probe = await platform.inputProbe(target);
+    if (probe.allowed) return null;
+    return {
+      kind: 'refuse',
+      message: probe.message ?? 'Atlas can’t send input there, so it didn’t.',
+    };
+  } catch {
+    return {
+      kind: 'refuse',
+      message: 'I couldn’t check where that input would go, so I didn’t send it.',
+    };
+  }
+}
+
 export type ClickKind = 'Click' | 'Double-click' | 'Right-click' | 'Middle-click' | 'Drag from';
 
 /** What a click at (x, y) would land on. */
@@ -100,6 +131,8 @@ export async function assessPoint(
   verb: ClickKind = 'Click',
 ): Promise<SkillAssessment> {
   const at = `at ${Math.round(x)}, ${Math.round(y)}`;
+  const refused = await probeTarget(platform, { x: Math.round(x), y: Math.round(y) });
+  if (refused) return refused;
   const windows = (await platform.listWindows?.().catch(() => [])) ?? [];
   const win = windowAt(windows, x, y);
   if (!win) {
@@ -147,6 +180,8 @@ export async function assessFocused(
   platform: Platform,
   keyLabel: string,
 ): Promise<SkillAssessment> {
+  const refused = await probeTarget(platform, {});
+  if (refused) return refused;
   const focused = await platform.uiaFocusedElement?.().catch(() => null);
   const active = await platform.activeWindow?.().catch(() => null);
   if (!focused) {

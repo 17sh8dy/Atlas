@@ -15,12 +15,14 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import type { Attachment, ExecutionMode } from '@atlas/core';
+import type { Attachment, ExecutionMode, FileDragEvent } from '@atlas/core';
 import { EXECUTION_MODE_META } from '@atlas/core';
 import { Icons, Kbd, cn } from '@atlas/ui';
 import { AttachmentChips } from './AttachmentChips';
+import { DropOverlay } from './DropOverlay';
 import { WorkingRing } from './WorkingRing';
 import { fitComposer, lengthNote } from './composer-size';
+import { useFileDrop } from '../atlas/useFileDrop';
 
 interface Props {
   onSubmit(text: string): void;
@@ -108,6 +110,13 @@ interface Props {
   attachments?: Attachment[];
   onRemoveAttachment?(id: string): void;
   onExtractAttachment?(id: string): void;
+  /**
+   * Files dragged onto the chat bar. `subscribeFileDrag` is the platform's
+   * native drag feed (absent in the browser build, which then has no drop
+   * zone at all); `onDropFiles` gets the paths of a drop that landed here.
+   */
+  subscribeFileDrag?: (handler: (event: FileDragEvent) => void) => Promise<() => void>;
+  onDropFiles?(paths: string[]): void;
   /** The stop key Windows actually has registered, shown next to the button. */
   stopKey?: string | null;
   /** Atlas is halted: show it, and offer to carry on. */
@@ -133,11 +142,15 @@ export function Composer({
   attachments = [],
   onRemoveAttachment,
   onExtractAttachment,
+  subscribeFileDrag,
+  onDropFiles,
   stopKey,
   halted = false,
   onResume,
 }: Props) {
   const [value, setValue] = useState(draft);
+  const dropTarget = useRef<HTMLDivElement>(null);
+  const drop = useFileDrop(subscribeFileDrag, dropTarget, (paths) => onDropFiles?.(paths));
   const ref = useRef<HTMLTextAreaElement>(null);
   // Seeded with what is already there, not 0: `dictated` outlives this
   // component (it lives in the shell), so a remount after a trip to Settings
@@ -288,8 +301,16 @@ export function Composer({
         A light that runs along the border itself — see `WorkingRing` for why it
         is not a spinning gradient. The input sits a pixel inside it.
       */}
-      <div className="relative rounded-xl p-px">
+      <div ref={dropTarget} className="relative rounded-xl p-px">
         <WorkingRing active={busy} />
+
+        {/*
+          The drop zone. It is not in the page at all until a file is being
+          dragged over this bar — not faint, not collapsed: absent. That is the
+          whole design: a permanent "drop files here" strip is furniture, and
+          this should only exist for the second it is useful.
+        */}
+        {drop.active && <DropOverlay count={drop.count} />}
 
         <div
           className={cn(

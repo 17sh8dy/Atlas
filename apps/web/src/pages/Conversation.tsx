@@ -30,6 +30,7 @@ import type {
   ClarifyAnswer,
   EpisodicEvent,
   ExecutionMode,
+  FileDragEvent,
   Memory,
 } from '@atlas/core';
 import { AtlasMark, Modal } from '@atlas/ui';
@@ -73,6 +74,9 @@ interface Props {
   attachments?: Attachment[];
   onRemoveAttachment?(id: string): void;
   onExtractAttachment?(id: string): void;
+  /** The native file-drag feed and what to do with a drop on the chat bar — see `Composer`. */
+  subscribeFileDrag?: (handler: (event: FileDragEvent) => void) => Promise<() => void>;
+  onDropFiles?(paths: string[]): void;
   /**
    * The screen-share status bar.
    *
@@ -114,6 +118,8 @@ export function Conversation({
   attachments,
   onRemoveAttachment,
   onExtractAttachment,
+  subscribeFileDrag,
+  onDropFiles,
   shareBar,
   activeRun,
   draft,
@@ -171,6 +177,8 @@ export function Conversation({
         attachments={attachments}
         onRemoveAttachment={onRemoveAttachment}
         onExtractAttachment={onExtractAttachment}
+        subscribeFileDrag={subscribeFileDrag}
+        onDropFiles={onDropFiles}
       />
     </div>
   );

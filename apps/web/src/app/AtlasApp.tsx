@@ -904,6 +904,8 @@ function Ready({
             attachments={attachments.items}
             onRemoveAttachment={attachments.remove}
             onExtractAttachment={(id) => void attachments.extractText(id)}
+            subscribeFileDrag={platform.onFileDrag?.bind(platform)}
+            onDropFiles={(paths) => void attachments.addPaths(paths)}
             contextButton={
               <ContextMenu
                 platform={platform}

@@ -33,6 +33,7 @@
 import type { Platform, ResultRow, Skill, SkillArgs, UiaNode, WindowEntry } from '@atlas/core';
 import { resolveWindow, liveWindows } from '../text/windows';
 import { assessControl } from '../safety/ui-consequence';
+import { probeTarget } from '../safety/ui-target';
 
 function parsePath(raw: unknown): number[] {
   const s = String(raw ?? '').trim();
@@ -353,6 +354,9 @@ export function createUiaSkills(platform: Platform): Skill[] {
         }
       }
       if (!target) return { kind: 'routine' };
+
+      const refused = await probeTarget(platform, { windowId: target.id });
+      if (refused) return refused;
 
       const tree = await platform.uiaTree?.(target.id);
       if (!tree) return { kind: 'routine' };

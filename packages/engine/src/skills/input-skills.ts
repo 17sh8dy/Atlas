@@ -30,7 +30,7 @@
  */
 
 import type { MouseButton, Platform, Skill, SkillRisk } from '@atlas/core';
-import { typedMessage } from './typed';
+import { performInput } from './input-verify';
 import { activatesFocused, assessFocused, assessPoint } from '../safety/ui-target';
 
 /**
@@ -127,14 +127,18 @@ export function createInputSkills(platform: Platform): Skill[] {
       double: { type: 'boolean', default: false, description: 'double-click instead of a single click' },
     },
     async run(args) {
-      const ok = await platform.mouseClick?.(
-        Number(args.x),
-        Number(args.y),
-        asButton(args.button),
-        args.double === true,
-      );
-      if (!ok) return { ok: false, error: "I couldn't click there." };
-      return { ok: true, message: `Clicked at ${args.x}, ${args.y}.` };
+      return performInput({
+        platform,
+        label: `Clicked at ${args.x}, ${args.y}`,
+        failure: "I couldn't click there.",
+        send: () =>
+          platform.mouseClick?.(
+            Number(args.x),
+            Number(args.y),
+            asButton(args.button),
+            args.double === true,
+          ) as Promise<boolean | undefined>,
+      });
     },
   });
 
@@ -168,8 +172,9 @@ export function createInputSkills(platform: Platform): Skill[] {
     examples: ['drag from 100, 100 to 400, 400'],
     async assess(args) {
       const from = await assessPoint(platform, Number(args.fromX), Number(args.fromY), 'Drag from');
-      if (from.kind === 'ask') return from;
+      if (from.kind !== 'routine') return from;
       const to = await assessPoint(platform, Number(args.toX), Number(args.toY), 'Click');
+      if (to.kind === 'refuse') return to;
       return to.kind === 'ask'
         ? {
             kind: 'ask',
@@ -186,15 +191,19 @@ export function createInputSkills(platform: Platform): Skill[] {
       button: { type: 'string', enum: BUTTONS, default: 'left', description: 'which button to hold' },
     },
     async run(args) {
-      const ok = await platform.mouseDrag?.(
-        Number(args.fromX),
-        Number(args.fromY),
-        Number(args.toX),
-        Number(args.toY),
-        asButton(args.button),
-      );
-      if (!ok) return { ok: false, error: "I couldn't drag that." };
-      return { ok: true, message: `Dragged to ${args.toX}, ${args.toY}.` };
+      return performInput({
+        platform,
+        label: `Dragged to ${args.toX}, ${args.toY}`,
+        failure: "I couldn't drag that.",
+        send: () =>
+          platform.mouseDrag?.(
+            Number(args.fromX),
+            Number(args.fromY),
+            Number(args.toX),
+            Number(args.toY),
+            asButton(args.button),
+          ) as Promise<boolean | undefined>,
+      });
     },
   });
 
@@ -218,9 +227,12 @@ export function createInputSkills(platform: Platform): Skill[] {
     },
     async run(args) {
       const key = String(args.key ?? '');
-      const ok = await platform.pressKey?.(key);
-      if (!ok) return { ok: false, error: `I don't know a key called "${key}", or pressing it failed.` };
-      return { ok: true, message: `Pressed ${key}.` };
+      return performInput({
+        platform,
+        label: `Pressed ${key}`,
+        failure: `I don't know a key called "${key}", or pressing it failed.`,
+        send: () => platform.pressKey?.(key) as Promise<boolean | undefined>,
+      });
     },
   });
 
@@ -255,9 +267,12 @@ export function createInputSkills(platform: Platform): Skill[] {
       const key = parts.pop();
       if (!key) return { ok: false, error: 'That combination has no key in it.' };
 
-      const ok = await platform.hotkey?.(parts, key);
-      if (!ok) return { ok: false, error: `I couldn't send ${args.combo}.` };
-      return { ok: true, message: `Pressed ${args.combo}.` };
+      return performInput({
+        platform,
+        label: `Pressed ${args.combo}`,
+        failure: `I couldn't send ${args.combo}.`,
+        send: () => platform.hotkey?.(parts, key) as Promise<boolean | undefined>,
+      });
     },
   });
 
@@ -280,9 +295,16 @@ export function createInputSkills(platform: Platform): Skill[] {
     async run(args) {
       const text = String(args.text ?? '');
       if (!text) return { ok: false, error: "There's nothing to type." };
-      const ok = await platform.typeText?.(text);
-      if (!ok) return { ok: false, error: "I couldn't type that." };
-      return { ok: true, message: await typedMessage(platform, text) };
+      return performInput({
+        platform,
+        label: (secret) =>
+          secret
+            ? `Typed ${text.length} character${text.length === 1 ? '' : 's'} (hidden — password field)`
+            : `Typed “${text.length > 60 ? `${text.slice(0, 57)}…` : text}”`,
+        failure: "I couldn't type that.",
+        typed: text,
+        send: () => platform.typeText?.(text) as Promise<boolean | undefined>,
+      });
     },
   });
 

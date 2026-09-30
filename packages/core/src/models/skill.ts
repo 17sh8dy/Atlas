@@ -188,10 +188,17 @@ export type SkillPreview =
 /**
  * What `Skill.assess` found. `routine` — go ahead as normal. `ask` — put a
  * card in front of it; `question` is the sentence to ask, `detail` the reason
- * shown beneath it.
+ * shown beneath it. `refuse` — stop, with no card.
  */
 export type SkillAssessment =
-  { kind: 'routine' } | { kind: 'ask'; question: string; detail: string };
+  | { kind: 'routine' }
+  | { kind: 'ask'; question: string; detail: string }
+  /**
+   * Not a question. The target is one Atlas must never send input to — a
+   * Windows permission screen, a window running above it, something it cannot
+   * identify — so no card is drawn and nothing is sent. `message` says why.
+   */
+  | { kind: 'refuse'; message: string };
 
 /** One actionable row in a result list. */
 export interface ResultRow {

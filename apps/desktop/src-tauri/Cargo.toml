@@ -95,6 +95,8 @@ windows = { version = "0.58", features = [
   # services.rs needs the registry types even though it touches no registry.
   "Win32_System_Registry",
   "Win32_System_Threading",
+  # input_guard.rs: is the input desktop the user's own, or a protected one.
+  "Win32_System_StationsAndDesktops",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",

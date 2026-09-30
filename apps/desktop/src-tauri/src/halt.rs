@@ -184,6 +184,11 @@ impl Halt {
     /// from the hotkey thread or a blocking task, never from the main thread.
     pub fn trigger(&self, on_latched: impl FnOnce(u64)) -> (u64, StopReport) {
         self.latched.store(true, Ordering::SeqCst);
+        // Every administrator approval still waiting dies with the stop. An
+        // elevated process that has already started cannot be recalled; see
+        // elevation.rs.
+        #[cfg(windows)]
+        crate::elevation::cancel_all();
         // Whatever the surface was doing, it is not doing it any more. Cleared
         // here rather than waiting to be told, so a renderer that never gets
         // the event can't leave Atlas looking busy forever.
@@ -913,6 +918,9 @@ mod tests {
             "uia_focused_element", "web_search", "fetch_page", "speech_voices",
             "cursor_position", "list_windows", "active_window", "capabilities", "has_secret",
             "audio_devices", "nova_intelligence_locate", "nova_intelligence_launch_state",
+            // Reads and refusals: what rights Atlas has, whether a target may be sent
+            // input, and dropping an approval. Cancelling can only ever make less happen.
+            "elevation_status", "elevation_cancel", "input_probe",
             // Ends the one server Atlas itself started, never anything else. A stop that
             // could not stop Atlas's own model server would be the wrong way round.
             "nova_intelligence_stop",

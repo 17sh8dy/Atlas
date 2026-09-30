@@ -47,8 +47,24 @@ import type {
   TreeEntry,
   HaltEvent,
   HaltStatus,
+  ElevationOutcome,
+  ElevationRequest,
+  InputProbe,
 } from '@atlas/core';
+import { parseInputBlock } from '@atlas/core';
 import { invoke } from '@tauri-apps/api/core';
+
+/**
+ * An input command. If the native side refuses the target — a Windows
+ * permission screen, a window running above Atlas, something it can't identify
+ * — that arrives as an `InputBlockedError` rather than as an anonymous string,
+ * so the reason survives all the way to what the person is told.
+ */
+function invokeInput<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  return invoke<T>(command, args).catch((err: unknown) => {
+    throw parseInputBlock(err) ?? err;
+  });
+}
 
 export function createTauriPlatform(): Platform {
   return {
@@ -247,29 +263,42 @@ export function createTauriPlatform(): Platform {
     moveMouse: (x, y) => invoke<boolean>('move_mouse', { x, y }),
     cursorPosition: () => invoke<CursorPosition>('cursor_position'),
     mouseClick: (x, y, button, double) =>
-      invoke<boolean>('mouse_click', { x, y, button, double: double ?? null }),
-    mouseScroll: (amount) => invoke<boolean>('mouse_scroll', { amount }),
+      invokeInput<boolean>('mouse_click', { x, y, button, double: double ?? null }),
+    mouseScroll: (amount) => invokeInput<boolean>('mouse_scroll', { amount }),
     mouseDrag: (fromX, fromY, toX, toY, button) =>
-      invoke<boolean>('mouse_drag', {
+      invokeInput<boolean>('mouse_drag', {
         fromX,
         fromY,
         toX,
         toY,
         button: (button as MouseButton | undefined) ?? null,
       }),
-    pressKey: (key) => invoke<boolean>('press_key', { key }),
-    hotkey: (modifiers, key) => invoke<boolean>('hotkey', { modifiers, key }),
-    typeText: (text) => invoke<boolean>('type_text', { text }),
+    pressKey: (key) => invokeInput<boolean>('press_key', { key }),
+    hotkey: (modifiers, key) => invokeInput<boolean>('hotkey', { modifiers, key }),
+    typeText: (text) => invokeInput<boolean>('type_text', { text }),
 
     uiaTree: (windowId, maxDepth) =>
       invoke<UiaNode>('uia_tree', { windowId, maxDepth: maxDepth ?? null }),
     uiaFocusedElement: () => invoke<UiaNode | null>('uia_focused_element'),
-    uiaInvoke: (windowId, path) => invoke<boolean>('uia_invoke', { windowId, path }),
+    uiaInvoke: (windowId, path) => invokeInput<boolean>('uia_invoke', { windowId, path }),
     uiaSetExpanded: (windowId, path, expand) =>
-      invoke<boolean>('uia_set_expanded', { windowId, path, expand }),
+      invokeInput<boolean>('uia_set_expanded', { windowId, path, expand }),
     uiaSetValue: (windowId, path, value) =>
-      invoke<boolean>('uia_set_value', { windowId, path, value }),
-    uiaFocus: (windowId, path) => invoke<boolean>('uia_focus', { windowId, path }),
+      invokeInput<boolean>('uia_set_value', { windowId, path, value }),
+    uiaFocus: (windowId, path) => invokeInput<boolean>('uia_focus', { windowId, path }),
+
+    inputProbe: (target) =>
+      invoke<InputProbe>('input_probe', {
+        x: target?.x ?? null,
+        y: target?.y ?? null,
+        windowId: target?.windowId ?? null,
+      }),
+
+    elevationStatus: () => invoke<{ elevated: boolean }>('elevation_status'),
+    elevationPrepare: (op) => invoke<ElevationRequest>('elevation_prepare', { op }),
+    elevationRun: (token, commandLine) =>
+      invoke<ElevationOutcome>('elevation_run', { token, commandLine }),
+    elevationCancel: (token) => invoke<boolean>('elevation_cancel', { token }),
 
     // Same shape as `synthesizeSpeech`: the command returns a
     // `tauri::ipc::Response`, so the bytes need the same transport-agnostic
@@ -297,6 +326,25 @@ export function createTauriPlatform(): Platform {
       });
       if (!picked) return [];
       return Array.isArray(picked) ? picked : [picked];
+    },
+    onFileDrag: async (handler) => {
+      // The webview swallows an OS drag, so this is the only place a dropped
+      // file's path is available. Positions arrive in physical pixels.
+      const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+      return getCurrentWebview().onDragDropEvent((event) => {
+        const payload = event.payload;
+        if (payload.type === 'leave') {
+          handler({ phase: 'leave', paths: [], x: 0, y: 0 });
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        handler({
+          phase: payload.type,
+          paths: 'paths' in payload ? payload.paths : [],
+          x: payload.position.x / scale,
+          y: payload.position.y / scale,
+        });
+      });
     },
     pickFolder: async (options) => {
       const { open } = await import('@tauri-apps/plugin-dialog');

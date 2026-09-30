@@ -17,6 +17,7 @@ import type {
   SkillResult,
   CapabilityName,
 } from '@atlas/core';
+import { InputBlockedError } from '@atlas/core';
 import { refusalFor, screenSkillCall } from '../safety/content-policy';
 
 export interface RegistryOptions {
@@ -164,6 +165,12 @@ export class SkillRegistry {
     try {
       return await skill.run(check.args, ctx);
     } catch (err) {
+      // Input the native side refused (a Windows permission screen, a window
+      // above Atlas, something unidentifiable). It is a refusal, not a crash,
+      // and the reason is the whole message.
+      if (err instanceof InputBlockedError) {
+        return { ok: false, error: err.message, data: { input: 'blocked', code: err.code } };
+      }
       // A crashing skill must not take the conversation down with it.
       const detail = err instanceof Error ? err.message : String(err);
       return { ok: false, error: `${skill.label} hit an error: ${detail}` };

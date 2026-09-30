@@ -16,6 +16,8 @@
  */
 
 import type { EnvVar, Platform, ResultRow, Skill } from '@atlas/core';
+import { needsElevation } from '@atlas/core';
+import { outcomeProblem, withAdminApproval } from './elevation-flow';
 
 function row(v: EnvVar): ResultRow {
   return {
@@ -139,14 +141,34 @@ export function createEnvironmentSkills(platform: Platform): Skill[] {
       name: { type: 'string', required: true, description: 'the variable name' },
       value: { type: 'string', required: true, description: 'the value to set it to' },
     },
-    async run(args) {
+    async run(args, ctx) {
       const name = String(args.name ?? '').trim();
       const value = String(args.value ?? '');
-      const ok = await platform.setEnvironmentVariable?.(name, value, 'system');
-      if (!ok) return { ok: false, error: `I couldn’t set ${name}.` };
+      try {
+        const ok = await platform.setEnvironmentVariable?.(name, value, 'system');
+        if (!ok) return { ok: false, error: `I couldn’t set ${name}.` };
+      } catch (err) {
+        if (!needsElevation(err)) throw err;
+        const asked = await withAdminApproval(platform, ctx, { kind: 'envSet', name, value });
+        if (!asked.ok) return { ok: false, error: asked.error };
+        const problem = outcomeProblem(asked.outcome);
+        if (problem) return { ok: false, error: `${name}: ${problem}` };
+      }
+      // Read it back: Windows finishing is not the same as the value being there.
+      const now = (await list()).find(
+        (v) => v.scope === 'system' && v.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (now && now.value !== value) {
+        return {
+          ok: false,
+          error: `Windows finished, but ${name} reads “${now.value}” rather than what I set. I'm not calling that done.`,
+        };
+      }
       return {
         ok: true,
-        message: `Set ${name} for every account. Already-open programs won’t see it until they restart.`,
+        message: now
+          ? `Set ${name} for every account — verified: Windows now lists it. Already-open programs won’t see it until they restart.`
+          : `Set ${name} for every account. Already-open programs won’t see it until they restart.`,
       };
     },
   });
@@ -183,11 +205,28 @@ export function createEnvironmentSkills(platform: Platform): Skill[] {
     params: {
       name: { type: 'string', required: true, description: 'the variable name' },
     },
-    async run(args) {
+    async run(args, ctx) {
       const name = String(args.name ?? '').trim();
-      const ok = await platform.deleteEnvironmentVariable?.(name, 'system');
-      if (!ok) return { ok: false, error: `I couldn’t remove ${name}.` };
-      return { ok: true, message: `Removed ${name} for every account.` };
+      try {
+        const ok = await platform.deleteEnvironmentVariable?.(name, 'system');
+        if (!ok) return { ok: false, error: `I couldn’t remove ${name}.` };
+      } catch (err) {
+        if (!needsElevation(err)) throw err;
+        const asked = await withAdminApproval(platform, ctx, { kind: 'envDelete', name });
+        if (!asked.ok) return { ok: false, error: asked.error };
+        const problem = outcomeProblem(asked.outcome);
+        if (problem) return { ok: false, error: `${name}: ${problem}` };
+      }
+      const still = (await list()).some(
+        (v) => v.scope === 'system' && v.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (still) {
+        return {
+          ok: false,
+          error: `Windows finished, but ${name} is still listed. I'm not calling that done.`,
+        };
+      }
+      return { ok: true, message: `Removed ${name} for every account — verified: it is no longer listed.` };
     },
   });
 

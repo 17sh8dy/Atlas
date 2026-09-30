@@ -750,6 +750,74 @@ close, so it cannot outlive Atlas. Output goes to `%LOCALAPPDATA%/dev.atlas.assi
 and its tail is returned if the server dies. It runs only for someone who switched Nova
 Intelligence on, and "Start automatically" (on by default, per-user) can be turned off.
 
+### 6.12 Administrator rights, protected input targets, and what "done" means (`elevation.rs`, `input_guard.rs`, `procinfo.rs`, `skills/input-verify.ts`)
+
+Approved by Brandon on 2026-09-29. The decision that Atlas never runs elevated and ships no
+elevated helper is unchanged; this adds the approval step in front of it, and closes the ways
+input could reach the wrong place or be reported as having worked when it had not.
+
+**Administrator approval, one action at a time.**
+
+1. An action that needs administrator rights (start/stop a service, set/remove a machine-wide
+   environment variable) is first tried as Atlas is. Windows refuses; the native side answers
+   `NEEDS_ELEVATION`. It does **not** elevate on its own any more.
+2. `elevation_prepare(op)` checks the operation against a **closed enum** (`Operation`: service
+   start/stop, env set/delete). There is no field for a program, a path or a command line. It
+   validates names and values, refuses a protected service or a protected variable (`Path`,
+   `PATHEXT`, `ComSpec`, `SystemRoot`, `windir`, `PSModulePath`, `TEMP` and friends), and returns
+   a one-time token plus the exact text of what will run.
+3. Atlas shows a card: **What** (the operation), **Program** (`sc.exe` or `reg.exe`, its path and
+   the start of its SHA-256), **Runs exactly** (the arguments), **Why**, **Next** (Windows will show
+   its own UAC prompt; Atlas cannot see, click or answer it) and **Scope** (this action, once,
+   within 60 seconds; it does not give Atlas administrator rights). Buttons: *Allow* / *Deny*.
+4. Allow → `elevation_run(token, commandLine)`. Only then does Windows show its own prompt.
+
+**What the token is bound to.** A SHA-256 fingerprint of: the operation and every argument; the
+exact command line; the program's identity (its path under `%SystemRoot%\System32` and the hash
+and size of its bytes); and the target's state at approval time (the service's current state, or
+the variable's current value). At run time all of it is recomputed and any difference refuses.
+The caller must also echo back the command line that was shown. The token is **single use**
+(consumed by the first attempt, success or failure), **expires after 60 seconds**, holds at most
+8 pending, and is never displayed. Programs run by absolute path from `System32`, never `PATH`.
+`sc.exe`/`reg.exe` are catalog-signed, so `WinVerifyTrust` on the file alone reports them
+unsigned; identity is path plus content hash, checked at approval and again just before running.
+
+**Every execution mode.** The card is asked from inside the skill, so Plan First's plan approval,
+Do It?'s Allowed Folders and a watch's earlier approval do not cover it. Administrator actions are
+also barred from watch continuations.
+
+**The emergency stop (F8).** `Halt::trigger` clears every pending approval; `elevation_prepare` and
+`elevation_run` open with the halt check; a token issued before a stop is refused even if it
+somehow survived (epoch check); the wait for the elevated process polls the latch and stops
+waiting. **Limits, stated plainly:** an elevated process that has already started runs above Atlas
+and cannot be terminated by it, so it may finish; the Windows UAC prompt itself lives on the secure
+desktop and F8 cannot dismiss it. `sc`/`reg` return within seconds. After a stop Atlas says it has
+stopped *waiting*, not that it stopped the change.
+
+**Protected input targets (`input_guard.rs`).** Every synthetic input command and every UI
+Automation action checks its target first, in the process with the hands. Not by title alone;
+strongest signal first: (1) the **input desktop** must be the user's `Default` desktop and openable
+(the UAC prompt's secure desktop is neither); (2) the **process image** that owns the target
+window, refused by file name wherever it lives (`consent.exe`, `credentialuibroker.exe`,
+`logonui.exe`, `winlogon.exe`, `lockapp.exe`); (3) the process **token**: elevated, or higher
+integrity than Atlas, is refused because Windows (UIPI) would silently drop the input; (4) window
+class and title as a further signal. **If Windows will not say which process owns the target or
+what it runs as, the answer is "blocked"** (fail closed). Refusals travel as
+`BLOCKED:<code>:<sentence>` and become `InputBlockedError`. The renderer also asks `input_probe`
+before putting any question, so a protected target is *refused*, never asked about: there is no
+card whose Yes could unlock it. A probe that exists but cannot answer is also a refusal.
+
+**"Sent" is not "done" (`input-verify.ts`).** `SendInput` reports events queued, and UIPI drops
+input to an elevated window while still reporting success. So each input result carries a level
+in `data.input`: `blocked` (nothing sent), `sent` (delivered, nothing readable shows the effect,
+worded "sent, not verified"), `changed` (an observable moved: the window in front, its title, the
+focused control; worded as evidence of *an* effect, not the intended one) and `verified` (typed text
+found in the field it went into, by reading the focused element's value). Text typed into a
+readable field that does not contain it afterwards is a **failure**. A password field is never read
+and what was typed into it is never echoed. Administrator changes are read back too (the service's
+state from `sc`, the variable from the registry). Where a control will not say what it holds (many
+editors), the honest answer is `sent`.
+
 ## 7. Safety
 
 | Rule | Where | Why |

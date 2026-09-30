@@ -23,5 +23,13 @@ export interface UiaNode {
   y: number;
   width: number;
   height: number;
+  /**
+   * What the control holds — only ever on the *focused* element, never on a
+   * password field, capped in length. Lets a typed string be checked against
+   * the field it went into; absent when the control won't say.
+   */
+  value?: string;
+  /** The focused element is a password field — never read, never echoed. */
+  password?: boolean;
   children: UiaNode[];
 }

@@ -39,6 +39,12 @@ mod services;
 #[cfg(windows)]
 mod input;
 #[cfg(windows)]
+mod input_guard;
+#[cfg(windows)]
+mod procinfo;
+#[cfg(windows)]
+mod elevation;
+#[cfg(windows)]
 mod uia;
 #[cfg(windows)]
 mod screen;
@@ -263,6 +269,11 @@ pub fn run() {
             input::press_key,
             input::hotkey,
             input::type_text,
+            input_guard::input_probe,
+            elevation::elevation_status,
+            elevation::elevation_prepare,
+            elevation::elevation_run,
+            elevation::elevation_cancel,
             uia::uia_tree,
             uia::uia_focused_element,
             uia::uia_invoke,

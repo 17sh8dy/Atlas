@@ -26,12 +26,12 @@
 //! The system scope needs administrator rights, and the elevation is per
 //! action, not for the whole app, for the reason `services.rs` gives at
 //! length: every capability Atlas has, including this one, would otherwise
-//! inherit those rights permanently. The ordinary call is tried first; only
-//! once Windows has refused does it go back through `ShellExecuteEx` with the
-//! `runas` verb, naming a fixed program (`reg.exe`) with one of two verb
-//! shapes and two validated values — never a registry write made *as* the
-//! elevated process, because `ShellExecuteEx` starts a separate process with
-//! no handle back to this one to hand a registry key to.
+//! inherit those rights permanently. Since 1.0.5 this module never elevates on
+//! its own: the machine-wide scope answers `NEEDS_ELEVATION` (unless Atlas is
+//! somehow already elevated), the renderer asks the person, and `elevation.rs`
+//! runs the one approved `reg.exe` operation by absolute path — never a registry
+//! write made *as* the elevated process, because `ShellExecuteEx` starts a
+//! separate process with no handle back to this one to hand a key to.
 
 #![cfg(windows)]
 
@@ -49,11 +49,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 const USER_ENV_SUBKEY: &str = "Environment";
-const SYSTEM_ENV_SUBKEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
+pub(crate) const SYSTEM_ENV_SUBKEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
 
 /// The program, and every verb it can be given, for the system scope. In full.
 const REG_EXE: &str = "reg.exe";
-const RUNAS: &str = "runas";
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -168,6 +167,16 @@ pub async fn list_environment_variables() -> Result<Vec<EnvVar>, String> {
     .map_err(|e| format!("The environment task failed: {e}"))
 }
 
+/// The current value of one system-wide variable, if it is set. A read; used to
+/// bind an administrator approval to the state it was approved against.
+pub(crate) fn system_value(name: &str) -> Option<String> {
+    let key = open(HKEY_LOCAL_MACHINE, SYSTEM_ENV_SUBKEY, false)?;
+    enumerate(&key, "system")
+        .into_iter()
+        .find(|v| v.name.eq_ignore_ascii_case(name))
+        .map(|v| v.value)
+}
+
 /// Could this be a variable name at all?
 ///
 /// The cheap gate, applied before anything reaches the registry or a process.
@@ -176,7 +185,7 @@ pub async fn list_environment_variables() -> Result<Vec<EnvVar>, String> {
 /// machine), so the allowed set is wider than `services.rs`'s service names —
 /// what it still excludes is quotes and control characters, which is what
 /// would let a value break out of the quoted argument `reg.exe` receives.
-fn is_valid_name(name: &str) -> bool {
+pub(crate) fn is_valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 255
         && !name.starts_with(' ')
@@ -188,7 +197,7 @@ fn is_valid_name(name: &str) -> bool {
 /// A value is almost anything — paths, lists, `%OTHER_VAR%` references — so
 /// this only excludes what would actually break the elevated command line: a
 /// quote (which would end the quoted argument early) or a control character.
-fn is_valid_value(value: &str) -> bool {
+pub(crate) fn is_valid_value(value: &str) -> bool {
     value.len() <= 32_768 && value.chars().all(|c| c != '"' && (c == '\t' || !c.is_control()))
 }
 
@@ -307,12 +316,24 @@ fn delete_system(name: &str) -> Result<bool, String> {
     run_reg(&args, name, "", "delete")
 }
 
-/// Run `reg.exe` with a fixed verb and validated values, trying the ordinary
-/// call first and escalating only once Windows has actually refused — see the
-/// module doc comment and `services.rs::send` for why this order matters.
-fn run_reg(args: &[String], name: &str, value: &str, verb: &str) -> Result<bool, String> {
+/// Run `reg.exe` against the machine-wide environment.
+///
+/// Writing under HKEY_LOCAL_MACHINE needs administrator rights, and Atlas does
+/// not have them. So this does not try and fail, and it does not elevate on its
+/// own: unless Atlas happens to be elevated already, it answers
+/// `NEEDS_ELEVATION` and the renderer asks the person. Only the approved
+/// operation is then run, through `elevation.rs`, by absolute path.
+fn run_reg(args: &[String], _name: &str, _value: &str, _verb: &str) -> Result<bool, String> {
+    if !crate::procinfo::atlas_is_elevated() {
+        return Err(crate::elevation::NEEDS_ELEVATION.to_string());
+    }
+
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let mut cmd = Command::new(REG_EXE);
+    let mut cmd = Command::new(
+        std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:/Windows".into()))
+            .join("System32")
+            .join(REG_EXE),
+    );
     cmd.args(&arg_refs);
     #[cfg(windows)]
     {
@@ -326,84 +347,12 @@ fn run_reg(args: &[String], name: &str, value: &str, verb: &str) -> Result<bool,
         broadcast_settings_change();
         return Ok(true);
     }
-
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
-    if text.to_ascii_uppercase().contains("ACCESS IS DENIED") {
-        send_elevated(verb, name, value)?;
-        broadcast_settings_change();
-        return Ok(true);
-    }
     Err(format!(
         "Windows refused: {}",
         text.trim().lines().next().unwrap_or("no reason given")
     ))
-}
-
-/// Run one `reg.exe` verb with administrator rights, the same
-/// `ShellExecuteEx` + `runas` shape `services.rs::send_elevated` uses — see
-/// that function's doc comment for why this is not a loophole in the no-`exec`
-/// rule. Quoting by hand is safe here only because `is_valid_name` and
-/// `is_valid_value` have already excluded every character that could end a
-/// quoted argument early.
-#[cfg(windows)]
-fn send_elevated(verb: &str, name: &str, value: &str) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
-
-    use windows::core::PCWSTR as ElevPCWSTR;
-    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
-    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
-
-    fn w(s: &str) -> Vec<u16> {
-        std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
-    }
-
-    let key_path = reg_key_path(SYSTEM_ENV_SUBKEY);
-    let params = if verb == "delete" {
-        format!("delete \"{key_path}\" /v \"{name}\" /f")
-    } else {
-        format!("add \"{key_path}\" /v \"{name}\" /t REG_SZ /d \"{value}\" /f")
-    };
-
-    let params_w = w(&params);
-    let file_w = w(REG_EXE);
-    let action_w = w(RUNAS);
-
-    let mut info = SHELLEXECUTEINFOW {
-        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-        fMask: SEE_MASK_NOCLOSEPROCESS,
-        lpVerb: ElevPCWSTR(action_w.as_ptr()),
-        lpFile: ElevPCWSTR(file_w.as_ptr()),
-        lpParameters: ElevPCWSTR(params_w.as_ptr()),
-        nShow: SW_HIDE.0,
-        ..Default::default()
-    };
-
-    unsafe { ShellExecuteExW(&mut info) }.map_err(|e| {
-        const CANCELLED: i32 = -2_147_023_673; // HRESULT for ERROR_CANCELLED.
-        if e.code().0 == CANCELLED {
-            "You dismissed the Windows prompt, so nothing changed.".to_string()
-        } else {
-            format!("Windows wouldn't run that with administrator rights: {e}")
-        }
-    })?;
-
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    unsafe {
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::WaitForSingleObject;
-
-        if !info.hProcess.is_invalid() {
-            let _ = WaitForSingleObject(info.hProcess, 30_000);
-            let _ = CloseHandle(info.hProcess);
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn send_elevated(_verb: &str, _name: &str, _value: &str) -> Result<(), String> {
-    Err("Changing a system environment variable needs administrator rights.".into())
 }
 
 #[cfg(test)]

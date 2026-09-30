@@ -44,7 +44,7 @@ use windows::Win32::System::Com::{
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationExpandCollapsePattern,
     IUIAutomationInvokePattern, IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern,
-    IUIAutomationValuePattern, TreeScope_Children, UIA_ExpandCollapsePatternId,
+    IUIAutomationTextPattern, IUIAutomationValuePattern, TreeScope_Children, UIA_TextPatternId, UIA_ExpandCollapsePatternId,
     UIA_InvokePatternId, UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
 };
 
@@ -132,6 +132,15 @@ pub struct UiaNode {
     pub y: i32,
     pub width: i32,
     pub height: i32,
+    /// What the control currently holds, for the *focused* element only and
+    /// never for a password field. It exists so a typed sentence can be checked
+    /// against the field it was typed into — "sent" is not "arrived".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// The focused element is a password field. Set so that what is typed into
+    /// it is never repeated back in a message.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub password: bool,
     pub children: Vec<UiaNode>,
 }
 
@@ -151,8 +160,34 @@ fn describe(el: &IUIAutomationElement, path: Vec<i32>) -> UiaNode {
         y: rect.top,
         width: rect.right - rect.left,
         height: rect.bottom - rect.top,
+        value: None,
+        password: false,
         children: Vec::new(),
     }
+}
+
+/// The text a control holds, if it will say and it is not a password field.
+/// Capped: this is for confirming a short typed string, not for reading a book.
+fn read_value(el: &IUIAutomationElement) -> Option<String> {
+    const CAP: i32 = 8_000;
+    // A password field is never read. If Windows cannot even say whether this is
+    // one, it is not read either.
+    if unsafe { el.CurrentIsPassword() }.map(|b| b.as_bool()).unwrap_or(true) {
+        return None;
+    }
+    if let Ok(p) = unsafe { el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) } {
+        if let Ok(v) = unsafe { p.CurrentValue() } {
+            return Some(v.to_string().chars().take(CAP as usize).collect());
+        }
+    }
+    if let Ok(p) = unsafe { el.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) } {
+        if let Ok(range) = unsafe { p.DocumentRange() } {
+            if let Ok(t) = unsafe { range.GetText(CAP) } {
+                return Some(t.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Caps that keep a browser's DOM-shaped tree, or a huge spreadsheet, from
@@ -225,7 +260,14 @@ pub async fn uia_focused_element() -> Result<Option<UiaNode>, String> {
         let _com = ComGuard::new()?;
         let ui = automation()?;
         match unsafe { ui.GetFocusedElement() } {
-            Ok(el) => Ok(Some(describe(&el, Vec::new()))),
+            Ok(el) => {
+                let mut node = describe(&el, Vec::new());
+                node.password = unsafe { el.CurrentIsPassword() }
+                    .map(|b| b.as_bool())
+                    .unwrap_or(false);
+                node.value = read_value(&el);
+                Ok(Some(node))
+            }
             Err(_) => Ok(None),
         }
     })
@@ -238,6 +280,10 @@ pub async fn uia_invoke(window_id: String, path: Vec<i32>) -> Result<bool, Strin
     // Emergency stop: refuse before acting, even if this call was already
     // on its way when the halt landed. See halt.rs.
     crate::halt::global().check()?;
+    // Never operate a Windows permission screen, or a window running above Atlas.
+    crate::input_guard::check_window_id(&window_id)?;
+    // Never operate a Windows permission screen, or a window running above Atlas.
+    crate::input_guard::check_window_id(&window_id)?;
     tauri::async_runtime::spawn_blocking(move || {
         let _com = ComGuard::new()?;
         let ui = automation()?;
@@ -271,6 +317,8 @@ pub async fn uia_invoke(window_id: String, path: Vec<i32>) -> Result<bool, Strin
 #[tauri::command]
 pub async fn uia_set_expanded(window_id: String, path: Vec<i32>, expand: bool) -> Result<bool, String> {
     crate::halt::global().check()?;
+    // Never operate a Windows permission screen, or a window running above Atlas.
+    crate::input_guard::check_window_id(&window_id)?;
     tauri::async_runtime::spawn_blocking(move || {
         let _com = ComGuard::new()?;
         let ui = automation()?;
@@ -300,6 +348,8 @@ pub async fn uia_set_expanded(window_id: String, path: Vec<i32>, expand: bool) -
 #[tauri::command]
 pub async fn uia_set_value(window_id: String, path: Vec<i32>, value: String) -> Result<bool, String> {
     crate::halt::global().check()?;
+    // Never operate a Windows permission screen, or a window running above Atlas.
+    crate::input_guard::check_window_id(&window_id)?;
     tauri::async_runtime::spawn_blocking(move || {
         let _com = ComGuard::new()?;
         let ui = automation()?;

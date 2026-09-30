@@ -32,6 +32,13 @@ import type { FolderSize, LargestFiles } from '../models/disk-usage';
 import type { WindowEntry } from '../models/window';
 import type { CursorPosition, MouseButton } from '../models/input';
 import type { UiaNode } from '../models/uia';
+import type {
+  ElevationOperation,
+  ElevationOutcome,
+  ElevationRequest,
+  InputProbe,
+  InputTarget,
+} from '../models/elevation';
 import type { DisplayInfo } from '../models/screen';
 import type { WindowsCompatibility } from '../models/compat';
 import type {
@@ -98,6 +105,15 @@ export interface SystemSnapshot {
 }
 
 /** What a single path is: a file or a folder, how big, when it changed. */
+/** One step of an OS file drag over the window. `over` and `leave` carry no paths. */
+export interface FileDragEvent {
+  phase: 'enter' | 'over' | 'drop' | 'leave';
+  paths: string[];
+  /** Window-relative, in CSS pixels. */
+  x: number;
+  y: number;
+}
+
 export interface PathInfo {
   path: string;
   name: string;
@@ -520,6 +536,28 @@ export interface Platform {
   uiaFocus?(windowId: string, path: number[]): Promise<boolean>;
 
   /**
+   * Would input to this target be allowed? Answered without sending anything —
+   * so a Windows permission screen, or a window running above Atlas, is refused
+   * outright instead of being put to the person as a question. The native side
+   * makes the same check again on every input, so this is an early answer, not
+   * the guarantee.
+   */
+  inputProbe?(target?: InputTarget): Promise<InputProbe>;
+
+  /**
+   * Administrator rights, one approved action at a time. `elevationPrepare`
+   * checks an operation against a closed set and returns a one-time token bound
+   * to it; nothing runs. `elevationRun` redeems the token — once, within a
+   * minute, only if nothing material changed — and Windows shows its own
+   * prompt. `elevationCancel` drops an approval that was denied. Atlas never
+   * sees or answers that prompt.
+   */
+  elevationStatus?(): Promise<{ elevated: boolean }>;
+  elevationPrepare?(op: ElevationOperation): Promise<ElevationRequest>;
+  elevationRun?(token: string, commandLine: string): Promise<ElevationOutcome>;
+  elevationCancel?(token: string): Promise<boolean>;
+
+  /**
    * Screen capture and displays, gated by `screen` — reached for only once a
    * Windows API or UI Automation can't answer the question (see
    * `screen-skills.ts`). Both captures resolve to a PNG.
@@ -572,6 +610,14 @@ export interface Platform {
    * here does not add it to Allowed Folders.
    */
   pickFolder?(options?: { title?: string }): Promise<string | null>;
+
+  /**
+   * Files dragged in from outside Atlas, as the desktop shell reports them:
+   * paths (on `enter` and `drop`) and a window-relative position in CSS pixels.
+   * Returns the function that stops listening. Absent in the browser build,
+   * where a dropped file has no path a skill could use.
+   */
+  onFileDrag?(handler: (event: FileDragEvent) => void): Promise<() => void>;
 
   /**
    * Which Windows this is — informational, shown in About. Not gated by a

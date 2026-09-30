@@ -14,6 +14,7 @@
  */
 
 export * from './models/skill';
+export * from './models/elevation';
 export * from './models/plan';
 export * from './models/execution-mode';
 export * from './models/atlas-role';

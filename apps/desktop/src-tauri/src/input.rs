@@ -180,6 +180,10 @@ pub fn mouse_click(x: i32, y: i32, button: String, double: Option<bool>) -> Resu
     crate::halt::global().check()?;
     let (down, up) = button_flags(&button)?;
     let (cx, cy) = clamp_to_screen(x, y);
+    // The click lands on whatever window is under the point. Not a window that
+    // is a Windows permission screen, and not one Windows would silently drop
+    // the click for — see input_guard.rs.
+    crate::input_guard::check_point(cx, cy)?;
     let (nx, ny) = normalize(cx, cy);
     let move_to = mouse_input(nx, ny, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, 0);
 
@@ -195,6 +199,10 @@ pub fn mouse_click(x: i32, y: i32, button: String, double: Option<bool>) -> Resu
 #[tauri::command]
 pub fn mouse_scroll(amount: i32) -> Result<bool, String> {
     crate::halt::global().check()?;
+    // The wheel goes to the window under the cursor.
+    let mut at = POINT::default();
+    unsafe { GetCursorPos(&mut at) }.map_err(|e| e.message())?;
+    crate::input_guard::check_point(at.x, at.y)?;
     // One notch is 120 units in Win32's own vocabulary; the argument is in
     // notches so a caller never has to know that.
     let delta = amount.clamp(-20, 20) * 120;
@@ -206,6 +214,10 @@ pub fn mouse_scroll(amount: i32) -> Result<bool, String> {
 pub fn mouse_drag(from_x: i32, from_y: i32, to_x: i32, to_y: i32, button: Option<String>) -> Result<bool, String> {
     crate::halt::global().check()?;
     let (down, up) = button_flags(button.as_deref().unwrap_or("left"))?;
+    let (gx, gy) = clamp_to_screen(from_x, from_y);
+    crate::input_guard::check_point(gx, gy)?;
+    let (hx, hy) = clamp_to_screen(to_x, to_y);
+    crate::input_guard::check_point(hx, hy)?;
     let (fx, fy) = normalize(clamp_to_screen(from_x, from_y).0, clamp_to_screen(from_x, from_y).1);
     let (tx, ty) = normalize(clamp_to_screen(to_x, to_y).0, clamp_to_screen(to_x, to_y).1);
 
@@ -290,6 +302,7 @@ fn modifier_key(name: &str) -> Option<VIRTUAL_KEY> {
 #[tauri::command]
 pub fn press_key(key: String) -> Result<bool, String> {
     crate::halt::global().check()?;
+    crate::input_guard::check_foreground()?;
     let vk = named_key(&key).ok_or_else(|| format!("No key called “{key}”."))?;
     send(&[
         key_input(vk, KEYBD_EVENT_FLAGS(0)),
@@ -301,6 +314,7 @@ pub fn press_key(key: String) -> Result<bool, String> {
 #[tauri::command]
 pub fn hotkey(modifiers: Vec<String>, key: String) -> Result<bool, String> {
     crate::halt::global().check()?;
+    crate::input_guard::check_foreground()?;
     if modifiers.len() > 3 {
         return Err("That's too many modifier keys.".into());
     }
@@ -343,6 +357,7 @@ pub fn hotkey(modifiers: Vec<String>, key: String) -> Result<bool, String> {
 #[tauri::command]
 pub fn type_text(text: String) -> Result<bool, String> {
     crate::halt::global().check()?;
+    crate::input_guard::check_foreground()?;
     const MAX_CHARS: usize = 4000;
     if text.chars().count() > MAX_CHARS {
         return Err("That's too much text to type in one go.".into());
