@@ -129,9 +129,10 @@ reviewed in a diff.
 
 ## Where things stand
 
-**Version 1.0.4**, fixes on top of 1.0.3’s “doing, not answering” update: the
-calculator works with no model, drafts survive a trip to Settings, and the
-microphone never stays open without a press. Built and working:
+**Version 1.0.5**: five more accent colours (Emerald, Titanium, Arctic, Gold, Rose),
+execution modes that each behave differently and check what a button would do before
+pressing it, and Nova Intelligence that Atlas can find and start for you. Built on
+1.0.4’s fixes to the calculator, drafts and microphone. Built and working:
 
 - **The engine and shell** — the kernel, the Tauri app, memory, and over 150
   skills, every one declared with its arguments, risk and required capabilities.
