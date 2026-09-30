@@ -620,6 +620,13 @@ export interface Platform {
   onFileDrag?(handler: (event: FileDragEvent) => void): Promise<() => void>;
 
   /**
+   * Whether the summon key (Ctrl+Space) could be reserved: `null` when it could,
+   * otherwise a sentence saying why not — another program owns it. Atlas starts
+   * either way.
+   */
+  summonKeyStatus?(): Promise<string | null>;
+
+  /**
    * Which Windows this is — informational, shown in About. Not gated by a
    * `CapabilityName`: nothing in this port actually varies by version, so
    * there is no skill to hide and no planner decision this affects.

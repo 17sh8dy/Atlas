@@ -287,6 +287,8 @@ export function createTauriPlatform(): Platform {
       invokeInput<boolean>('uia_set_value', { windowId, path, value }),
     uiaFocus: (windowId, path) => invokeInput<boolean>('uia_focus', { windowId, path }),
 
+    summonKeyStatus: () => invoke<string | null>('summon_key_status'),
+
     inputProbe: (target) =>
       invoke<InputProbe>('input_probe', {
         x: target?.x ?? null,

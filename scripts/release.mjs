@@ -31,7 +31,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const skipChecks = args.includes('--skip-checks');
-const notes = args.flatMap((a, i) => (a === '--note' && args[i + 1] ? [args[i + 1]] : []));
+let notes = args.flatMap((a, i) => (a === '--note' && args[i + 1] ? [args[i + 1]] : []));
 const REPO = '17sh8dy/Atlas';
 
 function fail(message) {
@@ -71,6 +71,24 @@ if (pkg !== version || cargo !== version) {
 }
 const tag = `v${version}`;
 console.log(`  Atlas ${version}  (tag ${tag})`);
+
+// Release notes are what the in-app update prompt says. 1.0.5 went out with none, so
+// people were asked to update with no word on why. They come from
+// release-notes/<version>.txt (one note per line; blank lines and # comments ignored),
+// or from --note flags, and a release with neither is refused.
+if (!notes.length) {
+  const file = join(root, 'release-notes', `${version}.txt`);
+  if (existsSync(file)) {
+    notes = readFileSync(file, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+  }
+}
+if (!notes.length) {
+  fail(`No release notes for ${version}. Add release-notes/${version}.txt (one plain-language line per change) or pass --note "...".`);
+}
+console.log(`  ${notes.length} release note${notes.length === 1 ? '' : 's'}`);
 
 // 2. Refuse to publish something that is not exactly what is on GitHub.
 step('Checking the repository');

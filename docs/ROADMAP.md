@@ -1769,6 +1769,33 @@ means in-page HTML drag-and-drop does not fire (nothing in Atlas uses it today).
 
 ---
 
+## Phase 18 — 1.0.6: the update that rolled back (2026-09-30)
+
+1.0.5 was published, and the first real update to it **rolled back**: "The new version did not
+start properly. Atlas went back to version 1.0.4." The rollback did its job (nothing was lost);
+the cause was a bug that had been in Atlas all along.
+
+- **Cause.** Setup registered the summon key (Ctrl+Space) with `?`. If another program already
+  owned it, setup returned the error and Tauri panicked (`HotKey already registered`), which in a
+  release build is a fast-fail (`0xc0000409`). On that machine another program does own it. 1.0.4
+  has the same line, so it would have crashed on any cold start where the other program got there
+  first. It only showed up at the update because that is a fresh start.
+- **How it was found.** Windows' Application log (`Application Error`, faulting module
+  `atlas-desktop.exe` 1.0.5) and the updater log ("never confirmed its launch"), then the release
+  binary run by hand with stderr captured. A second process could not register Ctrl+Space either,
+  which showed the key was already taken.
+- **Fix.** Registering the summon key can no longer abort startup. Atlas starts, is reachable from
+  the tray icon, records the reason, and Settings → General says so. Pinned by a test that the
+  registration is handled and not propagated; checked for real by starting the old and the fixed
+  build while the key was held (old: crashed; fixed: stayed up).
+- **"No message for the update."** The 1.0.5 manifest had `"releaseNotes": []`, so the update
+  prompt had nothing to say. `pnpm release` now reads `release-notes/<version>.txt` (or `--note`)
+  and **refuses to publish a release with no notes**.
+- **Not changed:** the updater itself worked as designed — it installed, noticed the new version
+  never confirmed, and restored 1.0.4.
+
+---
+
 ## Ideas for later — subscriptions, memory, Atlas Mobile (Brandon, 2026-09-24)
 
 Recorded, not decided. Each needs its own decision before any code, as every "Ideas"

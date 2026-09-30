@@ -30,6 +30,7 @@ import type { CapabilityName, ExecutionMode, Platform } from '@atlas/core';
 import { DEFAULT_EXECUTION_MODE, EXECUTION_MODES, EXECUTION_MODE_META } from '@atlas/core';
 import { Button, Icons, Input, SegmentedControl } from '@atlas/ui';
 import { EmergencyStop } from './general/EmergencyStop';
+import { SummonKeyNotice } from './general/SummonKeyNotice';
 import { WebSearch } from './general/WebSearch';
 
 interface Props {
@@ -167,6 +168,8 @@ export function General({
           ))}
         </dl>
       </section>
+
+      <SummonKeyNotice platform={platform} />
 
       <EmergencyStop platform={platform} />
 

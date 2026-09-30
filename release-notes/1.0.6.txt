@@ -1,0 +1,6 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+Fixed: Atlas could fail to start when another program already used Ctrl+Space. It now starts anyway and tells you in Settings.
+New: Atlas asks before using administrator rights, and never answers Windows permission prompts.
+New: drag files onto the chat bar to attach them.
+New: five more accent colours, and Sunset and Ocean are easier to read.
+Improved: after typing or clicking, Atlas says whether it could confirm the result.

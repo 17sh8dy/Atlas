@@ -920,7 +920,7 @@ mod tests {
             "audio_devices", "nova_intelligence_locate", "nova_intelligence_launch_state",
             // Reads and refusals: what rights Atlas has, whether a target may be sent
             // input, and dropping an approval. Cancelling can only ever make less happen.
-            "elevation_status", "elevation_cancel", "input_probe",
+            "elevation_status", "elevation_cancel", "input_probe", "summon_key_status",
             // Ends the one server Atlas itself started, never anything else. A stop that
             // could not stop Atlas's own model server would be the wrong way round.
             "nova_intelligence_stop",

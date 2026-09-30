@@ -152,6 +152,29 @@ fn capabilities(app: tauri::AppHandle) -> Vec<&'static str> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Whether the summon key could be reserved: `None` when it could, otherwise a
+/// sentence saying why not.
+struct SummonKeyStatus(std::sync::Mutex<Option<String>>);
+
+/// Ctrl+Space is Atlas's summon key. When it is taken, this is what the person
+/// is told - not the library's error text.
+fn summon_key_problem(error: &str) -> String {
+    if error.to_ascii_lowercase().contains("already registered") {
+        "Ctrl+Space is being used by another program, so Atlas couldn't reserve it as its summon key. Atlas is running - open it from the tray icon.".to_string()
+    } else {
+        format!(
+            "Atlas couldn't reserve Ctrl+Space as its summon key ({error}). Atlas is running - open it from the tray icon."
+        )
+    }
+}
+
+/// Read by Settings, so a summon key that isn't working is explained instead of
+/// silently not responding.
+#[tauri::command]
+fn summon_key_status(state: tauri::State<SummonKeyStatus>) -> Option<String> {
+    state.0.lock().ok().and_then(|s| s.clone())
+}
+
 pub fn run() {
     // Before anything else: how did the last update end, and is this a new
     // version that has failed to come up? See updater.rs.
@@ -270,6 +293,7 @@ pub fn run() {
             input::hotkey,
             input::type_text,
             input_guard::input_probe,
+            summon_key_status,
             elevation::elevation_status,
             elevation::elevation_prepare,
             elevation::elevation_run,
@@ -325,7 +349,21 @@ pub fn run() {
         ])
         .manage(StorageState(std::sync::Mutex::new(())))
         .setup(move |app| {
-            app.global_shortcut().register(summon_shortcut)?;
+            // The summon key is a convenience, never a requirement. Another
+            // program can already hold Ctrl+Space (it is a popular choice), and
+            // that used to abort startup with "HotKey already registered" - which
+            // is how 1.0.5 failed to launch after an update and was rolled back.
+            // Now Atlas comes up anyway, is reachable from its tray icon, and says
+            // so in Settings.
+            let summon_problem = match app.global_shortcut().register(summon_shortcut) {
+                Ok(()) => None,
+                Err(err) => {
+                    let note = summon_key_problem(&err.to_string());
+                    diagnostics::record("startup", &note);
+                    Some(note)
+                }
+            };
+            app.manage(SummonKeyStatus(std::sync::Mutex::new(summon_problem)));
 
             // Seed the allowed-folders list from whatever was saved last time
             // — before any file command can run, since every one of them
@@ -395,3 +433,37 @@ pub fn run() {
 
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tauri::Emitter;
+
+#[cfg(test)]
+mod summon_key_tests {
+    use super::*;
+
+    #[test]
+    fn a_taken_summon_key_is_explained_in_plain_words_and_points_at_the_tray() {
+        let note = summon_key_problem("HotKey already registered: HotKey { mods: Modifiers(CONTROL), key: Space }");
+        assert!(note.contains("another program"), "{note}");
+        assert!(note.contains("tray icon"), "{note}");
+        assert!(!note.contains("HotKey {"), "the library's error text is not shown: {note}");
+    }
+
+    #[test]
+    fn any_other_failure_still_says_atlas_is_running() {
+        let note = summon_key_problem("the operating system said no");
+        assert!(note.contains("the operating system said no"));
+        assert!(note.contains("Atlas is running"));
+    }
+
+    /// 1.0.5 failed to launch after an update because this line used `?`: another
+    /// program owned Ctrl+Space, setup returned the error, and Tauri panicked. The
+    /// behaviour is checked for real (a second process holds the key, the app must
+    /// stay up); this pins the shape so the `?` cannot quietly come back.
+    #[test]
+    fn registering_the_summon_key_can_never_abort_startup() {
+        let source = include_str!("lib.rs");
+        let setup = &source[source.find(".setup(move |app|").expect("setup hook")..];
+        let register = setup.find("register(summon_shortcut)").expect("registration");
+        let after = &setup[register..register + 80];
+        assert!(!after.contains(")?"), "the summon key registration propagates its error again: {after}");
+        assert!(setup[..register].contains("let summon_problem = match"), "its result is handled, not returned");
+    }
+}
