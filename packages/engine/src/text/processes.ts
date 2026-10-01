@@ -102,6 +102,8 @@ export function matchRunningProcess(
   query: string,
   processes: readonly ProcessEntry[],
   windows: readonly WindowEntry[] = [],
+  /** Reading about a protected process is fine; only ending it is not. */
+  options: { includeProtected?: boolean } = {},
 ): ProcessMatch {
   const key = spokenKey(query);
   if (!key) return { kind: 'none' };
@@ -109,7 +111,7 @@ export function matchRunningProcess(
   const byImage = new Map<string, { name: string; pids: number[] }>();
   for (const p of processes) {
     const k = imageKey(p.name);
-    if (PROTECTED_PROCESSES.includes(k)) continue;
+    if (!options.includeProtected && PROTECTED_PROCESSES.includes(k)) continue;
     const entry = byImage.get(k) ?? { name: p.name, pids: [] };
     entry.pids.push(p.pid);
     byImage.set(k, entry);

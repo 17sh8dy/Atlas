@@ -1,5 +1,15 @@
 # What the update prompt says. One plain-language line per change; the first four are shown.
+New: reminders and alarms that survive a restart ("remind me to call mom at 5"), plus a stopwatch.
+New: sleep, hibernate and a timed shutdown; set the volume exactly; mute your mic; dark mode; Wi-Fi, Bluetooth and Do Not Disturb; wallpaper and mouse speed.
+New: zip and unzip, find duplicate files, compare two files, and "what changed in Downloads today".
+New: git and projects without typing a folder ("git status", "push my changes", "open this project in VS Code"), plus ping and "what's playing".
+New: routines you approve once ("every day at 8, open Spotify") — safe steps only, and they stop if anything needs you.
+New: "do that again" and "undo that"; delete, rename and move files by name ("delete notes.txt in Documents"); restore from the Recycle Bin.
+New: brightness, per-app volume, power plans, startup apps, printers, speed test, DNS flush, convert / compress / resize media, batch rename, new-app scaffolding, winget installs.
+New: find files by type, size or age; the SHA-256 of a file; what's inside a zip; compare two folders; merge, tag and unstage in git; DNS lookup and trace route; firewall, BIOS and process questions; search GitHub, Reddit and more; restart an app.
+New: shortcuts and duplicate-a-folder, a cleanup you review first (temp files, crash dumps, old installers), clipboard history you can turn on (never saved, never keeps passwords or keys), an Atlas self-test, and a scroll-speed setting for long conversations.
 Fixed: Atlas could fail to start when another program already used Ctrl+Space. It now starts anyway and tells you in Settings.
+Fixed: "press Alt Tab", "push to GitHub" and "run X as administrator" no longer do the wrong thing, and a sentence is no longer treated as a program name.
 New: Atlas asks before using administrator rights, and never answers Windows permission prompts.
 New: drag files onto the chat bar to attach them.
 New: five more accent colours, and Sunset and Ocean are easier to read.

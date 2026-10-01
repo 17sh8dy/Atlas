@@ -52,6 +52,12 @@ futures-util = "0.3"
 # connection mid-answer. Already in the tree via Tauri; this only names it.
 tokio = { version = "1", features = ["sync", "macros"] }
 scraper = "0.20"
+# shell_tools.rs: the startup-apps list and its enabled/disabled flags.
+winreg = "0.52"
+# file_tools.rs: zip / unzip. Deflate only — no encryption, no bzip2/zstd/xz —
+# so the binary stays small and there is nothing exotic to parse in an archive
+# that arrives from the internet.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 # screen.rs: encodes the raw BGRA buffer GDI hands back into PNG. GDI capture
 # is real, bug-prone work the ecosystem already solved correctly; writing a
 # PNG encoder by hand for this would be new bugs for no new capability.
@@ -139,6 +145,25 @@ windows = { version = "0.58", features = [
   # name Windows shows for them (IMMDeviceEnumerator + the device's property
   # store). Read-only — there is no documented API for *changing* the default.
   "Win32_Media_Audio",
+  # system_controls.rs: exact volume and microphone level/mute (IAudioEndpointVolume),
+  # sleep/hibernate and what this PC supports (powrprof).
+  "Win32_Media_Audio_Endpoints",
+  # ping.rs: the ICMP echo API (iphlpapi).
+  "Win32_NetworkManagement_IpHelper",
+  # display_audio.rs: monitor brightness over DDC/CI.
+  "Win32_Devices_Display",
+  # shell_tools.rs: installed printers and the default printer.
+  "Win32_Graphics_Printing",
+  # shell_tools.rs: which graphics cards this PC has (DXGI).
+  "Win32_Graphics_Dxgi",
+  "Win32_Networking_WinSock",
+  # settings_controls.rs: what is playing (the system media session) and the Wi-Fi /
+  # Bluetooth radios are WinRT, reached through the same crate.
+  "Media_Control",
+  "Devices_Radios",
+  "Foundation",
+  "Foundation_Collections",
+  "Win32_System_Power",
   "Win32_UI_Shell_PropertiesSystem",
   "Win32_Devices_FunctionDiscovery",
 ] }

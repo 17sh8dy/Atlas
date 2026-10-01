@@ -237,6 +237,36 @@ export function createInputSkills(platform: Platform): Skill[] {
   });
 
   skills.push({
+    id: 'input.holdKey',
+    label: 'Hold a key',
+    icon: '⌨️',
+    domain: 'system',
+    description: 'Hold one key down for a few seconds (0.1–10), then let go — for a game, or to scroll with an arrow key.',
+    needs: ['input'],
+    risk: 'safe',
+    examples: ['hold w for 3 seconds'],
+    assess: async (args) =>
+      activatesFocused(String(args.key ?? '')) ? assessFocused(platform, String(args.key)) : { kind: 'routine' },
+    params: {
+      key: { type: 'string', required: true, description: 'a letter, digit or named key' },
+      seconds: { type: 'number', required: true, description: 'how long, 0.1–10' },
+    },
+    async run(args) {
+      const key = String(args.key ?? '');
+      const seconds = Number(args.seconds);
+      if (!Number.isFinite(seconds) || seconds < 0.1 || seconds > 10) {
+        return { ok: false, error: 'I can hold a key for between 0.1 and 10 seconds.' };
+      }
+      return performInput({
+        platform,
+        label: `Held ${key} for ${seconds} second${seconds === 1 ? '' : 's'}`,
+        failure: `I couldn't hold "${key}".`,
+        send: () => platform.holdKey?.(key, seconds) as Promise<boolean | undefined>,
+      });
+    },
+  });
+
+  skills.push({
     id: 'input.hotkey',
     label: 'Press a key combination',
     icon: '⌨️',

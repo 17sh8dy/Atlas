@@ -918,6 +918,9 @@ mod tests {
             "uia_focused_element", "web_search", "fetch_page", "speech_voices",
             "cursor_position", "list_windows", "active_window", "capabilities", "has_secret",
             "audio_devices", "nova_intelligence_locate", "nova_intelligence_launch_state",
+            // 1.0.6: the state getters beside the new setters — they only read.
+            "file_attributes", "compare_files", "largest_subfolders", "hardware_specs", "play_alert_sound", "winget_search", "winget_upgrades", "recycle_bin_list", "startup_apps", "printers", "brightness_get", "app_volumes", "power_plan", "mouse_speed", "explorer_options", "do_not_disturb", "radios",
+            "now_playing", "power_states", "volume_state", "mic_state", "theme_get",
             // Reads and refusals: what rights Atlas has, whether a target may be sent
             // input, and dropping an approval. Cancelling can only ever make less happen.
             "elevation_status", "elevation_cancel", "input_probe", "summon_key_status",

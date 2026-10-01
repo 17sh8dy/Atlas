@@ -23,7 +23,7 @@
  * the screen you open the most.
  */
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   ActivityRun,
   Attachment,
@@ -40,8 +40,11 @@ import { HomeBackdrop } from '../effects/HomeBackdrop';
 import { CapabilityCards } from '../components/CapabilityCards';
 import { RecentActivity } from '../components/RecentActivity';
 import type { Entry } from '../atlas/useAtlas';
+import { useWheelSpeed } from '../atlas/useWheelSpeed';
 
 interface Props {
+  /** Percent of normal wheel-scroll speed (Settings → General). */
+  scrollSpeed?: number;
   entries: Entry[];
   busy: boolean;
   /** A confirmation is open, so the composer must stay usable. */
@@ -93,6 +96,7 @@ interface Props {
 }
 
 export function Conversation({
+  scrollSpeed,
   entries,
   busy,
   awaitingAnswer,
@@ -130,10 +134,12 @@ export function Conversation({
   // even when the same card is clicked twice in a row with nothing typed
   // in between — same pattern as `dictated` just below it.
   const [prefill, setPrefill] = useState<{ text: string; at: number } | null>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  useWheelSpeed(scrollerRef, scrollSpeed ?? 100);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {entries.length === 0 ? (
           <EmptyState
             memory={memory}

@@ -39,7 +39,7 @@
 import type { SkillResult } from '@atlas/core';
 
 /** Small on purpose. Resilience, not autonomy — see the module doc. */
-export const MAX_ATTEMPTS = 3;
+export const MAX_ATTEMPTS = 5;
 
 export interface AttemptOutcome<T> {
   result: SkillResult<T>;

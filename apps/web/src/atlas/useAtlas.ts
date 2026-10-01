@@ -13,6 +13,8 @@
  * the executor) rather than reimplemented per button.
  */
 
+import { CLIPBOARD_HISTORY_CHANGED, readClipboardHistoryEnabled } from './clipboardHistory';
+import { appChecks } from './selfchecks';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CloudProviderConfig,
@@ -52,6 +54,26 @@ import {
   createCalcSkills,
   createNotesSkills,
   createOsSkills,
+  createReminderSkills,
+  createSystemControlSkills,
+  createFileToolsSkills,
+  createSettingsSkills,
+  createShellSkills,
+  withSpokenPaths,
+  createEverydaySkills,
+  createCreatorSkills,
+  createAppsSkills,
+  createCoverageSkills,
+  createCatalogSkills,
+  createCatalogFileSkills,
+  createCatalogGitSkills,
+  createCatalogSystemSkills,
+  createCatalogMediaSkills,
+  createCatalogMakeSkills,
+  createSelfTestSkills,
+  createClipboardHistorySkills,
+  ClipboardHistory,
+  ReminderScheduler,
   createNetworkSkills,
   createServiceSkills,
   createEnvironmentSkills,
@@ -59,6 +81,9 @@ import {
   createOrganizeSkills,
   withFileJournal,
   createDevToolsSkills,
+  ProjectContext,
+  withCurrentProject,
+  createProjectSkills,
   createDevAgentSkill,
   createUiAgentSkill,
   createWindowSkills,
@@ -74,6 +99,8 @@ import {
   readAffirmation,
   recordEpisodes,
   createWatchSkills,
+  RoutineScheduler,
+  createRoutineSkills,
   watchRow,
   createSetupSkills,
   WatchManager,
@@ -95,7 +122,7 @@ export interface Entry {
   kind: EntryKind;
   text?: string;
   rows?: ResultRow[];
-  meta?: { title?: string; subtitle?: string };
+  meta?: { title?: string; subtitle?: string; private?: boolean };
   /** Confirmation entries carry their own resolution state. */
   question?: string;
   detail?: string;
@@ -337,7 +364,9 @@ export function useAtlas(
   useEffect(() => {
     if (!loaded.current) return;
     const timer = setTimeout(() => {
-      storage.set(TRANSCRIPT_KEY, entries.slice(-TRANSCRIPT_LIMIT)).catch(() => {});
+      // A list marked private (clipboard history) is shown but never written to disk.
+      const keep = entries.filter((e) => !(e.kind === 'results' && e.meta?.private));
+      storage.set(TRANSCRIPT_KEY, keep.slice(-TRANSCRIPT_LIMIT)).catch(() => {});
     }, TRANSCRIPT_SAVE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [entries, storage]);
@@ -446,6 +475,77 @@ export function useAtlas(
   );
   useEffect(() => () => watchManager.dispose(), [watchManager]);
 
+  // Reminders and alarms: kept in storage, checked against the clock every
+  // second, and fired as a notification (and a line in the chat) — including
+  // ones that came due while Atlas was closed, marked as missed.
+  // Clipboard history: opt-in, memory only (see engine `clipboard/history.ts`). The poller below
+  // reads the clipboard ONLY while the setting is on.
+  const clipHistory = useMemo(() => new ClipboardHistory(), []);
+  const clipEnabled = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    void readClipboardHistoryEnabled(storage).then((v) => {
+      if (alive) clipEnabled.current = v;
+    });
+    const onChange = (e: Event) => {
+      clipEnabled.current = (e as CustomEvent).detail === true;
+      if (!clipEnabled.current) clipHistory.clear();
+    };
+    window.addEventListener(CLIPBOARD_HISTORY_CHANGED, onChange);
+    const timer = window.setInterval(() => {
+      if (!clipEnabled.current || !platform.readClipboard) return;
+      platform
+        .readClipboard()
+        .then((text) => clipHistory.capture(text))
+        .catch(() => {});
+    }, 1500);
+    return () => {
+      alive = false;
+      window.removeEventListener(CLIPBOARD_HISTORY_CHANGED, onChange);
+      window.clearInterval(timer);
+      clipHistory.clear();
+    };
+  }, [storage, platform, clipHistory]);
+
+  const reminders = useMemo(
+    () =>
+      new ReminderScheduler({
+        storage,
+        notify: (title, body) => void platform.notify?.(title, body).catch(() => false),
+        announce: (text) => announceRef.current(text),
+      }),
+    [storage, platform],
+  );
+  useEffect(() => {
+    void reminders.start();
+    return () => reminders.dispose();
+  }, [reminders]);
+
+  // Routines: a recurring plan the person approved once. Runs through the same engine as
+  // everything else, and the emergency stop pauses every one (see applyHalt).
+  const routines = useMemo(
+    () =>
+      new RoutineScheduler({
+        storage,
+        run: (plan, runIo, extra) =>
+          engineRef.current
+            ? engineRef.current.run(plan, runIo, extra)
+            : Promise.resolve({
+                ok: false,
+                ran: 0,
+                aborted: true,
+                outcomes: [{ skill: plan.steps[0]?.skill ?? '', ok: false, error: 'Atlas is still starting.' }],
+              }),
+        announce: (text) => announceRef.current(text),
+        notify: (title, body) => void platform.notify?.(title, body).catch(() => false),
+      }),
+    [storage, platform],
+  );
+  useEffect(() => {
+    void routines.start();
+    return () => routines.dispose();
+  }, [routines]);
+
   // Which search backends recently refused lives here, not inside the engine
   // memo below: the engine is rebuilt whenever a provider setting changes, and
   // a spent Tavily allowance should not be forgotten every time it is.
@@ -478,8 +578,14 @@ export function useAtlas(
     const skills = new SkillRegistry({ capabilities: () => capabilities });
     // Every single-file skill is journaled, so "undo that" and "what did you
     // change" cover all file work, not only the tidy-up.
+    // Spoken names ("notes.txt in documents") are resolved outside the journal, so
+    // the journal records the real path and "undo that" works on it.
     skills.registerMany(
-      withFileJournal(createCoreSkills(platform, memory, skills, phrasing), fileJournal),
+      withSpokenPaths(
+        withFileJournal(createCoreSkills(platform, memory, skills, phrasing), fileJournal),
+        platform,
+        memory,
+      ),
     );
     skills.registerMany(createWebSearchSkills(platform, searchManager));
     skills.registerMany(createUtilitySkills());
@@ -487,12 +593,32 @@ export function useAtlas(
     skills.registerMany(createCalcSkills());
     skills.registerMany(createNotesSkills(memory));
     skills.registerMany(createOsSkills(platform));
+    skills.registerMany(createSystemControlSkills(platform));
+    skills.registerMany(createFileToolsSkills(platform, memory));
+    skills.registerMany(createSettingsSkills(platform, memory));
+    skills.registerMany(createShellSkills(platform, memory));
+    skills.registerMany(createEverydaySkills(platform));
+    skills.registerMany(createCreatorSkills(platform, memory));
+    skills.registerMany(createAppsSkills(platform));
+    skills.registerMany(createCoverageSkills(platform));
+    skills.registerMany(createCatalogSkills(platform, skills));
+    skills.registerMany(createCatalogFileSkills(platform, memory));
+    skills.registerMany(createCatalogSystemSkills(platform));
+    skills.registerMany(createCatalogMediaSkills(platform, memory));
+    skills.registerMany(createCatalogMakeSkills(platform, memory));
+    skills.registerMany(createClipboardHistorySkills({ platform, history: clipHistory, isEnabled: () => clipEnabled.current }));
+    skills.registerMany(createReminderSkills(reminders));
     skills.registerMany(createNetworkSkills(platform));
     skills.registerMany(createServiceSkills(platform));
     skills.registerMany(createEnvironmentSkills(platform));
     skills.registerMany(createStorageSkills(platform));
     skills.registerMany(createOrganizeSkills(platform, fileJournal));
-    skills.registerMany(createDevToolsSkills(platform));
+    // The developer skills may leave the folder out (the current project fills in)
+    // or speak it ("atlas"); a successful run makes its folder the current project.
+    const projectContext = new ProjectContext(memory);
+    skills.registerMany(withCurrentProject(createDevToolsSkills(platform), projectContext, platform, memory));
+    skills.registerMany(withCurrentProject(createCatalogGitSkills(platform), projectContext, platform, memory));
+    skills.registerMany(createProjectSkills(platform, projectContext, memory));
     skills.registerMany(createWindowSkills(platform));
     skills.registerMany(createInputSkills(platform));
     skills.registerMany(createUiaSkills(platform));
@@ -517,10 +643,25 @@ export function useAtlas(
         planFor: (text) => (built ? built.planFor(text) : Promise.resolve(null)),
       }),
     );
+    skills.registerMany(
+      createRoutineSkills({
+        scheduler: routines,
+        skills,
+        planFor: (text) => (built ? built.planFor(text) : Promise.resolve(null)),
+      }),
+    );
 
     const grammar = new Grammar();
     grammar.addMany(createCoreGrammar(working));
     grammar.addMany(createExtraGrammar());
+    skills.registerMany(
+      createSelfTestSkills({
+        skills,
+        platform,
+        route: (text) => grammar.parse(text)?.steps[0]?.skill ?? null,
+        extraChecks: () => appChecks({ storage, executionMode: () => executionModeRef.current, hasModel: () => builtIntelligence.registry.active() !== null }),
+      }),
+    );
 
     // The models Atlas can talk to, and which one is in use — see
     // `buildIntelligence`. This is the conversation and reasoning layer only:
@@ -563,7 +704,11 @@ export function useAtlas(
     });
     return built;
   }, [
+    clipHistory,
+    storage,
     setupStore,
+    reminders,
+    routines,
     watchManager,
     platform,
     searchManager,
@@ -678,7 +823,7 @@ export function useAtlas(
         // all, and even in chat a silent reply reads as broken rather than
         // answered, so this is the one place both surfaces get a sentence for
         // what would otherwise be nothing back.
-        speakIfEnabled(summarizeForSpeech(rows, meta));
+        speakIfEnabled(meta?.private ? (meta.title ?? '') : summarizeForSpeech(rows, meta));
       },
       // Words as they are generated, not the whole answer at the end. The
       // engine asks for this only when a model is answering; everything else
@@ -827,6 +972,7 @@ export function useAtlas(
       engine.halt();
       // Every watch pauses too, and stays paused until the person resumes it.
       void watchManager.haltAll();
+      void routines.pauseAll();
       queued.current = null;
       onHaltRef.current();
 
@@ -856,7 +1002,7 @@ export function useAtlas(
         { id: nextId++, kind: 'halted', source: event.source, at: Date.now() },
       ]);
     },
-    [engine, watchManager],
+    [engine, watchManager, routines],
   );
 
   useEffect(() => {

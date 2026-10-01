@@ -37,11 +37,14 @@ import type {
   Platform,
   ResultRow,
   Skill,
+  SkillContext,
+  SkillResult,
 } from '@atlas/core';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { rankMatches, nearMatches, RANK } from '../text/fuzzy';
 import { resolveSite, exactSiteName } from '../text/sites';
 import { attemptGoal } from '../planner/attempts';
+import { askWhereItIs, whereInWords } from './ask-where';
 import { evaluateExpression, formatNumber } from './math';
 import { convertUnit } from './units';
 import type { SkillRegistry } from './registry';
@@ -83,6 +86,11 @@ const SYSTEM_TOOL_NAMES: Record<string, string> = {
   'file-explorer': 'File Explorer',
   'this-pc': 'This PC',
   'recycle-bin': 'the Recycle Bin',
+  services: 'Services',
+  'event-viewer': 'Event Viewer',
+  'disk-management': 'Disk Management',
+  'resource-monitor': 'Resource Monitor',
+  'registry-editor': 'Registry Editor',
 };
 
 /**
@@ -386,7 +394,7 @@ export function createCoreSkills(
       'Set a timer and get a notification when it finishes, for as long as Atlas is running.',
     needs: ['notifications'],
     risk: 'safe',
-    examples: ['set a timer for 10 minutes', 'remind me in 5 minutes to stretch'],
+    examples: ['set a timer for 10 minutes'],
     params: {
       seconds: { type: 'number', required: true, description: 'how long, in seconds' },
       label: { type: 'string', required: false, description: 'what the timer is for' },
@@ -917,28 +925,10 @@ export function createCoreSkills(
 
   // ---- applications --------------------------------------------------------
 
-  skills.push({
-    id: 'app.open',
-    label: 'Open an app',
-    icon: '🚀',
-    domain: 'apps',
-    description: 'Launch an installed application by name.',
-    needs: ['apps'],
-    risk: 'safe',
-    examples: ['open steam', 'launch discord'],
-    params: { name: { type: 'string', required: true, description: 'the application name' } },
-    // "open a game" names no game. Launching whichever program's name happens
-    // to contain the word would be a guess, so Atlas asks which one.
-    clarify(args) {
-      const vague = readVagueTarget(String(args.name ?? ''));
-      return vague
-        ? { param: 'name', noun: vague.noun, question: vague.question, many: true }
-        : null;
-    },
-    summarize: (args) => `open ${String(args.name ?? '').trim()}`,
-    async run(args, ctx) {
+  /** `open <name>`: installed app, several apps, a known site, an open window, a program on disk — then ask. */
+  const openApp = async (rawName: string, ctx: SkillContext, depth: number): Promise<SkillResult> => {
       const apps = await platform.listApps!();
-      const { wanted, matches } = resolveAppName(apps, String(args.name).trim());
+      const { wanted, matches } = resolveAppName(apps, rawName.trim());
 
       // Three relevant, ordered ways to satisfy "open <name>" — each one a
       // real, causally-connected strategy for *this* request, never a random
@@ -1059,6 +1049,66 @@ export function createCoreSkills(
             return { result: { ok: false, error: 'no known destination' } };
           },
         },
+        {
+          // It may already be open — a portable app, or one launched some other way. Bring
+          // it forward rather than saying it does not exist.
+          id: 'already-open',
+          async run() {
+            if (matches.length || !platform.listWindows || !platform.focusWindow) {
+              return { result: { ok: false, error: 'not applicable' } };
+            }
+            const windows = (await platform.listWindows().catch(() => [])) ?? [];
+            const key = wanted.toLowerCase();
+            const hit = windows.find(
+              (w) => w.title.toLowerCase().includes(key) || w.processName.toLowerCase().replace(/\.exe$/, '') === key,
+            );
+            if (!hit) return { result: { ok: false, error: 'no open window by that name' } };
+            const ok = await platform.focusWindow(hit.id).catch(() => false);
+            return {
+              final: ok,
+              result: ok
+                ? { ok: true, message: `${hit.title || wanted} is already open — I brought it to the front.` }
+                : { ok: false, error: 'could not focus it' },
+            };
+          },
+        },
+        {
+          // Not installed under that name, but a program or shortcut with it may be on disk.
+          id: 'found-on-disk',
+          async run() {
+            if (matches.length || !platform.searchFiles || !platform.openPath) {
+              return { result: { ok: false, error: 'not applicable' } };
+            }
+            const found = (await platform.searchFiles(wanted, { limit: 12 }).catch(() => [])) ?? [];
+            const runnable = found.filter((f) => !f.isDirectory && ['exe', 'lnk', 'bat', 'cmd', 'url'].includes(f.ext));
+            const stem = (n: string) => n.replace(/\.[^.]+$/, '').toLowerCase();
+            const exact = runnable.filter((f) => stem(f.name) === wanted.toLowerCase());
+            const pick = exact.length === 1 ? exact[0] : runnable.length === 1 ? runnable[0] : null;
+            if (pick) {
+              const ok = await platform.openPath(pick.path).catch(() => false);
+              return {
+                final: true,
+                result: ok
+                  ? { ok: true, message: `Found it on this PC — opening ${pick.name} (${pick.path}).` }
+                  : { ok: false, error: `${pick.name} wouldn't start.` },
+              };
+            }
+            if (runnable.length > 1) {
+              ctx.showResults?.(
+                runnable.slice(0, 6).map((f) => ({
+                  title: f.name,
+                  subtitle: f.path,
+                  icon: '🚀',
+                  payload: f,
+                  actions: [{ label: 'Open', skill: 'files.open', args: { path: f.path } }],
+                })),
+                { title: `Found several matches for “${wanted}”`, subtitle: 'Which one?' },
+              );
+              return { final: true, result: { ok: true, spoken: true, message: '' } };
+            }
+            return { result: { ok: false, error: 'nothing on disk' } };
+          },
+        },
       ]);
 
       if (final) return result;
@@ -1071,10 +1121,35 @@ export function createCoreSkills(
         : nearMatches(apps, wanted, (a) => a.name).map((m) => ({ app: m.item, rank: m.rank }));
 
       if (!near.length) {
-        return {
-          ok: false,
-          error: `I couldn't figure out which app you meant by “${wanted}”. It isn't installed here under that name.`,
-        };
+        const answer = await askWhereItIs(ctx, wanted, 'app', { offerList: true });
+        if (answer.kind === 'name' && depth < 2 && answer.text.toLowerCase() !== wanted.toLowerCase()) {
+          return openApp(answer.text, ctx, depth + 1);
+        }
+        if (answer.kind === 'path') {
+          const ok = await platform.openPath!(answer.text).catch(() => false);
+          return ok
+            ? { ok: true, message: phrasing.opening(answer.text.split(/[\\/]/).pop() ?? answer.text) }
+            : { ok: false, error: `I couldn't open ${answer.text} — check the path, and that it's inside a folder I'm allowed to use (Settings → General).` };
+        }
+        if (answer.kind === 'web') {
+          const url = `https://www.google.com/search?q=${encodeURIComponent(wanted)}`;
+          const ok = await platform.openUrl?.(url).catch(() => false);
+          return ok ? { ok: true, message: `Searching the web for ${wanted}.` } : { ok: false, error: "I couldn't open the browser." };
+        }
+        if (answer.kind === 'list') {
+          const all = await platform.listApps!();
+          ctx.showResults?.(
+            all.slice(0, 60).map((a) => ({
+              title: a.name,
+              icon: a.icon ?? '🚀',
+              payload: a,
+              actions: [{ label: 'Open', skill: 'app.open', args: { name: a.name } }],
+            })),
+            { title: 'Installed applications', subtitle: `${all.length} found` },
+          );
+          return { ok: true, spoken: true, message: '' };
+        }
+        return { ok: false, error: whereInWords(wanted, 'app') };
       }
 
       ctx.showResults?.(
@@ -1088,6 +1163,29 @@ export function createCoreSkills(
         { title: `Nothing called “${wanted}”`, subtitle: 'Did you mean one of these?' },
       );
       return { ok: true, spoken: true, message: '' };
+  };
+
+  skills.push({
+    id: 'app.open',
+    label: 'Open an app',
+    icon: '🚀',
+    domain: 'apps',
+    description: 'Launch an installed application by name.',
+    needs: ['apps'],
+    risk: 'safe',
+    examples: ['open steam', 'launch discord'],
+    params: { name: { type: 'string', required: true, description: 'the application name' } },
+    // "open a game" names no game. Launching whichever program's name happens
+    // to contain the word would be a guess, so Atlas asks which one.
+    clarify(args) {
+      const vague = readVagueTarget(String(args.name ?? ''));
+      return vague
+        ? { param: 'name', noun: vague.noun, question: vague.question, many: true }
+        : null;
+    },
+    summarize: (args) => `open ${String(args.name ?? '').trim()}`,
+    async run(args, ctx) {
+      return openApp(String(args.name), ctx, 0);
     },
   });
 
@@ -1285,6 +1383,11 @@ export function createCoreSkills(
           'file-explorer',
           'this-pc',
           'recycle-bin',
+          'services',
+          'event-viewer',
+          'disk-management',
+          'resource-monitor',
+          'registry-editor',
         ],
         description: 'which system tool to open',
       },

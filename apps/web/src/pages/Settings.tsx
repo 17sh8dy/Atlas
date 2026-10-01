@@ -157,6 +157,7 @@ export function Settings({
             <TabsContent value="general">
               <General
                 platform={platform}
+                storage={storage}
                 capabilities={capabilities}
                 skills={skills}
                 executionMode={executionMode}

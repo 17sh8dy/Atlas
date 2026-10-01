@@ -88,6 +88,8 @@ export function stripFiller(text: string): string {
   out = out.replace(POLITE_PREFIX, '');
   out = out.replace(MECHANISM_PREFIX, '');
   out = out.replace(TRAILING_FILLER, '');
+  // Other ways to say "open": same instruction, one verb for the rules to match.
+  out = out.replace(/^\s*(?:fire\s+up|boot\s+up|spin\s+up|load\s+up|pop\s+open)\s+/i, 'open ');
   out = out.replace(/\s+/g, ' ').trim();
 
   if (!out) return original.trim();

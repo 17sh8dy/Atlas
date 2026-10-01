@@ -59,6 +59,26 @@ export interface ProbeResult {
   failed?: string;
 }
 
+/** The audio device, if any, whose name matches what the person called it ("headphones", "my mic"). */
+export function deviceMatches(spoken: string, names: Array<string | null | undefined>): string | null {
+  const words = spoken.toLowerCase().replace(/\b(?:my|the|a|an)\b/g, ' ').trim();
+  if (!words) return null;
+  // People and Windows name the same thing differently.
+  const synonyms: Record<string, string[]> = {
+    headphones: ['headphone', 'headset', 'earbuds', 'earphones', 'airpods'],
+    headset: ['headset', 'headphone'],
+    mic: ['microphone', 'mic'],
+    microphone: ['microphone', 'mic'],
+    speakers: ['speaker'],
+    speaker: ['speaker'],
+  };
+  const needles = [words, ...(synonyms[words] ?? [])];
+  for (const n of names) {
+    if (n && needles.some((x) => n.toLowerCase().includes(x))) return n;
+  }
+  return null;
+}
+
 /** The condition in words, for the list and the approval card. */
 export function describeCondition(condition: WatchCondition): string {
   switch (condition.kind) {
@@ -74,6 +94,8 @@ export function describeCondition(condition: WatchCondition): string {
       return `${condition.path} exists`;
     case 'online':
       return 'the internet is back';
+    case 'device-appears':
+      return `${condition.label ?? condition.match} is connected`;
     case 'after':
       return `${describeSeconds(condition.seconds)} pass`;
   }
@@ -110,6 +132,7 @@ export function reliableAfterGap(condition: WatchCondition, overdueMs: number): 
     case 'downloads-finish':
     case 'path-exists':
     case 'online':
+    case 'device-appears':
       return true;
   }
 }
@@ -209,6 +232,15 @@ async function probe(
       return (await platform.networkReachable())
         ? { met: true, detail: 'The internet is reachable again.' }
         : { met: false, detail: 'Still offline.' };
+    }
+
+    case 'device-appears': {
+      if (!platform.audioDevices) return { met: false, detail: 'I can’t see audio devices here.' };
+      const d = await platform.audioDevices();
+      const here = deviceMatches(condition.match, [d.input, d.output]);
+      return here
+        ? { met: true, detail: `${condition.label ?? condition.match} is connected (${here}).` }
+        : { met: false, detail: `${condition.label ?? condition.match} isn’t connected yet.` };
     }
 
     case 'after': {

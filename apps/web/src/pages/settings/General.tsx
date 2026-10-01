@@ -26,15 +26,18 @@
 
 import { useEffect, useState } from 'react';
 import type { SkillRegistry } from '@atlas/engine';
-import type { CapabilityName, ExecutionMode, Platform } from '@atlas/core';
+import type { CapabilityName, ExecutionMode, Platform, Storage } from '@atlas/core';
+import { DEFAULT_SCROLL, SCROLL_MAX, SCROLL_MIN, readScroll, writeScroll } from '../../atlas/scroll';
 import { DEFAULT_EXECUTION_MODE, EXECUTION_MODES, EXECUTION_MODE_META } from '@atlas/core';
-import { Button, Icons, Input, SegmentedControl } from '@atlas/ui';
+import { Button, Icons, Input, SegmentedControl, Switch } from '@atlas/ui';
+import { readClipboardHistoryEnabled, writeClipboardHistoryEnabled } from '../../atlas/clipboardHistory';
 import { EmergencyStop } from './general/EmergencyStop';
 import { SummonKeyNotice } from './general/SummonKeyNotice';
 import { WebSearch } from './general/WebSearch';
 
 interface Props {
   platform: Platform;
+  storage: Storage;
   capabilities: readonly CapabilityName[];
   skills: SkillRegistry;
   executionMode: ExecutionMode;
@@ -123,6 +126,7 @@ function capabilityLabels(capabilities: readonly CapabilityName[]): string[] {
 
 export function General({
   platform,
+  storage,
   capabilities,
   skills,
   executionMode,
@@ -169,6 +173,10 @@ export function General({
         </dl>
       </section>
 
+      <ScrollSpeed storage={storage} />
+
+      <ClipboardHistorySetting storage={storage} />
+
       <SummonKeyNotice platform={platform} />
 
       <EmergencyStop platform={platform} />
@@ -204,6 +212,95 @@ export function General({
 
       <AllowedFolders platform={platform} />
     </div>
+  );
+}
+
+/**
+ * Clipboard history. Off until you turn it on. When on, Atlas remembers the last 20 things you
+ * copy so you can ask for them back — in memory only (never saved, gone when Atlas closes), and
+ * anything that looks like a password, key, token or card number is skipped.
+ */
+function ClipboardHistorySetting({ storage }: { storage: Storage }) {
+  const [on, setOn] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void readClipboardHistoryEnabled(storage).then((v) => alive && setOn(v));
+    return () => {
+      alive = false;
+    };
+  }, [storage]);
+
+  return (
+    <section className="mb-8">
+      <div className="border-border flex items-center justify-between gap-4 rounded-xl border px-4 py-3.5">
+        <div>
+          <h2 className="text-foreground text-sm font-medium">Clipboard history</h2>
+          <p className="text-foreground-muted mt-1 text-xs leading-relaxed">
+            Remember the last 20 things you copy so you can ask for them back (“show my clipboard
+            history”). Kept in memory only — never saved, gone when Atlas closes — and anything that
+            looks like a password, key or card number is never kept. Turning it off forgets it all.
+          </p>
+        </div>
+        <Switch
+          checked={on}
+          onCheckedChange={(v) => {
+            setOn(v);
+            void writeClipboardHistoryEnabled(storage, v);
+          }}
+          aria-label="Clipboard history"
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * How fast the conversation scrolls with the mouse wheel. Lower it if a long thread flies
+ * past what you were reading; one wheel step is also capped so a free-spinning wheel can't
+ * fling you to the other end.
+ */
+function ScrollSpeed({ storage }: { storage: Storage }) {
+  const [speed, setSpeed] = useState(DEFAULT_SCROLL.speed);
+
+  useEffect(() => {
+    let alive = true;
+    void readScroll(storage).then((v) => alive && setSpeed(v.speed));
+    return () => {
+      alive = false;
+    };
+  }, [storage]);
+
+  const save = (value: number) => void writeScroll(storage, { speed: value });
+
+  return (
+    <section className="mb-8">
+      <h2 className="text-foreground mb-3 text-sm font-medium">Scroll speed</h2>
+      <p className="text-foreground-muted mb-3 text-xs leading-relaxed">
+        How fast the mouse wheel scrolls the conversation. Turn it down if long conversations fly
+        past. A single wheel flick is also capped, so it can never fling you a long way at once.
+      </p>
+      <label className="flex items-center gap-3">
+        <span className="text-foreground-subtle w-14 text-xs">Speed</span>
+        <input
+          type="range"
+          min={SCROLL_MIN}
+          max={SCROLL_MAX}
+          step={25}
+          value={speed}
+          aria-label="Scroll speed"
+          onChange={(e) => {
+            setSpeed(Number(e.target.value));
+            save(Number(e.target.value));
+          }}
+          className="accent-accent h-1.5 flex-1 cursor-pointer"
+        />
+        <span className="text-foreground-subtle w-12 text-right text-xs tabular-nums">{speed}%</span>
+        <Button variant="ghost" onClick={() => { setSpeed(DEFAULT_SCROLL.speed); save(DEFAULT_SCROLL.speed); }}>
+          Reset
+        </Button>
+      </label>
+    </section>
   );
 }
 

@@ -37,6 +37,27 @@ import { createTextSkills } from '../src/skills/text-skills';
 import { createCalcSkills } from '../src/skills/calc-skills';
 import { createNotesSkills } from '../src/skills/notes-skills';
 import { createOsSkills } from '../src/skills/os-skills';
+import { createReminderSkills } from '../src/skills/reminder-skills';
+import { createSystemControlSkills } from '../src/skills/system-skills';
+import { createRoutineSkills } from '../src/skills/routine-skills';
+import { RoutineScheduler } from '../src/routines/scheduler';
+import { createCoverageSkills } from '../src/skills/coverage-skills';
+import { createCatalogSkills } from '../src/skills/catalog-skills';
+import { createCatalogFileSkills } from '../src/skills/catalog-file-skills';
+import { createCatalogGitSkills } from '../src/skills/catalog-git-skills';
+import { createCatalogSystemSkills } from '../src/skills/catalog-system-skills';
+import { createCatalogMediaSkills } from '../src/skills/catalog-media-skills';
+import { createCatalogMakeSkills } from '../src/skills/catalog-make-skills';
+import { createClipboardHistorySkills } from '../src/skills/clipboard-history-skills';
+import { ClipboardHistory } from '../src/clipboard/history';
+import { createSelfTestSkills } from '../src/skills/selftest-skills';
+import { createAppsSkills } from '../src/skills/apps-skills';
+import { createCreatorSkills } from '../src/skills/creator-skills';
+import { createEverydaySkills } from '../src/skills/everyday-skills';
+import { createShellSkills } from '../src/skills/shell-skills';
+import { createSettingsSkills } from '../src/skills/settings-skills';
+import { createFileToolsSkills } from '../src/skills/file-tools-skills';
+import { ReminderScheduler } from '../src/reminders/scheduler';
 import { createNetworkSkills } from '../src/skills/network-skills';
 import { createServiceSkills } from '../src/skills/service-skills';
 import { createEnvironmentSkills } from '../src/skills/environment-skills';
@@ -68,6 +89,24 @@ function everySkill(): Skill[] {
     ...createCalcSkills(),
     ...createNotesSkills(),
     ...createOsSkills(NOTHING),
+    ...createSystemControlSkills(NOTHING),
+    ...createFileToolsSkills(NOTHING),
+    ...createSettingsSkills(NOTHING),
+    ...createShellSkills(NOTHING),
+    ...createEverydaySkills(NOTHING),
+    ...createCreatorSkills(NOTHING),
+    ...createAppsSkills(NOTHING),
+    ...createCoverageSkills(NOTHING),
+    ...createCatalogSkills(NOTHING, new SkillRegistry()),
+    ...createCatalogFileSkills(NOTHING),
+    ...createCatalogGitSkills(NOTHING),
+    ...createCatalogSystemSkills(NOTHING),
+    ...createCatalogMediaSkills(NOTHING),
+    ...createCatalogMakeSkills(NOTHING),
+    ...createClipboardHistorySkills({ platform: NOTHING, history: new ClipboardHistory(), isEnabled: () => true }),
+    ...createSelfTestSkills({ skills: new SkillRegistry(), platform: NOTHING, route: () => null }),
+    ...createRoutineSkills({ scheduler: new RoutineScheduler({ storage: NOTHING as never, announce: () => {}, run: async () => ({}) as never }), skills: new SkillRegistry(), planFor: async () => null }),
+    ...createReminderSkills(new ReminderScheduler({ storage: NOTHING as never, notify: () => {} })),
     ...createNetworkSkills(NOTHING),
     ...createServiceSkills(NOTHING),
     ...createEnvironmentSkills(NOTHING),
@@ -125,8 +164,6 @@ const NOT_YET_REACHABLE = new Map<string, string>([
   ['most common words in this', '“this” is the clipboard — no referent resolution yet'],
   ['format this json', '“this” is the clipboard — no referent resolution yet'],
   ['decode this jwt', '“this” is the clipboard — no referent resolution yet'],
-  ['turn it down a bit', '“a bit” is a degree, not a number — system.volume takes steps'],
-  ['where are my screenshots', 'question-shaped, and files.find is not question-safe for it'],
   // Found 2026-09-24, when devtools skills were first added to this sweep: both
   // say “this project”, and nothing yet knows which project that is.
   ['add express to this project', '“this project” has no referent — dependency.install needs a folder and a manager'],

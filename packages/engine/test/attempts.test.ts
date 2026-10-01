@@ -71,7 +71,7 @@ test('exhausting every strategy without a commit is reported honestly, not inven
 });
 
 test('never more than MAX_ATTEMPTS strategies run, even if more are declared', async () => {
-  assert.equal(MAX_ATTEMPTS, 3, 'small and predictable — see the module doc');
+  assert.equal(MAX_ATTEMPTS, 5, 'small and predictable — see the module doc (raised from 3 when app.open gained open-window and on-disk steps)');
 
   const strategies = Array.from({ length: 6 }, (_, i) =>
     spyAttempt(`strategy-${i}`, { result: { ok: false, error: 'no' } }),

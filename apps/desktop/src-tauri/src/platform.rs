@@ -176,7 +176,7 @@ pub fn search_files(query: String, kind: Option<String>, limit: Option<usize>) -
 
             let meta = entry.metadata().ok();
             out.push(FileEntry {
-                path: entry.path().to_string_lossy().to_string(),
+                path: plain_path(entry.path()),
                 name,
                 ext,
                 is_directory: is_dir,
@@ -953,7 +953,7 @@ pub fn path_info(path: String) -> Result<PathInfo, String> {
     let is_directory = meta.is_dir();
 
     Ok(PathInfo {
-        path: p.to_string_lossy().to_string(),
+        path: plain_path(&p),
         name: p
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -1025,7 +1025,7 @@ pub fn list_dir(path: String, limit: Option<usize>) -> Result<Vec<FileEntry>, St
         let entry_path = entry.path();
         let is_directory = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
         out.push(FileEntry {
-            path: entry_path.to_string_lossy().to_string(),
+            path: plain_path(&entry_path),
             name: entry.file_name().to_string_lossy().to_string(),
             ext: entry_path
                 .extension()
@@ -1055,7 +1055,7 @@ pub fn list_dir(path: String, limit: Option<usize>) -> Result<Vec<FileEntry>, St
 pub fn known_folder(id: String) -> Result<String, String> {
     let home = dirs_home().ok_or("I can't find your home folder.")?;
     let sub = match id.as_str() {
-        "home" => return Ok(home.to_string_lossy().to_string()),
+        "home" => return Ok(plain_path(&home)),
         "downloads" => "Downloads",
         "documents" => "Documents",
         "desktop" => "Desktop",
@@ -1068,7 +1068,18 @@ pub fn known_folder(id: String) -> Result<String, String> {
     if !path.is_dir() {
         return Err(format!("You don't seem to have a {sub} folder."));
     }
-    Ok(path.to_string_lossy().to_string())
+    Ok(plain_path(&path))
+}
+
+/// A path as people write it. `canonicalize` on Windows returns the verbatim
+/// form (`\\?\C:\Users\...`): right for the file system, ugly everywhere it is
+/// shown, and wrong to paste. Drive paths only; a verbatim UNC path is left alone.
+pub(crate) fn plain_path(p: &std::path::Path) -> String {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest.to_string(),
+        _ => s.to_string(),
+    }
 }
 
 // ---- system tools -----------------------------------------------------------
@@ -1092,6 +1103,13 @@ pub fn open_system_tool(id: String) -> Result<bool, String> {
         "file-explorer" => "explorer.exe",
         "this-pc" => "shell:MyComputerFolder",
         "recycle-bin" => "shell:RecycleBinFolder",
+        // Management consoles and monitors. Opening one asks Windows for nothing:
+        // the ones that need rights ask for them themselves, in front of the person.
+        "services" => "services.msc",
+        "event-viewer" => "eventvwr.msc",
+        "disk-management" => "diskmgmt.msc",
+        "resource-monitor" => "resmon.exe",
+        "registry-editor" => "regedit.exe",
         _ => return Err(format!("No system tool with id “{id}”.")),
     };
     opener_open(target)

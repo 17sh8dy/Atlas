@@ -175,5 +175,41 @@ export function createNetworkSkills(platform: Platform): Skill[] {
     },
   });
 
+  skills.push({
+    id: 'net.ping',
+    label: 'Ping a host',
+    icon: '🏓',
+    domain: 'system',
+    description: 'Send four pings to a website or address and say how many came back and how fast.',
+    needs: ['network'],
+    risk: 'safe',
+    examples: ['ping google.com', 'ping 8.8.8.8'],
+    params: { host: { type: 'string', required: true, description: 'a host name or IPv4 address' } },
+    async run(args) {
+      const host = String(args.host ?? '')
+        .trim()
+        .replace(/^https?:\/\//i, '')
+        .replace(/[/:].*$/, '');
+      if (!host) return { ok: false, error: 'Ping what?' };
+      try {
+        const r = await platform.pingHost!(host);
+        const where = host === r.address ? host : `${host} (${r.address})`;
+        if (r.received === 0) {
+          return { ok: true, message: `🏓 ${where}: no reply from any of ${r.sent} pings. It may be down, or it may just not answer pings.`, data: r };
+        }
+        const avg = Math.round(r.timesMs.reduce((a, b) => a + b, 0) / r.timesMs.length);
+        const spread = r.timesMs.length > 1 ? ` (${Math.min(...r.timesMs)}–${Math.max(...r.timesMs)} ms)` : '';
+        const lost = r.sent - r.received;
+        return {
+          ok: true,
+          message: `🏓 ${where}: ${r.received} of ${r.sent} replied, about ${avg} ms${spread}.${lost ? ` ${lost} lost.` : ''}`,
+          data: r,
+        };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : typeof e === 'string' ? e : "I couldn't ping that." };
+      }
+    },
+  });
+
   return skills;
 }

@@ -31,6 +31,30 @@ mod net;
 mod listen;
 #[cfg(windows)]
 mod os;
+#[cfg(windows)]
+mod system_controls;
+#[cfg(windows)]
+mod settings_controls;
+#[cfg(windows)]
+mod ping;
+#[cfg(windows)]
+mod catalog_system;
+#[cfg(windows)]
+mod catalog_make;
+#[cfg(windows)]
+mod cleanup;
+#[cfg(windows)]
+mod display_audio;
+#[cfg(windows)]
+mod shell_tools;
+#[cfg(windows)]
+mod media_tools;
+#[cfg(windows)]
+mod apps_tools;
+#[cfg(windows)]
+mod alert_sound;
+mod file_tools;
+mod catalog_files;
 mod platform;
 #[cfg(windows)]
 mod secrets;
@@ -259,6 +283,70 @@ pub fn run() {
             os::toggle_mute,
             os::display_off,
             os::empty_recycle_bin,
+            system_controls::power_states,
+            system_controls::sleep_pc,
+            system_controls::schedule_shutdown,
+            system_controls::cancel_shutdown,
+            system_controls::volume_state,
+            system_controls::volume_set,
+            system_controls::mic_state,
+            system_controls::mic_set,
+            system_controls::theme_get,
+            system_controls::theme_set,
+            settings_controls::set_wallpaper,
+            settings_controls::mouse_speed,
+            settings_controls::set_mouse_speed,
+            settings_controls::explorer_options,
+            settings_controls::set_explorer_option,
+            settings_controls::restart_explorer,
+            settings_controls::do_not_disturb,
+            settings_controls::set_do_not_disturb,
+            settings_controls::radios,
+            settings_controls::set_radio,
+            settings_controls::now_playing,
+            settings_controls::set_shuffle,
+            ping::ping_host,
+            cleanup::cleanup_scan,
+            cleanup::cleanup_clean,
+            catalog_make::duplicate_path,
+            catalog_make::create_shortcut,
+            catalog_make::create_url_shortcut,
+            catalog_system::dns_lookup,
+            catalog_system::trace_route,
+            catalog_system::process_details,
+            catalog_system::firmware_info,
+            catalog_system::security_status,
+            catalog_system::tool_versions,
+            shell_tools::recycle_bin_list,
+            shell_tools::recycle_bin_restore,
+            shell_tools::startup_apps,
+            shell_tools::set_startup_app,
+            shell_tools::open_settings_page,
+            shell_tools::printers,
+            shell_tools::set_default_printer,
+            shell_tools::print_file,
+            shell_tools::speed_test,
+            shell_tools::flush_dns,
+            shell_tools::hardware_specs,
+            input::hold_key,
+            display_audio::brightness_get,
+            display_audio::brightness_set,
+            display_audio::app_volumes,
+            display_audio::set_app_volume,
+            display_audio::power_plan,
+            display_audio::set_power_plan,
+            display_audio::project_display,
+            file_tools::zip_path,
+            file_tools::unzip_path,
+            file_tools::find_duplicates,
+            file_tools::compare_files,
+            file_tools::recent_changes,
+            file_tools::file_attributes,
+            file_tools::set_file_attributes,
+            catalog_files::file_hash,
+            catalog_files::list_archive,
+            catalog_files::find_files,
+            catalog_files::compare_folders,
             speech::speech_voices,
             speech::synthesize_speech,
             kokoro::kokoro_status,
@@ -278,10 +366,12 @@ pub fn run() {
             environment::delete_environment_variable,
             disk_usage::folder_size,
             disk_usage::largest_files,
+            disk_usage::largest_subfolders,
             window::list_windows,
             window::active_window,
             window::focus_window,
             window::minimize_window,
+            window::set_window_topmost,
             window::maximize_window,
             window::restore_window,
             window::set_window_bounds,
@@ -340,6 +430,27 @@ pub fn run() {
             devtools::git_log,
             devtools::git_add,
             devtools::git_commit,
+            devtools::git_branches,
+            devtools::git_checkout,
+            devtools::git_pull,
+            devtools::git_push,
+            devtools::git_stash,
+            devtools::git_more,
+            devtools::open_project_terminal,
+            devtools::scaffold_project,
+            devtools::deploy_project,
+            media_tools::compress_video,
+            alert_sound::play_alert_sound,
+            apps_tools::winget_search,
+            apps_tools::winget_install,
+            apps_tools::winget_uninstall,
+            apps_tools::winget_upgrade,
+            apps_tools::winget_upgrades,
+            media_tools::convert_media,
+            media_tools::resize_image,
+            media_tools::media_info,
+            media_tools::edit_media,
+            devtools::open_project_editor,
             devtools::run_devtool,
             devtools::install_dependency,
             devtools::write_text_file,

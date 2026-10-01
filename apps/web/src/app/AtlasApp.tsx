@@ -46,6 +46,7 @@ import { loadLocalAiRuntime, type LocalAiRuntime } from '../atlas/buildIntellige
 import { Icons, Spinner, cn } from '@atlas/ui';
 import { TitleBar } from '../components/TitleBar';
 import { Conversation } from '../pages/Conversation';
+import { DEFAULT_SCROLL, SCROLL_CHANGED, cleanScroll, readScroll, type ScrollSettings } from '../atlas/scroll';
 import { ContextMenu } from '../components/ContextMenu';
 import { ScreenShareBar, ShareTargetPicker } from '../components/ScreenShareBar';
 import { useAttachments } from '../atlas/useAttachments';
@@ -54,6 +55,7 @@ import { useActivity } from '../atlas/useActivity';
 import { Settings } from '../pages/Settings';
 import { VoiceScreen, type VoicePhase } from '../pages/VoiceScreen';
 import { useAtlas } from '../atlas/useAtlas';
+import { withAlerts } from '../atlas/alerts';
 import { useSpeech } from '../speech/useSpeech';
 import { useListening } from '../speech/useListening';
 import { ThemeToggle } from '../components/ThemeToggle';
@@ -76,7 +78,11 @@ interface Loaded {
   executionMode: ExecutionMode;
 }
 
-export function AtlasApp({ platform, storage }: { platform: Platform; storage: Storage }) {
+export function AtlasApp({ platform: basePlatform, storage }: { platform: Platform; storage: Storage }) {
+  // Everything that tells you something goes through `notify`; wrapping it here makes the
+  // Notifications settings (toast, sound, which sound) apply to reminders, alarms, timers and
+  // watches alike, without any of them knowing the settings exist.
+  const platform = useMemo(() => withAlerts(basePlatform, storage), [basePlatform, storage]);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   // Every settings change starts a reload, and Ollama's probe makes their
   // durations differ: without this an older, slower reload can finish last and
@@ -228,6 +234,17 @@ function Ready({
   // through it, and the voice screen's visualiser reads its analyser.
   const voice = useSpeech(platform, speech.volume);
   // Updates: the service and its timer live here so the bubble and Settings → About share one.
+  const [scroll, setScroll] = useState<ScrollSettings>(DEFAULT_SCROLL);
+  useEffect(() => {
+    let alive = true;
+    void readScroll(storage).then((v) => alive && setScroll(v));
+    const onChange = (e: Event) => setScroll(cleanScroll((e as CustomEvent).detail));
+    window.addEventListener(SCROLL_CHANGED, onChange);
+    return () => {
+      alive = false;
+      window.removeEventListener(SCROLL_CHANGED, onChange);
+    };
+  }, [storage]);
   const updater = useUpdater(platform, storage);
   // Nova Intelligence: for someone who switched it on, get its server running.
   useNovaAutoStart(localAi.nova);
@@ -865,6 +882,7 @@ function Ready({
           />
         ) : screen === 'conversation' ? (
           <Conversation
+            scrollSpeed={scroll.speed}
             entries={atlas.entries}
             busy={atlas.busy}
             awaitingAnswer={atlas.awaitingAnswer}

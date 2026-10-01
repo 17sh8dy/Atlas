@@ -1769,7 +1769,7 @@ test('conversation: the offline/not-configured sentinels still get their friendl
   const offline = makeProvider({ error: 'offline' });
   const h1 = harness(undefined, { provider: offline });
   await h1.engine.ask('what is the capital of Peru?', io(h1));
-  assert.match(h1.said.join(' '), /couldn't reach that provider/);
+  assert.match(h1.said.join(' '), /couldn't reach your language model/);
 });
 
 // ---- skills ------------------------------------------------------------------
@@ -2173,10 +2173,10 @@ test('grammar: the timer rule reads the unit, not just the number', () => {
   assert.equal(seconds('set a timer for 90 seconds'), 90);
   assert.equal(seconds('set a timer for 10 minutes'), 600);
   assert.equal(seconds('set a timer for 2 hours'), 7200);
-  assert.equal(
-    h.engine.grammar.parse('remind me in 5 minutes to stretch')!.steps[0]!.args.label,
-    'stretch',
-  );
+  // A reminder, not a timer: it is kept across a restart (see reminders.test.ts).
+  const reminder = h.engine.grammar.parse('remind me in 5 minutes to stretch')!.steps[0]!;
+  assert.equal(reminder.skill, 'reminder.set');
+  assert.equal(reminder.args.text, 'stretch');
 });
 
 test('grammar: an unquoted count question is left to conversation', () => {
@@ -3296,7 +3296,7 @@ test('errors: an unresolvable instruction asks, it does not blame a missing mode
   await h.engine.ask('open zzzqqq', io(h));
   const said = h.said.join(' ');
   assert.notMatch(said, MODEL_EXCUSE);
-  assert.match(said, /couldn't (?:work out|figure out)/i);
+  assert.match(said, /couldn't (?:work out|figure out|find)/i);
 });
 
 test('errors: a real question is answered honestly, without blaming a model', async () => {
@@ -3337,7 +3337,7 @@ test('typos: a typo that used to fall through to the provider error no longer do
   assert.deepEqual(h.journal.launched, ['fortnite']);
   // The provider was never even asked — the typo never left tier 1.
   assert.equal(offline.prompts.length, 0);
-  assert.notMatch(h.said.join(' '), /couldn't reach that provider/);
+  assert.notMatch(h.said.join(' '), /couldn't reach your language model/);
 });
 
 test('typos: an already-correct verb is never second-guessed', async () => {
@@ -3371,7 +3371,7 @@ test('mechanism wrapper: "use keyboard and mouse control to open X" still opens 
   await h.engine.ask('use keyboard and mouse control to open steam', io(h));
   assert.deepEqual(h.journal.launched, ['steam']);
   assert.equal(offline.prompts.length, 0);
-  assert.notMatch(h.said.join(' '), /couldn't reach that provider/);
+  assert.notMatch(h.said.join(' '), /couldn't reach your language model/);
 });
 
 test('mechanism wrapper: other phrasings of the same wrapper all resolve the same way', async () => {
@@ -4549,7 +4549,7 @@ test('uia grammar: "click <name>" with no window reaches uia.invoke, not the AI 
   // asked the (offline) provider.
   assert.isAbove(h.rows.length, 0);
   assert.equal(offline.prompts.length, 0);
-  assert.notMatch(h.said.join(' '), /couldn't reach that provider/);
+  assert.notMatch(h.said.join(' '), /couldn't reach your language model/);
 });
 
 test('uia: with no ui-automation capability the skills are hidden, not disabled', () => {
@@ -4973,7 +4973,7 @@ test('smalltalk: a failed command reports the failure, it does not chat', async 
   // Still a command, still an honest error about the app — the social tier
   // sits behind the executor and never gets a look at this.
   assert.equal(outcome.mode, 'command');
-  assert.match(h.said.join(' '), /couldn't figure out which app/i);
+  assert.match(h.said.join(' '), /couldn't (?:figure out which app|find)/i);
   assert.notMatch(h.said.join(' '), /what can i do for you|any time/i);
 });
 

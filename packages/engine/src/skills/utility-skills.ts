@@ -568,6 +568,7 @@ export function createUtilitySkills(): Skill[] {
     examples: ['what time is it in tokyo', 'time in london'],
     params: {
       place: { type: 'string', required: true, description: 'a city name or IANA time zone' },
+      date: { type: 'boolean', required: false, description: 'include the full date ("what day is it in…")' },
     },
     run(args) {
       const place = String(args.place);
@@ -575,12 +576,12 @@ export function createUtilitySkills(): Skill[] {
       if (!zone) return { ok: false, error: `I don't know what time zone "${place}" is in.` };
 
       const now = new Date();
-      const time = new Intl.DateTimeFormat(undefined, {
-        timeZone: zone,
-        hour: 'numeric',
-        minute: '2-digit',
-        weekday: 'short',
-      }).format(now);
+      const time = new Intl.DateTimeFormat(
+        undefined,
+        args.date
+          ? { timeZone: zone, hour: 'numeric', minute: '2-digit', weekday: 'long', month: 'long', day: 'numeric' }
+          : { timeZone: zone, hour: 'numeric', minute: '2-digit', weekday: 'short' },
+      ).format(now);
       return { ok: true, message: `🌍 ${time} in ${place.trim()}.`, data: { zone, time } };
     },
   });

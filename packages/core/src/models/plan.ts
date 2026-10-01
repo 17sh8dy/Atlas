@@ -49,6 +49,8 @@ export interface StepOutcome {
   error?: string;
   /** True when the user declined a confirmation. */
   skipped?: boolean;
+  /** From `SkillResult.undo`: the step that would put this back. */
+  undo?: { skill: string; args: SkillArgs; label: string };
   /**
    * The skill's own structured payload, carried through from `SkillResult.data`
    * unchanged. Most callers never read this — the chat surface renders from

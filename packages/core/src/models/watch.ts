@@ -33,6 +33,8 @@ export type WatchCondition =
   | { kind: 'path-exists'; path: string }
   /** The network is reachable again. */
   | { kind: 'online' }
+  /** A device (headphones, a microphone, a speaker) is now the one Windows is using. Matched by name. */
+  | { kind: 'device-appears'; match: string; label?: string }
   /** A fixed time has passed since the watch began. */
   | { kind: 'after'; seconds: number };
 

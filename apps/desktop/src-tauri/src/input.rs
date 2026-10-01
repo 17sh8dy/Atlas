@@ -311,6 +311,52 @@ pub fn press_key(key: String) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Hold one key down for a few seconds ("hold w for 3 seconds"), then let go.
+///
+/// The release is the part that must never be skipped: a key left down types
+/// forever. So the key-up is sent on *every* way out of the wait — the time
+/// running out, an emergency stop, a send failing halfway — and the hold is
+/// capped at 10 seconds so a bad argument cannot pin a key for long. Letters,
+/// digits and the named keys only; a modifier on its own is not held.
+#[tauri::command]
+pub fn hold_key(key: String, seconds: f32) -> Result<bool, String> {
+    crate::halt::global().check()?;
+    crate::input_guard::check_foreground()?;
+    if !seconds.is_finite() || !(0.1..=10.0).contains(&seconds) {
+        return Err("Hold a key for between 0.1 and 10 seconds.".into());
+    }
+    let vk = if let Some(vk) = named_key(&key) {
+        vk
+    } else {
+        let mut chars = key.chars();
+        let (Some(ch), None) = (chars.next(), chars.next()) else {
+            return Err(format!("No key called “{key}”."));
+        };
+        let (vk, shift) = char_key(ch).ok_or_else(|| format!("No key called “{key}”."))?;
+        if shift {
+            return Err("I only hold keys that need no Shift.".into());
+        }
+        vk
+    };
+    send(&[key_input(vk, KEYBD_EVENT_FLAGS(0))])?;
+    let until = std::time::Instant::now() + std::time::Duration::from_secs_f32(seconds);
+    let mut halted = false;
+    while std::time::Instant::now() < until {
+        if crate::halt::global().check().is_err() {
+            halted = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    // Always released, whichever way the wait ended.
+    let released = send(&[key_input(vk, KEYEVENTF_KEYUP)]);
+    if halted {
+        return Err("Stopped — the key was let go.".into());
+    }
+    released?;
+    Ok(true)
+}
+
 #[tauri::command]
 pub fn hotkey(modifiers: Vec<String>, key: String) -> Result<bool, String> {
     crate::halt::global().check()?;

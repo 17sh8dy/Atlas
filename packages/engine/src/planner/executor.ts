@@ -629,7 +629,10 @@ export class Executor {
             .map(String)
             .join(' · ');
 
-          const { question, detail } = this.phrasing.confirmPrompt(skill.description, argsDetail);
+          const said = skill.confirmAs?.(step.args);
+          const { question, detail } = said
+            ? this.phrasing.confirmPrompt(said)
+            : this.phrasing.confirmPrompt(skill.description, argsDetail);
           const approved = await wait(ctx.confirm(question, detail));
           if (!approved) {
             report('skipped', 'You said no.');
@@ -670,6 +673,7 @@ export class Executor {
         message: result.message,
         error: result.error,
         data: result.data,
+        undo: result.undo,
       });
 
       if (result.ok) {

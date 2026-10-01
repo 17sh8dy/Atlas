@@ -99,7 +99,7 @@ export interface EngineIO {
    * and Atlas then says the question in words and stops instead of guessing.
    */
   clarify?(question: Clarification): Promise<ClarifyAnswer>;
-  showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string }): void;
+  showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string; private?: boolean }): void;
   /** Streaming conversation, when the surface supports it. */
   stream?(): { append(chunk: string): void; finish(full: string): void } | null;
   typing?(on: boolean): void;
@@ -171,6 +171,10 @@ export class Engine {
   private readonly isPreapproved?: (skill: Skill, args: SkillArgs) => Promise<boolean>;
   /** One per run in flight. A Set because `run` (a button) can overlap `ask`. */
   private readonly live = new Set<HaltController>();
+  /** The last plan that ran, for "do that again". Never a repeat or an undo itself. */
+  private lastPlan: Plan | null = null;
+  /** How to put the last reversible change back, for "undo that". Cleared by anything else. */
+  private lastUndo: { skill: string; args: SkillArgs; label: string } | null = null;
 
   constructor(options: EngineOptions) {
     this.skills = options.skills;
@@ -196,6 +200,45 @@ export class Engine {
       // knows a disclosure arrow exists.
       onActivity: (event: ActivityEvent) => this.bus.emit('activity:step', event),
     };
+  }
+
+  /**
+   * "do that again" / "undo that". Both are answered here, not by a rule: they
+   * mean "the previous thing", which only the engine knows. Each becomes an
+   * ordinary plan and goes through the same executor — so a repeated delete asks
+   * again, and an undo is judged by its own risk like any other step.
+   */
+  private interceptRepeat(raw: string, io: EngineIO): Plan | 'nothing' | null {
+    const AGAIN =
+      /^\s*(?:please\s+)?(?:do|run|repeat|redo|try)\s+(?:that|it|the\s+(?:last|same)(?:\s+(?:thing|one|command))?)\s*(?:again|once\s+more)?\s*[?.!]*$|^\s*(?:again|once\s+more|same\s+again|try\s+again|repeat(?:\s+that)?|redo(?:\s+that)?)\s*[?.!]*$/i;
+    const UNDO =
+      /^\s*(?:please\s+)?undo(?:\s+(?:that|it|the\s+last\s+(?:thing|change|one)))?\s*[?.!]*$|^\s*(?:take\s+(?:that|it)\s+back|put\s+it\s+back|revert(?:\s+that)?|change\s+it\s+back)\s*[?.!]*$/i;
+    if (AGAIN.test(raw)) {
+      if (!this.lastPlan) {
+        io.say("There's nothing to repeat yet.");
+        return 'nothing';
+      }
+      return { ...this.lastPlan, intent: 'again' };
+    }
+    // Only when there is a reversible change to undo; otherwise "undo that" is the
+    // file journal's, which the grammar still handles.
+    if (UNDO.test(raw) && this.lastUndo) {
+      const u = this.lastUndo;
+      return { source: 'direct', intent: 'undo', steps: [{ skill: u.skill, args: u.args }], confidence: 1 };
+    }
+    return null;
+  }
+
+  /** Remember what just ran, so it can be repeated or put back. */
+  private remember(plan: Plan, outcome: PlanOutcome): void {
+    if (plan.intent === 'undo') {
+      this.lastUndo = null;
+      return;
+    }
+    if (plan.intent !== 'again') this.lastPlan = plan;
+    // Only a plan whose every step succeeded and whose last step offered an undo.
+    const last = outcome.outcomes[outcome.outcomes.length - 1];
+    this.lastUndo = outcome.ok && last?.undo ? last.undo : null;
   }
 
   /** Stop every run in flight. See "Halting" in this file's header. */
@@ -234,7 +277,9 @@ export class Engine {
     // 1. Grammar — the fast path. Parsing is pure: it reads the text and
     //    builds a plan object, and nothing runs until the executor is handed
     //    one, so the policy check below still sits ahead of every action.
-    let matched = this.grammar.parse(raw);
+    const repeated = this.interceptRepeat(raw, io);
+    if (repeated === 'nothing') return { ok: false, mode: 'chat', error: 'nothing-to-repeat' };
+    let matched = repeated ?? this.grammar.parse(raw);
     /** What the rest of the pipeline reads: the tidied text once it earned it. */
     let understood = raw;
 
@@ -311,6 +356,7 @@ export class Engine {
       const outcome = await this.executor.run(matched, ctx, this.executorOptions(signal));
       this.bus.emit('engine:done', { mode: 'command', plan: matched, outcome });
       if (outcome.halted) throw new HaltedError();
+      this.remember(matched, outcome);
       return { ok: outcome.ok, mode: 'command', plan: matched, outcome };
     }
 
@@ -323,6 +369,7 @@ export class Engine {
         const outcome = await this.executor.run(proposed, ctx, this.executorOptions(signal));
         this.bus.emit('engine:done', { mode: 'command', plan: proposed, outcome });
         if (outcome.halted) throw new HaltedError();
+        this.remember(proposed, outcome);
         return { ok: outcome.ok, mode: 'command', plan: proposed, outcome };
       }
     }
@@ -624,6 +671,7 @@ export class Engine {
       '',
       '',
       deeper,
+      asInstruction ? () => this.unresolvedReply(text) : undefined,
     );
   }
 
@@ -641,6 +689,8 @@ export class Engine {
     fallback = '',
     /** "Think longer" was on for this message. */
     deeper = false,
+    /** What to say when no model can be reached, for a request that was really a command. */
+    onOffline?: () => string,
   ): Promise<AskOutcome> {
     io.typing?.(true);
     return new Promise<AskOutcome>((resolve, reject) => {
@@ -701,9 +751,15 @@ export class Engine {
           // error (a rejected key, a rate limit) worth showing verbatim
           // rather than flattening into one generic line — see
           // ProviderStreamHandlers.onError's own doc comment.
-          if (reason === 'not-configured') io.say(this.offlineReply());
+          if (reason === 'not-configured') io.say(onOffline ? onOffline() : this.offlineReply());
           else if (reason === 'offline') {
-            io.say("I couldn't reach that provider. It's in Settings → Intelligence.");
+            // A command never needed the model: say what Atlas can do about it. A question
+            // that does need one gets told so, plainly, with what still works.
+            io.say(
+              onOffline
+                ? onOffline()
+                : `I couldn't reach your language model (it's set up in Settings → Intelligence), and that question needs one. ${this.offlineReply()}`,
+            );
           } else io.say(`⚠️ ${reason}`);
           resolve({ ok: false, mode: 'chat', error: reason });
         },
@@ -728,13 +784,61 @@ export class Engine {
    * short question gets the user moving; a paragraph about providers does not.
    */
   private unresolvedReply(text: string): string {
+    if (/^\s*(?:stop|cancel|abort|enough|halt|quit)\s*[.!]*$/i.test(text)) {
+      return "Nothing is running right now. (To stop something that is in progress, press the emergency-stop key, F8.)";
+    }
     const target = /^\s*(?:open|launch|start|run|go to|visit|play)\s+(.+?)\s*[?.!]*$/i.exec(text);
     const named = target?.[1]?.trim();
 
     if (named) {
-      return `I couldn't work out what “${named}” is — I don't have an app or a site by that name. What should I open?`;
+      return `I couldn't work out what “${named}” is — I don't have an app or a site by that name. Do you know the exact name, or where it is? Tell me (“open Notepad++”), or say “search the web for ${named}”.`;
     }
-    return "I didn't catch what you wanted me to do there. Say it as an instruction — “open Steam”, “find my invoices” — or ask “what can you do?” for the full list.";
+    const close = this.suggestFor(text);
+    const closest = close.length
+      ? `\n\nThe closest things I can do:\n${close.map((c) => `• ${c.label} — try “${c.example}”`).join('\n')}`
+      : '';
+    return `I didn't catch what you wanted me to do there.${closest}\n\nWhat are you trying to get done? (open an app, find a file, change a setting, set a reminder…) — or ask “what can you do?” for the full list.`;
+  }
+
+  /**
+   * The few skills whose names, descriptions or examples share the most words with
+   * what was said — a nudge toward a phrasing that works, never a guess that runs.
+   */
+  private suggestFor(text: string): Array<{ label: string; example: string }> {
+    const STOP = new Set(['the', 'and', 'for', 'you', 'can', 'please', 'that', 'this', 'with', 'from', 'what', 'how', 'could', 'would', 'want', 'need', 'my', 'me', 'it', 'to', 'a', 'an', 'of', 'in', 'on', 'is', 'are', 'do', 'make', 'get', 'let', 'some']);
+    const words = (t: string) =>
+      new Set(
+        t
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter((w) => w.length >= 3 && !STOP.has(w))
+          .map((w) => w.replace(/(?:ing|ed|es|s)$/, '')),
+      );
+    const wanted = words(text);
+    if (!wanted.size) return [];
+    const scored: Array<{ label: string; example: string; score: number }> = [];
+    for (const skill of this.skills.available()) {
+      const examples = skill.examples ?? [];
+      const hay = words(`${skill.label} ${skill.description} ${examples.join(' ')}`);
+      let score = 0;
+      for (const w of wanted) if (hay.has(w)) score += 1;
+      if (score < 2 && !(score === 1 && wanted.size === 1)) continue;
+      // The example that shares the most with what was said, else the first.
+      let best = examples[0] ?? skill.label.toLowerCase();
+      let bestShared = -1;
+      for (const ex of examples) {
+        const ew = words(ex);
+        let shared = 0;
+        for (const w of wanted) if (ew.has(w)) shared += 1;
+        if (shared > bestShared) {
+          bestShared = shared;
+          best = ex;
+        }
+      }
+      scored.push({ label: skill.label, example: best, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 3).map(({ label, example }) => ({ label, example }));
   }
 
   /**

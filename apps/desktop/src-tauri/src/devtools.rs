@@ -544,6 +544,315 @@ pub fn git_commit(cwd: String, message: String) -> Result<String, String> {
     Ok(hash.trim().to_string())
 }
 
+// ---- git: branches, pull, push, stash -----------------------------------------
+//
+// Same shape as add/commit: a fixed `git` subcommand with, at most, one
+// validated slot. There is no way to pass a flag through any of these — in
+// particular no `--force`, no `-D`, no `reset`, no `clean`: what they can do is
+// move between branches, bring the upstream in, send the current branch to its
+// own upstream, and set work aside and bring it back. Network commands run
+// with prompts disabled, so a missing credential is an error message rather
+// than a git process waiting forever for a keyboard nobody is at.
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GitBranches {
+    pub current: String,
+    pub branches: Vec<String>,
+}
+
+/// A branch name that cannot be mistaken for an option and has no tricks in it.
+fn is_safe_branch_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 100
+        && !name.starts_with(['-', '/', '.'])
+        && !name.ends_with(['/', '.'])
+        && !name.contains("..")
+        && !name.contains("//")
+        && !name.ends_with(".lock")
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'))
+}
+
+fn parse_branches(text: &str) -> GitBranches {
+    let mut current = String::new();
+    let mut branches = Vec::new();
+    for line in text.lines() {
+        let is_current = line.starts_with('*');
+        let name = line.trim_start_matches('*').trim().to_string();
+        // "(HEAD detached at abc123)" is a state, not a branch.
+        if name.is_empty() || name.starts_with('(') {
+            if is_current {
+                current = name;
+            }
+            continue;
+        }
+        if is_current {
+            current = name.clone();
+        }
+        branches.push(name);
+    }
+    GitBranches { current, branches }
+}
+
+fn run_git_noprompt(root: &Path, args: &[&str]) -> Result<(bool, String, String), String> {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(root).args(args).env("GIT_TERMINAL_PROMPT", "0").env("GCM_INTERACTIVE", "never");
+    #[cfg(windows)]
+    no_window(&mut cmd);
+    let out = crate::halt::global()
+        .run(cmd)
+        .map_err(|e| crate::halt::describe(&e, || format!("Couldn't run git: {e}")))?;
+    Ok((
+        out.status.success(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    ))
+}
+
+#[tauri::command(async)]
+pub fn git_branches(cwd: String) -> Result<GitBranches, String> {
+    let root = permitted_dir(&cwd)?;
+    let (ok, out, err) = run_git(&root, &["branch", "--list", "--no-color"])?;
+    if !ok {
+        return Err(if err.trim().is_empty() { "That isn't a git repository.".into() } else { err });
+    }
+    Ok(parse_branches(&out))
+}
+
+/// Switch to a branch, or with `create` make it first (from where you are).
+#[tauri::command(async)]
+pub fn git_checkout(cwd: String, branch: String, create: bool) -> Result<String, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    if !is_safe_branch_name(&branch) {
+        return Err("That isn't a branch name I'll pass to git.".into());
+    }
+    let args: Vec<&str> = if create { vec!["checkout", "-b", &branch] } else { vec!["checkout", &branch] };
+    let (ok, out, err) = run_git(&root, &args)?;
+    if !ok {
+        return Err(if err.trim().is_empty() { "git checkout failed.".into() } else { err.trim().to_string() });
+    }
+    Ok(format!("{}{}", out.trim(), if out.trim().is_empty() { err.trim() } else { "" }))
+}
+
+/// Bring the upstream in — fast-forward only, so it can never create a merge
+/// commit or rewrite anything behind a person's back.
+#[tauri::command(async)]
+pub fn git_pull(cwd: String) -> Result<String, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    let (ok, out, err) = run_git_noprompt(&root, &["pull", "--ff-only"])?;
+    if !ok {
+        return Err(if err.trim().is_empty() { "git pull failed.".into() } else { err.trim().to_string() });
+    }
+    Ok(out.trim().to_string())
+}
+
+/// Send the current branch to its own upstream. Never forced, never to a
+/// different remote or branch than the one it already tracks.
+#[tauri::command(async)]
+pub fn git_push(cwd: String) -> Result<String, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    let (ok, out, err) = run_git_noprompt(&root, &["push"])?;
+    if !ok {
+        return Err(if err.trim().is_empty() { "git push failed.".into() } else { err.trim().to_string() });
+    }
+    // git writes push progress to stderr even on success.
+    Ok(format!("{}{}", out.trim(), err.trim()).trim().to_string())
+}
+
+/// `action`: "push" (set the working changes aside), "pop" (bring the latest back), "list".
+#[tauri::command(async)]
+pub fn git_stash(cwd: String, action: String) -> Result<String, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    let args: &[&str] = match action.as_str() {
+        "push" => &["stash", "push"],
+        "pop" => &["stash", "pop"],
+        "list" => &["stash", "list"],
+        _ => return Err(format!("There's no stash action called “{action}”.")),
+    };
+    let (ok, out, err) = run_git(&root, args)?;
+    if !ok {
+        return Err(if err.trim().is_empty() { "git stash failed.".into() } else { err.trim().to_string() });
+    }
+    Ok(out.trim().to_string())
+}
+
+/// A path inside the repository, as git is handed it: relative, no climbing out,
+/// nothing that could be read as an option.
+fn is_safe_repo_path(p: &str) -> bool {
+    p == "."
+        || (!p.is_empty()
+            && p.len() <= 300
+            && !p.starts_with(['-', '/', '\\'])
+            && !p.contains(':')
+            && !p.split(['/', '\\']).any(|part| part == "..")
+            && !p.chars().any(|c| c.is_control()))
+}
+
+/// The rest of everyday git, each a fixed command: `merge` (a branch into this one),
+/// `tag`, `tags`, `unstage` (take a file out of the next commit), `discard` (throw away
+/// a file's uncommitted changes — the one that cannot be undone), and `init`.
+/// A merge that conflicts is aborted at once, so a repository is never left half-merged.
+#[tauri::command(async)]
+pub fn git_more(cwd: String, action: String, arg: Option<String>) -> Result<String, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    let arg = arg.unwrap_or_default();
+    let fail = |err: &str, fallback: &str| if err.trim().is_empty() { fallback.to_string() } else { err.trim().to_string() };
+    match action.as_str() {
+        "merge" => {
+            if !is_safe_branch_name(&arg) {
+                return Err("That isn't a branch name I'll pass to git.".into());
+            }
+            let (ok, out, err) = run_git(&root, &["merge", "--no-edit", &arg])?;
+            if !ok {
+                let text = format!("{out}{err}");
+                if text.contains("CONFLICT") {
+                    let _ = run_git(&root, &["merge", "--abort"]);
+                    return Err(format!("Merging {arg} would conflict, so I stopped and put everything back as it was. Resolve it in your editor."));
+                }
+                return Err(fail(&err, "git merge failed."));
+            }
+            Ok(out.trim().to_string())
+        }
+        "tag" => {
+            if !is_safe_branch_name(&arg) {
+                return Err("That isn't a tag name I'll pass to git.".into());
+            }
+            let (ok, _, err) = run_git(&root, &["tag", &arg])?;
+            if !ok {
+                return Err(fail(&err, "git tag failed."));
+            }
+            Ok(format!("Tagged {arg}."))
+        }
+        "tags" => {
+            let (ok, out, err) = run_git(&root, &["tag", "--list", "--sort=-creatordate"])?;
+            if !ok {
+                return Err(fail(&err, "git tag failed."));
+            }
+            Ok(out.trim().to_string())
+        }
+        "unstage" => {
+            if !is_safe_repo_path(&arg) {
+                return Err("That isn't a path inside the repository.".into());
+            }
+            let (ok, _, err) = run_git(&root, &["restore", "--staged", "--", &arg])?;
+            if !ok {
+                return Err(fail(&err, "git restore failed."));
+            }
+            Ok(String::new())
+        }
+        "discard" => {
+            if !is_safe_repo_path(&arg) || arg == "." {
+                return Err("Name the file whose changes to throw away — not the whole folder.".into());
+            }
+            let (ok, _, err) = run_git(&root, &["restore", "--", &arg])?;
+            if !ok {
+                return Err(fail(&err, "git restore failed."));
+            }
+            Ok(String::new())
+        }
+        "init" => {
+            if root.join(".git").exists() {
+                return Err("That folder is already a git repository.".into());
+            }
+            let (ok, out, err) = run_git(&root, &["init"])?;
+            if !ok {
+                return Err(fail(&err, "git init failed."));
+            }
+            Ok(out.trim().to_string())
+        }
+        _ => Err(format!("There's no git action called “{action}”.")),
+    }
+}
+
+#[cfg(test)]
+mod git_more_tests {
+    use super::*;
+
+    #[test]
+    fn repo_paths_are_relative_and_cannot_climb() {
+        assert!(is_safe_repo_path("src/main.rs"));
+        assert!(is_safe_repo_path("."));
+        assert!(!is_safe_repo_path("../secret"));
+        assert!(!is_safe_repo_path("a/../../b"));
+        assert!(!is_safe_repo_path("-rf"));
+        assert!(!is_safe_repo_path("C:\\Windows"));
+        assert!(!is_safe_repo_path("/etc/passwd"));
+        assert!(!is_safe_repo_path(""));
+    }
+}
+
+// ---- opening a project somewhere ---------------------------------------------------------
+
+/// Open a terminal window with the project as its working folder. Nothing is
+/// typed into it; it is just a new shell, as if opened from the folder.
+#[tauri::command(async)]
+pub fn open_project_terminal(cwd: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Windows Terminal when it is installed; a plain PowerShell window when not.
+        let wt = Command::new("wt.exe").arg("-d").arg(&root).spawn();
+        if wt.is_ok() {
+            return Ok(true);
+        }
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+        Command::new("powershell.exe")
+            .current_dir(&root)
+            .creation_flags(CREATE_NEW_CONSOLE)
+            .spawn()
+            .map_err(|e| format!("I couldn't open a terminal: {e}"))?;
+        Ok(true)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = root;
+        Err("Opening a terminal isn't supported here.".into())
+    }
+}
+
+/// Where VS Code installs on Windows, per user and per machine.
+#[cfg(windows)]
+fn vscode_exe() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(local).join("Programs/Microsoft VS Code/Code.exe"));
+    }
+    for var in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(pf) = std::env::var(var) {
+            candidates.push(PathBuf::from(pf).join("Microsoft VS Code/Code.exe"));
+        }
+    }
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// Open the project in VS Code. Launches `Code.exe` directly with the folder as
+/// its one argument — no shell, so nothing in the path can be read as a command.
+#[tauri::command(async)]
+pub fn open_project_editor(cwd: String) -> Result<bool, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    #[cfg(windows)]
+    {
+        let exe = vscode_exe().ok_or("VS Code doesn't look installed on this PC.")?;
+        Command::new(exe)
+            .arg(&root)
+            .spawn()
+            .map_err(|e| format!("I couldn't open VS Code: {e}"))?;
+        Ok(true)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = root;
+        Err("Opening an editor isn't supported here.".into())
+    }
+}
+
 // ---- build/test dispatch -------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -556,6 +865,9 @@ pub enum DevTool {
     CargoTest,
     NpmRun,
     NpmTest,
+    /// Install everything the project's package.json lists. No package name: it is `npm install`.
+    NpmInstall,
+    PnpmInstall,
     PnpmRun,
     PnpmTest,
     DotnetBuild,
@@ -672,6 +984,8 @@ pub fn run_devtool(cwd: String, tool: DevTool, arg: Option<String>) -> Result<To
             run_npm_or_pnpm(&root, "npm", "run", Some(script))
         }
         DevTool::NpmTest => run_npm_or_pnpm(&root, "npm", "test", None),
+        DevTool::NpmInstall => run_npm_or_pnpm(&root, "npm", "install", None),
+        DevTool::PnpmInstall => run_npm_or_pnpm(&root, "pnpm", "install", None),
         DevTool::PnpmRun => {
             let script = arg.as_deref().ok_or("A script name is required.")?;
             npm_script_exists(&root, script)?;
@@ -688,6 +1002,62 @@ pub fn run_devtool(cwd: String, tool: DevTool, arg: Option<String>) -> Result<To
             Some(filter) => run_direct(&root, "python", &["-m", "pytest", "-k", filter]),
             None => run_direct(&root, "python", &["-m", "pytest"]),
         },
+    }
+}
+
+// ---- starting a project, and shipping one ------------------------------------------------
+//
+// Both are closed operations in the same shape as `install_dependency`: a fixed
+// tool, an enumerated choice, and at most one validated name. There is no slot for a
+// flag or a command line.
+
+/// The Vite starter templates Atlas will scaffold.
+const SCAFFOLD_TEMPLATES: &[&str] = &[
+    "vanilla", "vanilla-ts", "react", "react-ts", "vue", "vue-ts", "svelte", "svelte-ts",
+];
+
+/// A new project's folder name: lowercase letters, digits, dashes and underscores.
+fn is_safe_project_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 60
+        && s.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'))
+}
+
+/// Make a new app from a Vite template inside `parent`, as a new folder called
+/// `name`. Refuses to touch a folder that already exists.
+#[tauri::command(async)]
+pub fn scaffold_project(parent: String, name: String, template: String) -> Result<ToolResult, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&parent)?;
+    if !is_safe_project_name(&name) {
+        return Err("A project name is lowercase letters, digits, dashes and underscores (like my-app).".into());
+    }
+    if !SCAFFOLD_TEMPLATES.contains(&template.as_str()) {
+        return Err(format!("I can start these: {}.", SCAFFOLD_TEMPLATES.join(", ")));
+    }
+    if root.join(&name).exists() {
+        return Err(format!("There's already something called {name} there."));
+    }
+    run_npm_or_pnpm_words(&root, "npm", &["create", "--yes", "vite@latest", &name, "--", "--template", &template])
+}
+
+/// Where a project can be shipped. Each is the tool's own deploy command, run in the
+/// project folder, signed in as the person already is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeployTarget {
+    Vercel,
+    Cloudflare,
+}
+
+#[tauri::command(async)]
+pub fn deploy_project(cwd: String, target: DeployTarget) -> Result<ToolResult, String> {
+    crate::halt::global().check()?;
+    let root = permitted_dir(&cwd)?;
+    match target {
+        DeployTarget::Vercel => run_npm_or_pnpm_words(&root, "vercel", &["deploy", "--prod", "--yes"]),
+        DeployTarget::Cloudflare => run_npm_or_pnpm_words(&root, "npx", &["--yes", "wrangler", "deploy"]),
     }
 }
 
@@ -952,6 +1322,80 @@ mod tests {
         for bad in ["--registry=http://evil", "-e", "; rm -rf /", "a b", "a`b`", "a$(b)", "a\nb"] {
             assert!(!is_safe_package_name(bad), "should reject: {bad}");
         }
+    }
+
+    #[test]
+    fn branch_names_are_checked_before_git_sees_them() {
+        for good in ["main", "feature/login", "release-1.2", "fix_bug"] {
+            assert!(is_safe_branch_name(good), "{good}");
+        }
+        let long = "x".repeat(101);
+        for bad in [
+            "", "-D", "--force", "../x", "a..b", "a b", "a;b", "a$(x)", "/abs", "x.lock", "a//b", ".hidden",
+            long.as_str(),
+        ] {
+            assert!(!is_safe_branch_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn branch_list_is_parsed_with_the_current_one_marked() {
+        let b = parse_branches("  dev\n* main\n  feature/x\n");
+        assert_eq!(b.current, "main");
+        assert_eq!(b.branches, vec!["dev", "main", "feature/x"]);
+        let detached = parse_branches("* (HEAD detached at abc1234)\n  main\n");
+        assert_eq!(detached.branches, vec!["main"]);
+        assert!(detached.current.starts_with("(HEAD detached"));
+    }
+
+    /// Real git, real temp repo: branches, switching, stashing — and a push
+    /// with nowhere to push is an error message, not a hang.
+    #[test]
+    fn git_round_trip_in_a_temp_repo() {
+        let dir = std::env::temp_dir().join(format!("atlas-git-roundtrip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let g = |args: &[&str]| run_git(&dir, args).unwrap();
+        if !g(&["--version"]).0 {
+            eprintln!("git not installed; skipping");
+            return;
+        }
+        assert!(g(&["init", "-q", "-b", "main"]).0);
+        g(&["config", "user.email", "t@example.com"]);
+        g(&["config", "user.name", "T"]);
+        g(&["config", "commit.gpgsign", "false"]);
+        std::fs::write(dir.join("a.txt"), "one").unwrap();
+        g(&["add", "."]);
+        assert!(g(&["commit", "-q", "-m", "first"]).0);
+
+        assert!(g(&["checkout", "-q", "-b", "dev"]).0);
+        let b = parse_branches(&g(&["branch", "--list", "--no-color"]).1);
+        assert_eq!(b.current, "dev");
+        assert!(b.branches.contains(&"main".to_string()));
+
+        // stash and pop bring back exactly the edit
+        std::fs::write(dir.join("a.txt"), "two").unwrap();
+        assert!(g(&["stash", "push"]).0);
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "one");
+        assert!(g(&["stash", "pop"]).0);
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "two");
+
+        let (ok, _o, e) = run_git_noprompt(&dir, &["push"]).unwrap();
+        assert!(!ok && !e.trim().is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_names_and_templates_are_closed() {
+        for good in ["my-app", "app_2", "a"] {
+            assert!(is_safe_project_name(good), "{good}");
+        }
+        for bad in ["", "My-App", "-x", "a b", "a;b", "../x", "a/b", &"x".repeat(61)] {
+            assert!(!is_safe_project_name(bad), "{bad}");
+        }
+        assert!(scaffold_project(r"D:\Dev".into(), "ok".into(), "exe".into()).is_err());
+        assert!(scaffold_project(r"D:\Dev".into(), "A B".into(), "react".into()).is_err());
     }
 
     #[test]

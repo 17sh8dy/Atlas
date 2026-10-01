@@ -186,7 +186,27 @@ export function createWindowSkills(platform: Platform): Skill[] {
   ): Promise<{ entry: WindowEntry } | { early: { ok: boolean; message?: string; error?: string; spoken?: true } }> {
     const match = resolveWindow(await liveWindows(platform), query);
     if (match.kind === 'none') {
-      return { early: { ok: false, error: `I can't find a window called “${query}”.` } };
+      // Not a dead end: show what *is* open, each with the action, and say what else would help.
+      const open = (await liveWindows(platform)).filter((w) => w.title.trim()).slice(0, 8);
+      if (open.length && ctx.showResults) {
+        ctx.showResults(
+          open.map((w) => ({
+            title: w.title,
+            subtitle: w.processName,
+            icon: '🪟',
+            payload: w,
+            actions: actionFor(w),
+          })),
+          { title: `No window called “${query}”`, subtitle: 'These are open — pick one, or tell me the exact title' },
+        );
+        return { early: { ok: true, spoken: true, message: '' } };
+      }
+      return {
+        early: {
+          ok: false,
+          error: `I can't find a window called “${query}”${open.length ? '' : ' — nothing else is open either'}. If it's an app that isn't running, say “open ${query}”; otherwise tell me the exact title shown on the window.`,
+        },
+      };
     }
     if (match.kind === 'many') return { early: offerWindows(match.candidates, query, ctx, actionFor) };
     return { entry: match.entry };
@@ -199,6 +219,8 @@ export function createWindowSkills(platform: Platform): Skill[] {
     examples: string[],
     act: (windowId: string) => Promise<boolean> | undefined,
     done: (title: string) => string,
+    /** The skill that puts it back, called with this window's id. */
+    undoWith?: string,
   ): Skill => ({
     id,
     label,
@@ -219,7 +241,11 @@ export function createWindowSkills(platform: Platform): Skill[] {
 
       const ok = await act(target.entry.id);
       if (!ok) return { ok: false, error: `I couldn't ${verb} ${target.entry.title}.` };
-      return { ok: true, message: done(target.entry.title) };
+      return {
+        ok: true,
+        message: done(target.entry.title),
+        ...(undoWith ? { undo: { skill: undoWith, args: { name: target.entry.id }, label: `${target.entry.title} as it was` } } : {}),
+      };
     },
   });
 
@@ -261,6 +287,29 @@ export function createWindowSkills(platform: Platform): Skill[] {
       ['restore the notepad window'],
       (id) => platform.restoreWindow?.(id),
       (title) => `Restored ${title}.`,
+    ),
+  );
+
+  skills.push(
+    namedWindowSkill(
+      'window.pin',
+      'Keep a window on top',
+      'keep on top',
+      ['keep notepad on top'],
+      (id) => platform.setWindowTopmost?.(id, true),
+      (title) => `${title} will stay on top of other windows.`,
+      'window.unpin',
+    ),
+  );
+  skills.push(
+    namedWindowSkill(
+      'window.unpin',
+      'Stop keeping a window on top',
+      'release',
+      ['unpin notepad'],
+      (id) => platform.setWindowTopmost?.(id, false),
+      (title) => `${title} is back to normal.`,
+      'window.pin',
     ),
   );
 
@@ -415,6 +464,7 @@ export function createWindowSkills(platform: Platform): Skill[] {
     // reversible the way closing a window's own way still lets it decline.
     risk: 'confirm',
     guard: guardEndingProcess,
+    confirmAs: (a) => `force-close ${String(a.process)} (unsaved work in it is lost)`,
     examples: ['end chrome.exe', 'force close process 4242'],
     params: {
       process: { type: 'string', required: true, description: 'a process name or a process id' },

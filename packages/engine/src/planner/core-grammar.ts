@@ -30,6 +30,41 @@ function clean(s: string): string {
 }
 
 /** Words that mean "the thing we were just talking about", not a name. */
+/**
+ * "open / run / start" followed by something that is plainly a sentence, not the
+ * name of a program: a schedule ("run backup every night at 2am"), a package
+ * manager command ("run npm audit"), a place in a project ("open the terminal
+ * in this folder"), a count or a browser state ("open two notepad windows",
+ * "open an incognito window"). Left to the launch rules these became "an app
+ * called <the whole sentence>", which reads as a wrong guess about what was
+ * asked. Declined here, so they fall to whatever rule understands them — or to
+ * an honest "I don't know how to do that".
+ */
+const SENTENCE_NOT_AN_APP =
+  /(?:\bevery\s+(?:day|night|morning|evening|hour|week|month|\w+day)\b|\bat\s+\d|^(?:npm|pnpm|yarn|npx|cargo|git|pip|python|node|dotnet|make|cmake)\s+\S|\s(?:in|inside|from)\s+(?:this|the|my|that|current)\s+(?:folder|project|directory|repo|repository|dir)\b|^(?:this|the|my|that)\s+(?:project|repo|repository|folder)\b|^(?:(?:two|three|four|five|six|\d+)\s+(?:\S+\s+)?windows?\b)|^(?:an?\s+)?(?:new|incognito|private|inprivate)\s+(?:\S+\s+)?(?:tab|window)\b|^(?:an?\s+)?(?:pull request|dev(?:elopment)? server)\b|\sto\s+the\s+nearest\b|^the\s+(?:last|latest|newest|most recent)\b)/i;
+
+
+/** A place people name for the folders every PC has. */
+const SPOKEN_PLACE_WORD = String.raw`(?:downloads?|documents?|desktop|pictures?|music|videos?|home)`;
+
+/**
+ * A file or folder said in words rather than as a path: it has an extension, says
+ * "file" or "folder", or names where it is ("… in documents"). Deliberately narrow:
+ * "delete the last message" is not about a file.
+ */
+function spokenFile(t: string): boolean {
+  return (
+    /\.[a-z0-9]{1,5}\b/i.test(t) ||
+    /\b(?:file|folder)\b/i.test(t) ||
+    new RegExp(String.raw`\s(?:in|on|from)\s+(?:my\s+|the\s+)?${SPOKEN_PLACE_WORD}\b`, 'i').test(t)
+  );
+}
+
+/** A destination said in words: one of the standard folders, or something spokenFile accepts. */
+function spokenPlace(t: string): boolean {
+  return new RegExp(String.raw`^(?:my\s+|the\s+)?${SPOKEN_PLACE_WORD}(?:\s+folder)?$`, 'i').test(t) || spokenFile(t);
+}
+
 const REFERENTIAL = /^(it|that|this|them|those|the (first|second|third|last) one|one)$/i;
 
 /** Nouns that make a request about files rather than applications. */
@@ -144,6 +179,13 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
 
         const target = clean(captured);
         if (!target || REFERENTIAL.test(target)) return null;
+
+        // "find notes.txt in documents": the name is the name. Type words inside a filename
+        // ("notes", "report") and in the place ("documents") must not be stripped out of it —
+        // that used to search for ".txt in".
+        const named = /^(.+?\.(?:txt|pdf|docx?|xlsx?|pptx?|csv|json|md|rtf|png|jpe?g|gif|webp|svg|mp3|mp4|mkv|mov|wav|zip|7z|rar|exe|msi|iso|log|ini|cfg|py|js|ts|rs|cs|cpp|h|html?|css))(?:\s+(?:in|from|inside|under|within|on)\s+.+)?$/i.exec(target);
+        if (named) return plan(step('files.find', { query: named[1]! }), 'find-files');
+
         if (!FILE_NOUN.test(target)) return null;
 
         const kind = detectKind(target);
@@ -155,7 +197,8 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         // "pdf" and then searched for the word "files", which found nothing
         // and reported it confidently. Once nothing is left the phrase was
         // *only* a type, and the kind carries the whole request.
-        const query = target.replace(FILE_NOUNS_GLOBAL, '').replace(/\s+/g, ' ').trim();
+        const withoutPlace = target.replace(/\s+(?:in|from|inside|under|within)\s+(?:my\s+|the\s+)?\S.*$/i, '');
+        const query = withoutPlace.replace(FILE_NOUNS_GLOBAL, '').replace(/\s+/g, ' ').trim();
         if (!query && !kind) return null;
         return plan(step('files.find', kind ? { query, kind } : { query }), 'find-files');
       },
@@ -322,10 +365,16 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
       questionSafe: ['time-zone'],
       test(_lower, raw) {
         const captured = raw.match(
-          /^\s*(?:what(?:'s| is)\s+the\s+time|what time is it|time)\s+in\s+([a-z .'\-/_]+?)\s*[?.!]*$/i,
-        )?.[1];
-        if (!captured) return null;
-        return plan(step('time.inZone', { place: captured.trim() }), 'time-zone');
+          /^\s*(?:what(?:'s| is)\s+the\s+(?:time|date|day)|what\s+(?:time|day|date)\s+is\s+it|(?:the\s+)?(?:time|date|day))\s+in\s+([a-z .'\-/_]+?)\s*(?:right\s+now|now|today)?\s*[?.!]*$/i,
+        )
+        // "what day is it in tokyo" wants the date too — the local answer it
+        // used to get was for the wrong city, and said nothing about it.
+        const asksDay = /\b(?:day|date)\b/i.test(raw.split(/\s+in\s+/i)[0] ?? '');
+        if (!captured?.[1]) return null;
+        return plan(
+          step('time.inZone', asksDay ? { place: captured[1].trim(), date: true } : { place: captured[1].trim() }),
+          'time-zone',
+        );
       },
     },
 
@@ -920,6 +969,36 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
       },
     },
 
+    // "create a folder called Projects on my desktop" / "create a text file called
+    // todo.txt in documents with buy milk" — a name and a place said in words.
+    {
+      name: 'createSpoken',
+      order: -3.84,
+      pathSafe: false,
+      test(_lower, raw) {
+        const place = String.raw`(?:on|in|inside|under)\s+(?:my\s+|the\s+)?(${SPOKEN_PLACE_WORD}(?:\s+folder)?)`;
+        const folder = new RegExp(
+          String.raw`^\s*(?:please\s+)?(?:create|make)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:folder|directory)\s+(?:called|named)\s+(.+?)\s+${place}\s*[?.!]*$`,
+          'i',
+        ).exec(raw);
+        if (folder) {
+          return plan(step('files.createFolder', { path: `${stripQuotes(folder[1]!)} in ${folder[2]}` }), 'create-folder');
+        }
+        const file = new RegExp(
+          String.raw`^\s*(?:please\s+)?(?:create|make)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:text\s+|empty\s+)?(?:file|document)\s+(?:called|named)\s+(.+?)\s+${place}(?:\s+(?:with|containing|saying)\s+([\s\S]+?))?\s*[?.!]*$`,
+          'i',
+        ).exec(raw);
+        if (file) {
+          let name = stripQuotes(file[1]!);
+          if (!/\.[a-z0-9]{1,5}$/i.test(name)) name += '.txt';
+          const args: Record<string, string> = { path: `${name} in ${file[2]}` };
+          if (file[3]) args.content = stripQuotes(file[3]);
+          return plan(step('files.create', args), 'create-file');
+        }
+        return null;
+      },
+    },
+
     {
       name: 'fileRename',
       order: -3.7,
@@ -931,7 +1010,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         if (!rawPath || !rawNewName) return null;
         const path = stripQuotes(rawPath);
         const newName = stripQuotes(rawNewName);
-        if (!ABS_PATH_START.test(path)) return null;
+        if (!ABS_PATH_START.test(path) && !spokenFile(path)) return null;
         if (/[\\/]/.test(newName)) return null; // a bare name, not another path
         return plan(step('files.rename', { path, newName }), 'rename-file');
       },
@@ -948,7 +1027,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         if (!rawPath || !rawDest) return null;
         const path = stripQuotes(rawPath);
         const destDir = stripQuotes(rawDest);
-        if (!ABS_PATH_START.test(path) || !ABS_PATH_START.test(destDir)) return null;
+        if ((!ABS_PATH_START.test(path) && !spokenFile(path)) || (!ABS_PATH_START.test(destDir) && !spokenPlace(destDir))) return null;
         return plan(step('files.move', { path, destDir }), 'move-file');
       },
     },
@@ -967,7 +1046,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         if (!rawPath || !rawDest) return null;
         const path = stripQuotes(rawPath);
         const destDir = stripQuotes(rawDest);
-        if (!ABS_PATH_START.test(path) || !ABS_PATH_START.test(destDir)) return null;
+        if ((!ABS_PATH_START.test(path) && !spokenFile(path)) || (!ABS_PATH_START.test(destDir) && !spokenPlace(destDir))) return null;
         return plan(step('files.copy', { path, destDir }), 'copy-file');
       },
     },
@@ -980,7 +1059,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         const captured = raw.match(/^\s*delete\s+(.+?)\s*[?.!]*$/i)?.[1];
         if (!captured) return null;
         const path = stripQuotes(captured);
-        if (!ABS_PATH_START.test(path)) return null;
+        if (!ABS_PATH_START.test(path) && !spokenFile(path)) return null;
         return plan(step('files.delete', { path }), 'delete-file');
       },
     },
@@ -993,7 +1072,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         const captured = raw.match(/^\s*(?:read|show me the contents of)\s+(.+?)\s*[?.!]*$/i)?.[1];
         if (!captured) return null;
         const path = stripQuotes(captured);
-        if (!ABS_PATH_START.test(path)) return null;
+        if (!ABS_PATH_START.test(path) && !spokenFile(path)) return null;
         return plan(step('files.readText', { path }), 'read-file');
       },
     },
@@ -1133,6 +1212,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
         const { text, wantsBrowser, browser } = splitBrowserHint(captured);
         const target = clean(text);
         if (!target || REFERENTIAL.test(target.trim().toLowerCase())) return null;
+        if (SENTENCE_NOT_AN_APP.test(target)) return null;
         // File talk belongs to the file rules, which already had their turn.
         if (FILE_NOUN.test(target)) return null;
 
@@ -1177,6 +1257,7 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
 
         const target = clean(captured);
         if (!target) return null;
+        if (SENTENCE_NOT_AN_APP.test(target)) return null;
         // File talk belongs to the file rules, which already had their turn —
         // but only when the target *is* file talk. "documents" is; "File
         // Explorer" is a name that happens to contain a file word, and

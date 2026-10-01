@@ -25,7 +25,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
     GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed, PostMessageW,
     SetForegroundWindow, SetWindowPos, ShowWindow, GWL_EXSTYLE, GW_OWNER, SM_CXVIRTUALSCREEN,
-    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOZORDER,
+    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, HWND_NOTOPMOST, HWND_TOPMOST,
     SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_CLOSE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
@@ -316,6 +317,27 @@ pub fn set_window_bounds(
             new_w,
             new_h,
             SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    }
+    .map_err(|e| e.message())?;
+    Ok(true)
+}
+
+/// Keep a window above all others ("always on top"), or let it sink back to
+/// normal. Only the z-order changes: position, size and focus are left alone.
+#[tauri::command]
+pub fn set_window_topmost(id: String, on: bool) -> Result<bool, String> {
+    crate::halt::global().check()?;
+    let hwnd = resolve_hwnd(&id)?;
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            if on { HWND_TOPMOST } else { HWND_NOTOPMOST },
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         )
     }
     .map_err(|e| e.message())?;

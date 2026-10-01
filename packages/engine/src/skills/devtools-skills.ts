@@ -318,6 +318,7 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
 
   skills.push({
     id: 'git.add',
+    confirmAs: (a) => (String(a.file) === '.' ? 'stage all changes' : `stage ${String(a.file)}`),
     label: 'Git add',
     icon: '➕',
     domain: 'git',
@@ -346,6 +347,7 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
 
   skills.push({
     id: 'git.commit',
+    confirmAs: (a) => `commit with the message “${String(a.message)}”`,
     label: 'Git commit',
     icon: '✅',
     domain: 'git',
@@ -363,6 +365,130 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
         return { ok: true, message: `Committed as ${hash}.` };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : 'git commit failed.' };
+      }
+    },
+  });
+
+  skills.push({
+    id: 'git.branch',
+    label: 'Git branches',
+    icon: '🌿',
+    domain: 'git',
+    description: 'Which branch you are on, and the other branches in the repository.',
+    needs: ['devtools'],
+    risk: 'safe',
+    examples: ['which branch am i on', 'list branches'],
+    params: { path: { type: 'string', required: true, description: 'the repository folder' } },
+    async run(args) {
+      try {
+        const b = await platform.gitBranches!(String(args.path));
+        const others = b.branches.filter((n) => n !== b.current);
+        return {
+          ok: true,
+          message: `🌿 On ${b.current || 'no branch'}${others.length ? `. Others: ${others.join(', ')}` : '. No other branches.'}`,
+          data: b,
+        };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'I couldn\'t list the branches.' };
+      }
+    },
+  });
+
+  skills.push({
+    id: 'git.checkout',
+    confirmAs: (a) => `${a.create ? 'create and switch to' : 'switch to'} branch ${String(a.branch)}`,
+    label: 'Switch branch',
+    icon: '🔀',
+    domain: 'git',
+    description: 'Switch to another branch, or create a new one from where you are.',
+    needs: ['devtools'],
+    // Changes every file in the working folder to match the other branch.
+    risk: 'confirm',
+    examples: ['switch to branch dev', 'create a branch called feature-x'],
+    params: {
+      path: { type: 'string', required: true, description: 'the repository folder' },
+      branch: { type: 'string', required: true, description: 'the branch name' },
+      create: { type: 'boolean', required: false, description: 'make it first' },
+    },
+    async run(args) {
+      const branch = String(args.branch);
+      try {
+        await platform.gitCheckout!(String(args.path), branch, Boolean(args.create));
+        return { ok: true, message: args.create ? `🔀 Created and switched to ${branch}.` : `🔀 Switched to ${branch}.` };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : `I couldn't switch to ${branch}.` };
+      }
+    },
+  });
+
+  skills.push({
+    id: 'git.pull',
+    confirmAs: () => 'pull the latest changes from the remote',
+    label: 'Git pull',
+    icon: '⬇️',
+    domain: 'git',
+    description:
+      'Bring in the latest from the branch’s upstream. Fast-forward only: it never makes a merge commit and never rewrites anything.',
+    needs: ['devtools'],
+    risk: 'confirm',
+    examples: ['pull the latest'],
+    params: { path: { type: 'string', required: true, description: 'the repository folder' } },
+    async run(args) {
+      try {
+        const out = await platform.gitPull!(String(args.path));
+        return { ok: true, message: `⬇️ ${out || 'Already up to date.'}`, data: out };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'git pull failed.' };
+      }
+    },
+  });
+
+  skills.push({
+    id: 'git.push',
+    confirmAs: () => 'push your commits to the remote',
+    label: 'Git push',
+    icon: '⬆️',
+    domain: 'git',
+    description:
+      'Send the current branch to the remote it already tracks. Never forced, never to a different branch or remote.',
+    needs: ['devtools'],
+    // Publishes work to somewhere other people can see it.
+    risk: 'confirm',
+    examples: ['push my changes'],
+    params: { path: { type: 'string', required: true, description: 'the repository folder' } },
+    async run(args) {
+      try {
+        const out = await platform.gitPush!(String(args.path));
+        return { ok: true, message: `⬆️ Pushed.${out ? `\n\n${previewOutput(out, 10)}` : ''}`, data: out };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'git push failed.' };
+      }
+    },
+  });
+
+  skills.push({
+    id: 'git.stash',
+    confirmAs: (a) => (a.action === 'pop' ? 'bring back your stashed changes' : 'set your uncommitted changes aside'),
+    label: 'Git stash',
+    icon: '📦',
+    domain: 'git',
+    description: 'Set uncommitted changes aside, bring the latest set back, or list what is set aside.',
+    needs: ['devtools'],
+    risk: 'confirm',
+    riskFor: (args) => (args.action === 'list' ? 'safe' : undefined),
+    examples: ['stash my changes', 'stash pop'],
+    params: {
+      path: { type: 'string', required: true, description: 'the repository folder' },
+      action: { type: 'string', required: true, enum: ['push', 'pop', 'list'], description: 'what to do' },
+    },
+    async run(args) {
+      const action = String(args.action);
+      try {
+        const out = await platform.gitStash!(String(args.path), action);
+        if (action === 'list') return { ok: true, message: out ? `📦 ${out}` : '📦 Nothing is stashed.' };
+        return { ok: true, message: action === 'push' ? `📦 Changes set aside.\n${out}`.trim() : `📦 Brought back.\n${out}`.trim() };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'git stash failed.' };
       }
     },
   });
@@ -534,6 +660,31 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
           ok: false,
           error: e instanceof Error ? e.message : 'The test run failed to start.',
         };
+      }
+    },
+  });
+
+  skills.push({
+    id: 'dependency.installAll',
+    label: 'Install a project\'s dependencies',
+    icon: '📦',
+    domain: 'build',
+    description:
+      'Install everything a Node project lists in its package.json (npm or pnpm, whichever the project uses). Never a raw command line.',
+    needs: ['devtools'],
+    risk: 'confirm',
+    confirmAs: (a) => `install all the dependencies of ${String(a.path ?? 'your current project')}`,
+    examples: ['install dependencies'],
+    params: { path: { type: 'string', required: true, description: 'the project folder (defaults to your current project)' } },
+    async run(args) {
+      const path = String(args.path);
+      const detected = await detectSystem(path, ['pnpm', 'npm'], undefined);
+      if ('error' in detected) return { ok: false, error: detected.error };
+      try {
+        const result = await platform.runDevTool!(path, detected.system === 'pnpm' ? 'pnpm-install' : 'npm-install');
+        return toolResultToSkillResult(result, `Dependencies installed (${detected.system}).`);
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'The install failed to start.' };
       }
     },
   });

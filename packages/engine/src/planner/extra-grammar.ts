@@ -15,6 +15,17 @@
 
 import { createIncompleteRules } from './incomplete-grammar';
 import { createAgentGrammar } from './agent-grammar';
+import { createTimeGrammar } from './time-grammar';
+import { createSystemGrammar } from './system-grammar';
+import { createFileGrammar } from './file-grammar';
+import { createWindowGrammar } from './window-grammar';
+import { createSettingsGrammar } from './settings-grammar';
+import { createDevGrammar } from './dev-grammar';
+import { createShellGrammar } from './shell-grammar';
+import { createEverydayGrammar } from './everyday-grammar';
+import { createCreatorGrammar } from './creator-grammar';
+import { createCoverageGrammar } from './coverage-grammar';
+import { createCatalogGrammar } from './catalog-grammar';
 import type { GrammarRule } from './grammar';
 import { plan, step } from './grammar';
 
@@ -49,6 +60,59 @@ export function createExtraGrammar(): GrammarRule[] {
     // Watch, setups, plain developer phrasings, window placement, the mic —
     // see agent-grammar.ts for why these sit ahead of the core rules.
     ...createAgentGrammar(),
+
+    // Reminders, alarms and the stopwatch.
+    ...createTimeGrammar(),
+
+    // Sleep, timed shutdown, exact volume, the mic, dark mode.
+    ...createSystemGrammar(),
+
+    // Zip, unzip, duplicates, what changed, hide / read-only, copy a path.
+    ...createFileGrammar(),
+
+    // Bare window verbs ("maximize spotify"), bring to front, show desktop, always on top.
+    ...createWindowGrammar(),
+
+    // Wallpaper, mouse speed, file extensions / hidden files, Explorer, DND, radios, now playing.
+    ...createSettingsGrammar(),
+
+    // git without a folder (the current project fills in), project use, terminal / editor.
+    ...createDevGrammar(),
+
+    // Brightness, per-app volume, power plan, projection, Recycle Bin, startup apps, Settings pages, printers, speed test, hold a key.
+    ...createShellGrammar(),
+
+    // Email and calendar (compose, never send), define / translate / weather / news, window to a monitor.
+    ...createEverydayGrammar(),
+
+    // Flush DNS, scaffold / deploy, compress / convert / resize media, batch rename.
+    ...createCreatorGrammar(),
+
+    // The everyday sentences a coverage sweep found falling through.
+    ...createCoverageGrammar(),
+
+    // The tool-catalog pass: more system tools, restart an app, lint / typecheck / format, search a site.
+    ...createCatalogGrammar(),
+
+    {
+      // "run notepad as administrator" used to open it normally: the words that
+      // changed the request were silently dropped. Atlas never launches things
+      // elevated (see elevation.rs: a closed list of operations, not a general
+      // "run this as admin"), so it says so, and does not open it at all.
+      name: 'openAsAdmin',
+      order: -1.3,
+      test(_lower, raw) {
+        const m =
+          raw.match(
+            /^\s*(?:open|launch|start|run)\s+(.+?)\s+(?:as|with|in)\s+(?:an?\s+)?(?:admin|administrator|elevated|admin(?:istrator)?\s+(?:rights|mode|privileges|access))\s*[?.!]*$/i,
+          ) ??
+          raw.match(
+            /^\s*(?:open|launch|start|run)\s+(?:as\s+)?(?:an?\s+)?(?:admin|administrator|elevated)\s+(.+?)\s*[?.!]*$/i,
+          );
+        if (!m?.[1]) return null;
+        return plan(step('app.runAsAdmin', { name: stripQuotes(m[1]) }), 'open-as-admin');
+      },
+    },
 
     // ---- text -------------------------------------------------------------
 
@@ -616,7 +680,7 @@ export function createExtraGrammar(): GrammarRule[] {
       order: -5.17,
       test(lower) {
         if (/^\s*(?:un)?mute\s*(?:the\s+)?(?:sound|volume|audio|it)?\s*[?.!]*$/.test(lower)) {
-          return plan(step('system.mute', {}), 'mute');
+          return plan(step('system.mute', { state: /^\s*un/.test(lower) ? 'unmute' : 'mute' }), 'mute');
         }
         return null;
       },
@@ -1248,6 +1312,21 @@ export function createExtraGrammar(): GrammarRule[] {
           );
         }
 
+        // "press alt tab" / "press windows d" / "press control alt delete" — the
+        // way it is said aloud. Only when it opens with a modifier, so "press
+        // save" stays a button.
+        const spoken = lower.match(
+          /^\s*press\s+((?:(?:ctrl|control|alt|shift|win|windows|cmd|command)\s+(?:and\s+|plus\s+)?)+)([a-z0-9]|tab|enter|escape|esc|delete|del|space|f[1-9]|f1[0-2]|home|end|up|down|left|right)\s*[?.!]*$/,
+        );
+        if (spoken?.[1]) {
+          const mods = spoken[1]
+            .trim()
+            .split(/\s+(?:and\s+|plus\s+)?/)
+            .filter((w) => w && w !== 'and' && w !== 'plus')
+            .map((w) => (w === 'control' ? 'ctrl' : w === 'windows' || w === 'cmd' || w === 'command' ? 'win' : w));
+          return plan(step('input.hotkey', { combo: [...mods, spoken[2]!].join('+') }), 'hotkey');
+        }
+
         const single = lower.match(
           /^\s*press\s+(enter|return|escape|esc|tab|backspace|delete|del|insert|ins|home|end|space|spacebar|up|down|left|right|pageup|pagedown|f[1-9]|f1[0-2])\s*[?.!]*$/,
         );
@@ -1613,6 +1692,11 @@ export function createExtraGrammar(): GrammarRule[] {
           /^\s*(activate|press|push|toggle|select|expand|collapse|click)\s+(?:on\s+)?(?:the\s+)?(.+?)\s*[?.!]*$/,
         );
         if (!m?.[2]) return null;
+        // "push to github" / "push my changes" is about a repository, not a
+        // control called "to github".
+        if (m[1] === 'push' && /^(?:to|my|these|changes|code|commits?|branch|origin|upstream)\b/.test(m[2]!)) {
+          return null;
+        }
         const args = { control: m[2]!.trim() };
         return planUiaVerb(m[1]!, args, 0.8);
       },

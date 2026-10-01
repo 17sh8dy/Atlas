@@ -55,7 +55,7 @@ pub fn lock_workstation() -> Result<bool, String> {
 /// Shutdown and restart need SeShutdownPrivilege, which a process has but does
 /// not have *enabled* by default. Enabling it for our own token is the
 /// documented path; it grants nothing a user couldn't do from the Start menu.
-fn enable_shutdown_privilege() -> Result<(), String> {
+pub(crate) fn enable_shutdown_privilege() -> Result<(), String> {
     unsafe {
         let mut token = HANDLE::default();
         OpenProcessToken(

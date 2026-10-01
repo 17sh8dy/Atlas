@@ -131,6 +131,211 @@ export type KnownFolder =
 
 export type PowerAction = 'shutdown' | 'restart' | 'sign-out';
 export type MediaKey = 'play-pause' | 'next' | 'previous' | 'stop';
+export interface DuplicateGroup {
+  sizeBytes: number;
+  paths: string[];
+}
+export interface Duplicates {
+  groups: DuplicateGroup[];
+  /** Bytes freed by keeping one copy of each group. */
+  wastedBytes: number;
+  truncated: boolean;
+}
+export interface ChangedFile {
+  path: string;
+  name: string;
+  sizeBytes: number;
+  modifiedAt: number;
+}
+export interface FileAttributes {
+  readOnly: boolean;
+  hidden: boolean;
+  system: boolean;
+}
+export interface GitBranches {
+  current: string;
+  branches: string[];
+}
+export interface PingResult {
+  address: string;
+  sent: number;
+  received: number;
+  timesMs: number[];
+}
+export interface CleanupScan {
+  kind: string;
+  folder: string;
+  files: number;
+  bytes: number;
+  largest: Array<{ path: string; sizeBytes: number }>;
+  truncated: boolean;
+  /** True when cleaning sends these to the Recycle Bin rather than removing them for good. */
+  recoverable: boolean;
+}
+export interface CleanupDone {
+  kind: string;
+  removedFiles: number;
+  removedBytes: number;
+  skippedFiles: number;
+  recoverable: boolean;
+}
+export interface ProcessDetails {
+  pid: number;
+  name: string;
+  path: string | null;
+  memoryBytes: number;
+  runningSeconds: number;
+  parentPid: number | null;
+}
+export interface FirmwareInfo {
+  computerName: string;
+  userName: string;
+  biosVendor: string | null;
+  biosVersion: string | null;
+  biosDate: string | null;
+  systemMaker: string | null;
+  systemModel: string | null;
+  boardMaker: string | null;
+  boardModel: string | null;
+}
+export interface SecurityStatus {
+  firewallDomain: boolean | null;
+  firewallPrivate: boolean | null;
+  firewallPublic: boolean | null;
+  defenderRealtime: boolean | null;
+  atlasElevated: boolean;
+}
+export interface ArchiveListing {
+  entries: Array<{ name: string; sizeBytes: number; isDir: boolean }>;
+  totalEntries: number;
+  totalBytes: number;
+}
+export interface FindFilesQuery {
+  path: string;
+  ext?: string;
+  minBytes?: number;
+  maxBytes?: number;
+  modifiedWithinDays?: number;
+  olderThanDays?: number;
+  /** Look for empty ones instead. */
+  empty?: 'files' | 'folders' | 'any';
+  limit?: number;
+}
+export interface FoundFiles {
+  items: Array<{ path: string; name: string; sizeBytes: number; isDir: boolean; modifiedAt: number }>;
+  total: number;
+  truncated: boolean;
+}
+export interface FolderComparison {
+  onlyInA: string[];
+  onlyInB: string[];
+  different: string[];
+  same: number;
+  truncated: boolean;
+}
+export interface FileComparison {
+  identical: boolean;
+  sizeA: number;
+  sizeB: number;
+}
+export interface BrightnessInfo {
+  level: number;
+  monitors: number;
+}
+export interface AppVolume {
+  app: string;
+  pid: number;
+  level: number;
+  muted: boolean;
+}
+export type PowerPlan = 'balanced' | 'high-performance' | 'power-saver' | 'custom';
+export type ProjectionMode = 'pc-only' | 'duplicate' | 'extend' | 'second-only';
+export interface BinItem {
+  name: string;
+  original: string;
+  sizeBytes: number;
+  deletedAt: number;
+  isDir: boolean;
+}
+export interface StartupApp {
+  name: string;
+  command: string;
+  enabled: boolean;
+  scope: 'user' | 'machine';
+}
+export interface PrinterList {
+  default: string | null;
+  names: string[];
+}
+export interface SpeedResult {
+  downloadMbps: number;
+  latencyMs: number;
+  bytes: number;
+}
+export interface MediaInfo {
+  durationSeconds: number | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
+  bitrateKbps: number | null;
+  sizeBytes: number;
+}
+export interface MediaResult {
+  output: string;
+  inputBytes: number;
+  outputBytes: number;
+}
+export interface WingetPackage {
+  name: string;
+  id: string;
+  version: string;
+}
+export interface Specs {
+  cpu: string;
+  cores: number;
+  threads: number;
+  memoryGb: number;
+  os: string;
+  computer: string;
+  gpus: string[];
+}
+export interface SubfolderSize {
+  name: string;
+  path: string;
+  sizeBytes: number;
+  fileCount: number;
+}
+export interface LargestSubfolders {
+  folders: SubfolderSize[];
+  looseBytes: number;
+  totalBytes: number;
+  truncated: boolean;
+}
+export interface RadioInfo {
+  kind: 'wifi' | 'bluetooth' | 'other';
+  name: string;
+  on: boolean;
+}
+export interface NowPlaying {
+  title: string;
+  artist: string;
+  album: string;
+  status: 'playing' | 'paused' | 'stopped' | 'other';
+  /** The app's own identifier, e.g. "Spotify.exe". */
+  app: string;
+  shuffle: boolean | null;
+}
+export interface ExplorerOptions {
+  fileExtensions: boolean;
+  hiddenFiles: boolean;
+}
+/** A speaker or microphone's state: 0–100 and whether it is muted. */
+export interface AudioLevel {
+  level: number;
+  muted: boolean;
+}
 
 /**
  * The default audio devices, by the name Windows shows for them — "Shure MV7+"
@@ -363,6 +568,8 @@ export interface Platform {
   folderSize?(path: string): Promise<FolderSize>;
   /** The largest files under a folder, most-bytes first. */
   largestFiles?(path: string, limit?: number): Promise<LargestFiles>;
+  /** Which immediate subfolders are biggest — one walk, bounded in time. */
+  largestSubfolders?(path: string, limit?: number): Promise<LargestSubfolders>;
 
   /**
    * A software project's own tooling, gated by `devtools`.
@@ -397,6 +604,20 @@ export interface Platform {
   gitAdd?(cwd: string, path: string): Promise<boolean>;
   /** Returns the new commit's short hash. */
   gitCommit?(cwd: string, message: string): Promise<string>;
+  gitBranches?(cwd: string): Promise<GitBranches>;
+  /** Switch branch, or create-then-switch. The name is validated natively; no flags pass through. */
+  gitCheckout?(cwd: string, branch: string, create: boolean): Promise<string>;
+  /** Fast-forward only. */
+  gitPull?(cwd: string): Promise<string>;
+  /** The current branch to its own upstream — never forced. */
+  gitPush?(cwd: string): Promise<string>;
+  gitStash?(cwd: string, action: string): Promise<string>;
+  /** merge / tag / tags / unstage / discard / init — a closed set, see `git_more`. */
+  gitMore?(cwd: string, action: string, arg?: string): Promise<string>;
+  /** A new terminal window with this folder as its working directory. */
+  openProjectTerminal?(cwd: string): Promise<boolean>;
+  /** VS Code on this folder, launched directly (no shell). */
+  openProjectEditor?(cwd: string): Promise<boolean>;
   runDevTool?(cwd: string, tool: DevTool, arg?: string): Promise<ToolResult>;
   /**
    * Add one dependency to a project, gated by `devtools` alongside the rest
@@ -467,6 +688,8 @@ export interface Platform {
   activeWindow?(): Promise<WindowEntry | null>;
   focusWindow?(id: string): Promise<boolean>;
   minimizeWindow?(id: string): Promise<boolean>;
+  /** Keep a window above all others, or release it. Only the z-order changes. */
+  setWindowTopmost?(id: string, on: boolean): Promise<boolean>;
   maximizeWindow?(id: string): Promise<boolean>;
   restoreWindow?(id: string): Promise<boolean>;
   /** Any field left out keeps the window's current value for it. */
@@ -701,7 +924,133 @@ export interface Platform {
   setVolume?(direction: 'up' | 'down', steps?: number): Promise<boolean>;
   toggleMute?(): Promise<boolean>;
   displayOff?(): Promise<boolean>;
+  /** What this PC can do — hibernation in particular may be switched off. */
+  powerStates?(): Promise<{ sleep: boolean; hibernate: boolean }>;
+  /** Put the PC to sleep or hibernate it. Refused when hibernation is off. */
+  sleepPc?(kind: 'sleep' | 'hibernate'): Promise<boolean>;
+  /** Windows' own countdown (10 s – 24 h), cancellable by anyone with `shutdown /a`. */
+  scheduleShutdown?(action: 'shutdown' | 'restart', seconds: number): Promise<boolean>;
+  /** false = nothing was pending. */
+  cancelShutdown?(): Promise<boolean>;
+  /** Exact speaker volume/mute, unlike `setVolume`'s notches. Pass null to leave one alone. */
+  volumeState?(): Promise<AudioLevel>;
+  volumeSet?(level: number | null, muted: boolean | null): Promise<AudioLevel>;
+  micState?(): Promise<AudioLevel>;
+  micSet?(level: number | null, muted: boolean | null): Promise<AudioLevel>;
+  themeGet?(): Promise<'light' | 'dark'>;
+  themeSet?(mode: 'light' | 'dark'): Promise<boolean>;
   emptyRecycleBin?(): Promise<boolean>;
+
+  /** winget, with fixed arguments and a validated id. Rejects with a plain message when winget is not installed. */
+  wingetSearch?(query: string): Promise<WingetPackage[]>;
+  wingetInstall?(id: string): Promise<string>;
+  wingetUninstall?(id: string): Promise<string>;
+  wingetUpgrade?(id: string): Promise<string>;
+  wingetUpgrades?(): Promise<WingetPackage[]>;
+  /** CPU, memory, OS and graphics cards. */
+  hardwareSpecs?(): Promise<Specs>;
+  /** Clear the DNS resolver cache. */
+  flushDns?(): Promise<string>;
+  /** A new Vite app in a new folder `name` inside `parent`. Refuses an existing folder. */
+  scaffoldProject?(parent: string, name: string, template: string): Promise<ToolResult>;
+  /** Deploy the project with Vercel's or Cloudflare's own CLI. */
+  deployProject?(cwd: string, target: 'vercel' | 'cloudflare'): Promise<ToolResult>;
+  /** ffmpeg-backed: a smaller copy of a video / a converted file / a resized picture. All new files. */
+  compressVideo?(path: string, level: string): Promise<MediaResult>;
+  convertMedia?(path: string, format: string): Promise<MediaResult>;
+  resizeImage?(path: string, width: number | null, percent: number | null): Promise<MediaResult>;
+  /** Length, size, frame rate and codecs of a media file (ffmpeg). Read-only. */
+  mediaInfo?(path: string): Promise<MediaInfo>;
+  /** trim / frame / rotate / flip / square / thumbnail — a fixed recipe each, to a new file. */
+  editMedia?(path: string, op: string, a?: number, b?: number): Promise<MediaResult>;
+  /** Monitor brightness over DDC/CI — rejects when no display lets Windows change it. */
+  brightnessGet?(): Promise<BrightnessInfo>;
+  brightnessSet?(level: number): Promise<BrightnessInfo>;
+  /** Per-app volume (apps with an audio session on the default speakers). */
+  appVolumes?(): Promise<AppVolume[]>;
+  setAppVolume?(app: string, level: number | null, muted: boolean | null): Promise<AppVolume[]>;
+  powerPlan?(): Promise<PowerPlan>;
+  setPowerPlan?(plan: 'balanced' | 'high-performance' | 'power-saver'): Promise<PowerPlan>;
+  projectDisplay?(mode: ProjectionMode): Promise<boolean>;
+  recycleBinList?(limit?: number): Promise<BinItem[]>;
+  /** Restore the newest item with this name; never overwrites. */
+  recycleBinRestore?(name: string): Promise<BinItem>;
+  startupApps?(): Promise<StartupApp[]>;
+  setStartupApp?(name: string, enabled: boolean): Promise<StartupApp>;
+  /** Open a page of Windows Settings from a fixed table. */
+  openSettingsPage?(page: string): Promise<boolean>;
+  printers?(): Promise<PrinterList>;
+  setDefaultPrinter?(name: string): Promise<PrinterList>;
+  /** The shell's own "print" verb, for documents and pictures in the allowed folders. */
+  printFile?(path: string): Promise<boolean>;
+  speedTest?(): Promise<SpeedResult>;
+  /** Play one of Atlas's own alert tones (chime, bell, beep, soft, alarm, system) at a volume 0–100. */
+  playSound?(kind: string, volume?: number): Promise<boolean>;
+  /** Hold one key for 0.1–10 s, always released. */
+  holdKey?(key: string, seconds: number): Promise<boolean>;
+
+  /** Set the wallpaper to a .jpg/.png/.bmp inside the allowed folders. */
+  setWallpaper?(path: string): Promise<boolean>;
+  /** 1 (slowest) – 20 (fastest); 10 is Windows' default. */
+  mouseSpeed?(): Promise<number>;
+  setMouseSpeed?(speed: number): Promise<number>;
+  explorerOptions?(): Promise<ExplorerOptions>;
+  setExplorerOption?(which: 'file-extensions' | 'hidden-files', show: boolean): Promise<ExplorerOptions>;
+  /** Closes open File Explorer windows; Windows restores the taskbar by itself. */
+  restartExplorer?(): Promise<number>;
+  doNotDisturb?(): Promise<boolean>;
+  setDoNotDisturb?(on: boolean): Promise<boolean>;
+  radios?(): Promise<RadioInfo[]>;
+  setRadio?(kind: 'wifi' | 'bluetooth', on: boolean): Promise<RadioInfo[]>;
+  /** The system media session — null when nothing is playing. */
+  nowPlaying?(): Promise<NowPlaying | null>;
+  setShuffle?(on: boolean): Promise<boolean>;
+
+  /** Zip a file or folder into a new .zip (never overwrites); resolves to the archive's path. */
+  zipPath?(path: string, destDir?: string): Promise<string>;
+  /** Extract a .zip into a new folder beside it (zip-slip and size guarded); resolves to the folder. */
+  unzipPath?(path: string, destDir?: string): Promise<string>;
+  /** Four ICMP echoes to a host name or IPv4 address. */
+  pingHost?(host: string): Promise<PingResult>;
+  /** The addresses a host name resolves to. */
+  dnsLookup?(host: string): Promise<string[]>;
+  /** The hops to a host, one line each. */
+  traceRoute?(host: string): Promise<string[]>;
+  /** Where a running process's program is, how much memory it holds, how long it has been up. Never its command line. */
+  processDetails?(pid: number): Promise<ProcessDetails>;
+  /** BIOS, motherboard, computer and user name. */
+  firmwareInfo?(): Promise<FirmwareInfo>;
+  /** Firewall, Defender and whether Atlas is elevated. Reads only. */
+  securityStatus?(): Promise<SecurityStatus>;
+  /** Byte-for-byte comparison of two files. Read-only. */
+  compareFiles?(a: string, b: string): Promise<FileComparison>;
+  /** Identical files in a folder, largest first. Read-only. */
+  findDuplicates?(path: string): Promise<Duplicates>;
+  /** A copy of a file or folder beside it ("X - Copy"); resolves to the new path. Never overwrites. */
+  duplicatePath?(path: string): Promise<string>;
+  /** A .lnk to an existing file or folder, in `dir`; resolves to its path. */
+  createShortcut?(target: string, dir: string, name?: string): Promise<string>;
+  /** A .url shortcut to an http(s) address, in `dir`; resolves to its path. */
+  createUrlShortcut?(url: string, name: string, dir: string): Promise<string>;
+  /** How much of one kind of leftover there is (temp / crashdumps / installers). Counts only. */
+  cleanupScan?(kind: string): Promise<CleanupScan>;
+  /** Remove what was reviewed — refuses if there is noticeably more now. */
+  cleanupClean?(kind: string, expectedFiles: number, expectedBytes: number): Promise<CleanupDone>;
+  /** Whether git and ffmpeg are installed, and their versions. */
+  toolVersions?(): Promise<{ git: string | null; ffmpeg: string | null }>;
+  /** SHA-256 of one file. Read-only. */
+  fileHash?(path: string): Promise<{ sha256: string; sizeBytes: number }>;
+  /** What is inside a .zip, without extracting. Read-only. */
+  listArchive?(path: string, limit?: number): Promise<ArchiveListing>;
+  /** Files by extension / size / age, or the empty ones. Read-only. */
+  findFiles?(query: FindFilesQuery): Promise<FoundFiles>;
+  /** How two folders differ. Read-only. */
+  compareFolders?(a: string, b: string): Promise<FolderComparison>;
+  /** Files changed in the last N hours, newest first. */
+  recentChanges?(path: string, hours: number, limit?: number): Promise<ChangedFile[]>;
+  fileAttributes?(path: string): Promise<FileAttributes>;
+  /** null leaves that attribute alone. System files are refused. */
+  setFileAttributes?(path: string, readOnly: boolean | null, hidden: boolean | null): Promise<FileAttributes>;
 
   /**
    * Search the web and fetch a page's readable text. The only two methods on

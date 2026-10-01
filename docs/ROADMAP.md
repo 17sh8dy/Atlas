@@ -91,7 +91,8 @@ itself back.
   the Nova server, start a call in Hangout") still need the observe-and-replan
   loop (see Ideas §7); a relevant-skill shortlist for small-model planning is
   proposed, not built; an approval-gated PowerShell action is proposed, not built.
-- **Missing actions:** alarm, email, message, call, brightness.
+- **Missing actions:** alarm, email, message, call, brightness. (The full, measured list is the
+  1.0.6 sweep below, "What Atlas can't do yet".)
 - **Owed:** a real-app click-through of streaming speech, chains and the
   Install button (all verified by tests only). Ollama does not autostart, so
   Atlas shows no models until it is running — a "Start Ollama" button is unbuilt.
@@ -1799,6 +1800,116 @@ the cause was a bug that had been in Atlas all along.
 
 ---
 
+## Sweep for 1.0.6 — what Atlas can't do yet (2026-09-30, vision excluded)
+
+Brandon's brief: sweep what Atlas can't do (not vision), add it tomorrow, then release 1.0.6.
+**This is the To-Do for that.** *Updated 2026-09-30: much of it is built — see Phase 19 for what, and for what is still open.*
+
+**Method, and its limits.** 257 everyday requests I wrote across 12 areas, run through the same
+grammar the app registers (plus the engine's own filler-stripping, typo and small-talk tiers) with
+no AI model. That measures the floor the rule "the AI tier may never be the only route" cares
+about. It is not a claim that a connected model couldn't do more, and the phrases are my picks,
+not user data. **114 routed, 143 did not.** Of the 114, about 20 went to the wrong action (C).
+There are 190 skills in 22 domains today.
+
+### A. No skill exists (a real capability is missing)
+
+- **Power and display:** sleep, hibernate (`system.power` has only shutdown / restart / sign-out);
+  shutdown after a delay, cancel a shutdown; brightness (get and set); night light; dark mode;
+  do-not-disturb; airplane mode; Bluetooth and Wi-Fi on/off; hotspot; wallpaper; resolution and
+  multi-monitor projection; power plan; mouse speed; default printer; print a file; time zone and
+  language; show file extensions / hidden files.
+- **Audio:** volume "set to N" (it only steps up/down), microphone mute and volume, switch output
+  device (devices are read-only), per-app volume.
+- **Files:** zip / unzip; restore from the Recycle Bin; compare two files; duplicate finder (a
+  search for the word "duplicate" runs instead); batch rename; image convert / resize; video
+  compress; properties and attributes (read-only, hidden); copy a file's path; search *inside*
+  files; "what changed in this folder".
+- **Apps and windows:** install, uninstall, update (winget); manage startup apps; pin to the
+  taskbar; set the default browser; always-on-top; move a window to another monitor; minimize all
+  / show desktop; restart Explorer; **run as administrator** (see C).
+- **Time:** alarms, stopwatch, recurring reminders. **There is no alarm and no scheduler**, so
+  "remind me to call mom at 5" only adds a to-do (see C). Calendar: none.
+- **Communication:** email, text, calls, social posting, chat messages, meetings. Zero skills; it
+  can only open the app. Needs a decision first (accounts / OAuth), see D.
+- **Live information:** weather, news, translate, define, stocks, sports, travel time, downloads,
+  bookmarks. There is web search and Wikipedia but no live-data skill. (Weather is on the
+  "deliberately not, by default" list: opt-in only.)
+- **Media:** play a named track / playlist, what's playing, seek, shuffle (`media.control` is
+  play/pause/next/previous/stop only).
+- **Network:** ping, flush DNS, speed test, restart an adapter (it lists them instead).
+- **Developer:** branch / checkout / push / pull / stash / PR; scaffolding from a framework
+  template; run a script by name (dev server, audit, format, lint); deploy; open a terminal or the
+  editor in a project.
+- **Automation:** recurring schedules and routines (Phase 5, not started); event triggers ("when I
+  plug in headphones"); "save this as a routine"; "do that again"; undo beyond file moves.
+- **Keyboard and mouse:** hold a key or a button down (only press / click / drag exist).
+
+### B. The skill exists but the phrasing doesn't reach it (cheap: grammar only)
+
+Volume "set to 30"; "maximize spotify" / "bring notepad to the front" / "close notepad" / "what
+window is in front" (window skills exist, bare app names don't reach them); "stop the music";
+"create a folder called X on the desktop" and "create a text file called X with Y"; rename / copy /
+move / delete / read a file by bare name or "in downloads" (needs a location resolver); "reveal it
+in Explorer"; "copy hello to the clipboard"; "uppercase hello", "reverse the text", "count the words
+in ..." without quotes; "square root of 144", "12 factorial"; `git status` / "commit my changes" /
+"show git log"; "search my code for TODO"; "read this out loud"; "what did I tell you about ...";
+"what do I have to do today"; "play lofi on youtube"; "type hello" (deliberately not guessed at,
+see the 1.0.5 instruction-following work).
+
+### C. Routed, but to the wrong action (worse than a miss)
+
+- **`press alt tab` -> `uia.invoke` and `push to github` -> `uia.invoke`**: they would try to click
+  a control called "alt tab" / "to github". These two should be a hotkey and a git action.
+- **`run notepad as administrator` opens it normally.** The words "as administrator" are silently
+  dropped, which is the same class of bug as the 1.0.5 instruction-following fix. It should either
+  do it (through the approved elevation path) or say it can't.
+- **`remind me to call mom at 5` -> a to-do that never fires.** It reads like a reminder.
+- **`app.open` swallows anything after "open / run / start"**: "run backup every night at 2am",
+  "start a stopwatch", "start the dev server", "open a pull request", "run npm audit", "open the
+  terminal in this folder", "open this project in vscode", "open two notepad windows", "open a new
+  tab", "open an incognito window", "open maps to the nearest pharmacy", "open the last file I
+  downloaded" all become "an app called <the rest of the sentence>". Mostly an honest "not
+  installed", but unhelpful, and it hides that the request was understood wrongly.
+- `restart the network adapter` lists adapters; `find duplicate files` searches for the name
+  "duplicate in"; `what day is it in tokyo` returns the local time.
+
+### D. Needs a decision, not just code
+
+- **Email / messaging / calendar / calls:** each needs an account. Nova Account is Atlas-optional
+  and must never gate a feature, so this is a per-provider OAuth question, and "sending on your
+  behalf" is on the always-ask list.
+- **General questions, summarising, rewriting, translating, explaining:** need a model. That is by
+  design (Atlas works with none); the open question is what the no-model answer says.
+- **Scheduler:** a background scheduler makes Atlas act when nobody is looking. Watches already set
+  the precedent (approved up front, stops and asks on anything unexpected); a scheduler should
+  follow the same rules.
+- **Run as administrator:** must go through `elevation.rs` (closed operation list) or be refused
+  honestly; it cannot become a general "run this elevated".
+
+### Suggested order for tomorrow
+
+1. **C first** (fixes that make Atlas stop doing the wrong thing): the two `uia.invoke` misroutes,
+   "as administrator" dropped, reminders that don't fire, and `app.open` refusing to swallow a
+   sentence. Each is a small, testable change.
+2. **B next** (biggest gain for least risk): grammar for skills that already exist.
+3. **A, cheapest and most asked-for first**: sleep / hibernate / delayed shutdown, volume "set to
+   N", brightness, mic mute, dark mode, alarms + a real reminder, then zip / unzip and
+   Recycle-Bin restore.
+4. **D** only after Brandon decides.
+
+Every new action keeps the rules already in force: closed skills (no `exec`), risk keyed to
+consequence, no grammar phrasing that only works through the AI tier, the emergency stop, and an
+example in `advertised-examples.test.ts` for each new skill.
+
+**Release 1.0.6 checklist (tomorrow):** add the day's changes to `release-notes/1.0.6.txt` (the
+release script refuses to publish without it), run the full gate, commit, push, `pnpm release`,
+check the installer URL returns 200, bump `VERSION` in the Atlas Website `script.js`, push it, and
+test an installed 1.0.5 through the in-app update to 1.0.6 (that end-to-end has still never been
+run, and it is what 1.0.6 exists to fix).
+
+---
+
 ## Ideas for later — subscriptions, memory, Atlas Mobile (Brandon, 2026-09-24)
 
 Recorded, not decided. Each needs its own decision before any code, as every "Ideas"
@@ -1873,6 +1984,144 @@ or anywhere recorded yet. If it becomes a project, it gets its own entry. It is 
 of Atlas.
 
 ---
+
+## Phase 19 — 1.0.6: what Atlas could not do, and now can (2026-09-30)
+
+The sweep above was the To-Do. This is what was built from it, in the order it was
+suggested, and — as important — what was **not**.
+
+**Method, so it can be trusted.** Every new skill has its own tests, an example that is
+enforced by `advertised-examples.test.ts` (it must parse to *its own skill*), and a
+risk set by consequence. Every new native command takes an enumerated or range-checked
+argument and starts with the emergency-stop check (the halt sweep fails the build
+otherwise; pure reads are listed under "Reads" there). Where it could be done safely, the
+Windows call was **run for real on this PC** and put back (the `live_round_trip` tests,
+`#[ignore]`d — run with `cargo test --lib live_round_trip -- --ignored`).
+
+### C — wrong routes, fixed
+
+- `press alt tab` / `press windows d` / `press control alt delete` are hotkeys (they were a
+  click on a control called "alt tab"). A button is still a button.
+- `push to github` is `git.push` (confirm). It was a click on "to github".
+- `run notepad as administrator` is **refused in words** (`app.runAsAdmin`) and opens
+  nothing. It used to open it normally with the words dropped. Atlas still never launches
+  anything elevated — elevation stays the closed list in `elevation.rs`.
+- `remind me to call mom at 5` is a real reminder (below). `remind me to buy milk` with no
+  time is still a to-do.
+- A sentence is no longer an app name: `run backup every night at 2am`, `run npm audit`,
+  `open two notepad windows`, `open an incognito window`, `open a new tab`, `open a pull
+  request`, `open maps to the nearest pharmacy`, `open the last file I downloaded` decline
+  instead of "an app called <the sentence>". (`open the terminal in this folder` and `open
+  this project in vscode` are real now.)
+- `what day is it in tokyo` answers for Tokyo with the date (`time.inZone` already existed;
+  its phrasing missed "day" and "date").
+- **Not fixed:** `restart the network adapter` still lists adapters; `find notes.txt in
+  documents` still searches for the odd query ".txt in" (pre-existing in `filesFind`).
+
+### A — new capabilities
+
+| Area | What you can say | Notes |
+|---|---|---|
+| Reminders & alarms | "remind me to call mom at 5", "…in 10 minutes", "…tomorrow at 9", "…every day at 3pm", "set an alarm for 7am", "what are my reminders", "cancel my reminder about mom" | Kept in storage, checked once a second, **survive a restart**; one that came due while Atlas was closed fires as "missed". Bare hour with no am/pm = the soonest one ahead, and the reply says the resolved time. Notification only — a reminder never acts. |
+| Stopwatch | start / stop / how long / reset | In memory (says so). |
+| Power | sleep, hibernate, "shut down in 30 minutes", "restart in an hour", "cancel the shutdown" | Windows' own countdown. Hibernate refused with a reason when it is off. `sleep`, `shutdownIn` are `confirm` and are barred from watch continuations like `system.power`. |
+| Audio | "set the volume to 30", "what is the volume", "mute"/"unmute" (exact now, not a flip), "mute my mic", "set the microphone volume to 70" | `IAudioEndpointVolume`. |
+| Look & feel | dark / light mode, "set my wallpaper to X in pictures", "set the mouse speed to 12", "show file extensions", "show hidden files" | Registry (user hive) / SPI. |
+| Notifications & radios | do not disturb, turn Wi-Fi / Bluetooth on or off, airplane mode, "is bluetooth on" | Turning one **off** asks. |
+| Explorer | "restart explorer" | `confirm` (closes File Explorer windows). |
+| Windows | "maximize spotify", "close notepad", "bring notepad to the front", "show desktop", "keep notepad on top" | New `window.pin` / `window.unpin`. |
+| Files | zip, unzip, "find duplicate files in downloads", "what changed in documents this week", hide/unhide or make read-only, copy a file's path, compare two files, search inside files | Spoken targets ("notes.txt in documents", "my work folder") resolve through `locate.ts`; two candidates are **reported, never guessed**. Zip/unzip never overwrite, are zip-slip and zip-bomb guarded; duplicates and changes are read-only and never offer to delete. |
+| Developer | "git status", "which branch am i on", "commit everything with message …", "switch to branch dev", "pull the latest", "push my changes", "stash my changes", "open this project in vscode", "open a terminal here" | Folder optional: the **current project** fills in (set by "use D:\Dev\X as my project", or by the last successful dev skill). No flags pass through: no `--force`, no `-D`; pull is `--ff-only`; push goes only to the branch's own upstream. Network git runs with prompts off. |
+| Network | "ping google.com" | ICMP API directly, not `ping.exe`. |
+| Media | "what's playing", shuffle on/off | System media session. |
+
+### Round 2 (same day, after "fix/add the rest")
+
+| Area | What you can say | Notes |
+|---|---|---|
+| Names, not paths | "delete notes.txt in documents", "move report.pdf to downloads", "create a folder called Projects on my desktop", "documents/trip/a.txt" | `spoken-paths.ts` wraps the old file skills *outside* the journal, so "undo that" still has the real path. Cards read "send X to the Recycle Bin". |
+| Recycle Bin | "what's in the recycle bin", "restore notes.txt from the recycle bin" | Parses `$I` records; never overwrites; only back into allowed folders. |
+| Display / audio | "set the brightness to 60", "set spotify volume to 30", "mute chrome", "switch to high performance", "extend my screens" | Brightness over DDC/CI (both monitors answered). Per-app volume needs the app to be playing. Second-screen-only / PC-only ask. |
+| Startup, printers | "what apps start with windows", "stop discord starting with windows", "what printers do i have", "set my default printer to X", "print report.pdf" | Startup only flips Windows' own flag. Print asks. |
+| Only-the-person settings | "change my default browser", "night light", "hotspot", "time zone", "resolution", "pin X to the taskbar", "restart the network adapter", "update windows" | Opens the right Settings page and **says why** it cannot do it itself. |
+| Net | "run a speed test", "flush the dns cache" | Speed test downloads 25 MB from Cloudflare, on request only. DNS flush needs no admin here. |
+| Media (ffmpeg) | "compress clip.mp4", "convert song.wav to mp3", "resize photo.jpg to 800 wide" | Always a **new** file; original untouched. ffmpeg is found, not bundled. |
+| Batch rename | "rename the files in X replacing A with B", prefix / suffix / number / lowercase | One card with the exact before → after list; refuses (nothing renamed) on any collision; shifts go via temp names. |
+| Mail and calendar | "email bob@x.com about lunch", "add dentist to my calendar tomorrow at 3pm" | **Compose only.** Opens your mail app addressed and worded / your calendar with a filled-in `.ics`. Nothing sent. No accounts. |
+| Look-ups | "define X", "translate X to Spanish", "weather in Paris", "latest news about X", "stock price of X", "how long to drive to X" | Web searches the person asked for; nothing polled. |
+| Windows | "move spotify to my second monitor", "hold w for 3 seconds" | Hold is capped at 10 s and **always released**, even on the emergency stop. |
+| Projects | "create a react app called my-app in documents", "deploy to vercel" | Vite templates only; refuses an existing folder. Deploy asks and says it publishes. |
+| Apps | "install spotify", "uninstall vlc", "update vlc", "which apps need updates" | winget, fixed arguments, validated id. Resolved to an exact package first; two plausible apps = report, install nothing. |
+| Do that again / undo | "do that again", "undo that" | Engine-level. A repeat re-asks for anything that asks; undo is one step deep and only for reversible settings (volume, mute, mic, theme, DND, mouse speed, Explorer options, brightness, power plan, startup, always-on-top, file attributes, reminders). |
+| **Routines** | "every day at 8 open spotify", "run backup every night at 2am", "what are my scheduled routines", "cancel all scheduled routines" | The one thing that acts unattended *repeatedly*, so it is strict: approved once as exact steps; **only steps that never need asking**, and never power/sleep/typing/clicking/services; a step that wants to ask is denied and the routine stops; the emergency stop pauses every routine; a run more than 30 min late is skipped, never caught up; edited-on-disk steps no longer match the approval and do not run. (Say "scheduled routines" — "my routines" alone is the saved setups.) |
+| Events | "when I plug in my headphones, tell me" | New `device-appears` Watch condition, matched by name. |
+
+### What was verified, and how
+
+- **Engine 1272, web 260, core 130, data 32, updater 38, tokens 18, Rust 263**, lint and
+  typecheck clean.
+- **Driven through the real Tauri app** (dev build, real keystrokes, screenshots read back),
+  with the effect checked on the machine, not just the reply: stopwatch; a reminder that
+  fired a real Windows toast **and survived an app restart**; volume / mic mute / dark mode /
+  Do Not Disturb (registry read back); brightness (monitors read back); duplicates with
+  clean paths; zip, unzip, compare, hide/unhide a file (attributes read back); delete →
+  Recycle Bin → restore (file gone, then back); batch rename (file renamed on disk);
+  convert / compress / resize (real files made, 208 KB → 82 KB); a speed test (739 Mbps);
+  flush DNS; "do that again" and "undo that"; creating and cancelling a routine; a React
+  app scaffolded for real; a winget search with the real parser, which correctly refused to
+  guess between VLC entries; startup-app list with Turn on/off buttons.
+- **Run for real and restored (Rust `live_round_trip` tests):** speakers, mic, theme, mouse
+  speed, Explorer options, DND, brightness, an app's mute, the power plan, ICMP loopback, a
+  real git round trip, the file tools, a deleted file restored, ffmpeg convert/resize.
+- **Bugs the live drive found and fixed:** `\\?\` prefixes in every displayed path; cards
+  reading "… · true" (added `Skill.confirmAs`); nested folders ("documents/trip") not
+  resolving; apostrophe-less "whats playing" falling to the AI tier; a stale Vite transform
+  after adding an import (restart the dev server when a *new* module is imported); two cards
+  for a batch rename (now one); the capability browser missing the new `comms` domain.
+
+### ⚠️ Still NOT verified
+
+- **Executed effects I would not run on your machine mid-session:** sleep, hibernate, a timed
+  shutdown, restart Explorer, wallpaper, Wi-Fi / Bluetooth / airplane (this PC has no
+  radios), now-playing / shuffle (nothing was playing), projection modes, print, hold-a-key
+  into a real app, deploy, and an actual `winget install` / uninstall / upgrade.
+- **Do Not Disturb actually suppressing banners** (the registry value is proven).
+- **A routine firing on its own at its time** (the scheduler is unit-tested with a fake
+  clock; creation/list/cancel are proven live, the 8 AM run is not).
+- **git pull / push over a real network**; **terminal / VS Code launch**.
+- **The device-appears watch with real hardware.**
+
+### Not built
+
+Night light and hotspot *control* (Windows keeps them to itself — the pages open instead),
+changing the default browser / time zone / resolution (same), taskbar pinning, switching the
+default **output device** (no documented API), hibernation toggling, and the parts of D that
+need an account: sending email, calendar sync, calls, texts, social posting, a **cloud**
+scheduler. "Update all apps" is deliberately absent (one app at a time).
+
+### Decisions worth knowing
+
+- `files.zip`, `files.unzip` are `safe` (create-only, never overwrite); `files.attributes`
+  is `confirm` unless it only reads; git `checkout` / `pull` / `push` / `stash` are
+  `confirm`; Wi-Fi/Bluetooth off, restart explorer, sleep, timed shutdown are `confirm`.
+- Changing `path` to optional on the developer skills means nothing asks "which folder?"
+  up front any more; the skill asks itself when there is no current project.
+- The current project is stored as a plain `fact` (`current-project`), so "what do you
+  remember" can show it.
+
+---
+
+
+### Round 3 (tool catalog) — see docs/TOOL-CATALOG.md
+
+The catalog tags every tool Atlas could have (have / partial / built here / missing / won't) and maps it to ONE
+skill id. Built from it: more system tools, restart an app, lint/typecheck/format by phrasing, `web.searchSite`,
+`engine.searchSkills`, `files.hash` / `listArchive` / `search` / `findEmpty` / `compareFolders`, `git.merge` /
+`tag` / `tags` / `unstage` / `discardChanges` / `init`, `net.dnsLookup` / `traceroute`, `system.processInfo` (never
+the command line) / `firmware`, `security.status`. Gates: engine 1296, web 267, Rust 274, typecheck + lint clean.
+DRIVEN LIVE in the real Tauri app (2026-09-30): hash, zip contents, find by type, empty folders, compare folders, DNS, BIOS, firewall status, process path, skill search, trace route, git tag/tags/merge/unstage/discard/init, restart app, media info/trim/frame/rotate/thumbnail, site search. NOT driven: Services / Disk Management / Resource Monitor / Registry Editor (UAC prompts block input; Event Viewer worked). Gates: engine 1298, web 267, Rust 277, lint + typecheck clean.
+Round 3b (same day): `files.duplicate`, `files.createShortcut`, `cleanup.review` / `cleanup.clean`, clipboard history (opt-in, memory only, secrets skipped, list not saved with the conversation), `engine.selfTest`, Settings → General scroll speed. Driven live: all of them (installers clean → Recycle Bin verified; temp/crash-dump clean only up to the confirmation card, then declined — those are real files). Gates: engine 1314, web 275, Rust 285.
+Found live and fixed: new git skills ignored the current project; protected processes were 'not running' for read-only lookups; .git internals listed as empty folders; restart reopened a different app (Notepad -> Notepad++).
 
 ## Deliberately not doing
 

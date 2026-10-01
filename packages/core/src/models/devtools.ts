@@ -69,6 +69,8 @@ export type DevTool =
   | 'npm-test'
   | 'pnpm-run'
   | 'pnpm-test'
+  | 'npm-install'
+  | 'pnpm-install'
   | 'dotnet-build'
   | 'dotnet-test'
   | 'make-build'

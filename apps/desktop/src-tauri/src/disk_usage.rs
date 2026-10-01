@@ -154,6 +154,93 @@ pub async fn largest_files(path: String, limit: Option<u32>) -> Result<LargestFi
     .map_err(|e| format!("The storage task failed: {e}"))
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubfolderSize {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub file_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LargestSubfolders {
+    /// Biggest first.
+    pub folders: Vec<SubfolderSize>,
+    /// Files sitting directly in the folder itself, not in any subfolder.
+    pub loose_bytes: u64,
+    /// Everything counted.
+    pub total_bytes: u64,
+    /// The walk hit its time or entry limit; the sizes are a lower bound.
+    pub truncated: bool,
+}
+
+/// Which immediate subfolder of `path` is the biggest — one walk, every file's size added to
+/// the first folder under `path` that contains it. (`folder_size` answers "how big is this";
+/// this answers "which part of it is the big part".)
+#[tauri::command]
+pub async fn largest_subfolders(path: String, limit: Option<u32>) -> Result<LargestSubfolders, String> {
+    let p = PathBuf::from(&path);
+    if !is_permitted(&p) {
+        return Err("That path is outside the folders Atlas can touch.".into());
+    }
+    if !p.is_dir() {
+        return Err("That isn't a folder.".into());
+    }
+    let cap = limit.unwrap_or(10).clamp(1, 50) as usize;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::collections::HashMap;
+        let start = Instant::now();
+        // A longer budget than a single size: this one walk answers the whole question.
+        let budget = Duration::from_secs(25);
+        let mut by_child: HashMap<std::ffi::OsString, (u64, u64)> = HashMap::new();
+        let mut loose = 0u64;
+        let mut total = 0u64;
+        let mut truncated = false;
+
+        for (visited, entry) in walkdir::WalkDir::new(&p).follow_links(false).into_iter().filter_map(Result::ok).enumerate() {
+            if visited >= 2_000_000 || start.elapsed() > budget {
+                truncated = true;
+                break;
+            }
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let Ok(meta) = entry.metadata() else { continue };
+            let len = meta.len();
+            total += len;
+            // The first path component under the root says which subfolder it belongs to.
+            let rel = entry.path().strip_prefix(&p).unwrap_or(entry.path());
+            let mut parts = rel.components();
+            match (parts.next(), parts.next()) {
+                (Some(first), Some(_)) => {
+                    let e = by_child.entry(first.as_os_str().to_os_string()).or_insert((0, 0));
+                    e.0 += len;
+                    e.1 += 1;
+                }
+                _ => loose += len,
+            }
+        }
+
+        let mut folders: Vec<SubfolderSize> = by_child
+            .into_iter()
+            .map(|(name, (size_bytes, file_count))| SubfolderSize {
+                path: p.join(&name).to_string_lossy().into_owned(),
+                name: name.to_string_lossy().into_owned(),
+                size_bytes,
+                file_count,
+            })
+            .collect();
+        folders.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+        folders.truncate(cap);
+        LargestSubfolders { folders, loose_bytes: loose, total_bytes: total, truncated }
+    })
+    .await
+    .map_err(|e| format!("The storage task failed: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

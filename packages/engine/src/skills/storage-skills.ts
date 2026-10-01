@@ -129,6 +129,52 @@ export function createStorageSkills(platform: Platform): Skill[] {
   });
 
   skills.push({
+    id: 'storage.largestFolders',
+    label: 'Largest folders in a folder',
+    icon: '📊',
+    domain: 'files',
+    description: 'Which subfolders of a folder take the most space — biggest first, with their share of the total.',
+    needs: ['storage'],
+    risk: 'safe',
+    examples: ['what is the largest folder in my downloads', 'which folder in documents takes the most space'],
+    params: {
+      path: { type: 'string', required: true, description: 'a known folder name or a path' },
+      limit: { type: 'number', default: 8, description: 'how many to show' },
+    },
+    async run(args, ctx) {
+      const raw = String(args.path ?? '');
+      const path = await resolveFolder(platform, raw);
+      if (!path) return { ok: false, error: `I couldn’t find “${raw}”.` };
+      const result = await platform.largestSubfolders?.(path, Number(args.limit ?? 8));
+      if (!result) return { ok: false, error: `I couldn’t read ${path}.` };
+      if (!result.folders.length) {
+        return { ok: true, message: `There are no subfolders with anything in them in ${path}.` };
+      }
+      const top = result.folders[0]!;
+      const share = result.totalBytes ? Math.round((top.sizeBytes / result.totalBytes) * 100) : 0;
+      ctx.showResults?.(
+        result.folders.map((f) => ({
+          title: f.name,
+          subtitle: `${formatBytes(f.sizeBytes)} · ${f.fileCount.toLocaleString()} file${f.fileCount === 1 ? '' : 's'}${result.totalBytes ? ` · ${Math.round((f.sizeBytes / result.totalBytes) * 100)}%` : ''}`,
+          icon: '📁',
+          payload: f,
+          actions: [{ label: 'Open', skill: 'files.open', args: { path: f.path } }],
+        })),
+        {
+          title: `Largest folders in ${path}`,
+          subtitle: `${formatBytes(result.totalBytes)} in all${result.truncated ? ' · partial — too big to scan completely' : ''}`,
+        },
+      );
+      return {
+        ok: true,
+        spoken: true,
+        message: `📊 The largest folder in ${path} is ${top.name}: ${formatBytes(top.sizeBytes)}${share ? ` (${share}% of ${formatBytes(result.totalBytes)})` : ''}${result.truncated ? ' — at least that, the scan was cut short' : ''}.`,
+        data: result,
+      };
+    },
+  });
+
+  skills.push({
     id: 'storage.emptyFolder',
     label: 'Empty a folder',
     icon: '🗑️',

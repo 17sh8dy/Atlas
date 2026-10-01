@@ -44,6 +44,7 @@ import {
   matchRunningProcess,
   PROTECTED_PROCESSES,
 } from '../text/processes';
+import { deviceMatches } from '../watch/conditions';
 
 export interface WatchSkillDeps {
   platform: Platform;
@@ -68,6 +69,9 @@ const NOT_IN_A_CONTINUATION = new Set([
   'watch.resume',
   'watch.answer',
   'system.power',
+  // The same reasoning as `system.power`: ending the session, or arranging to.
+  'system.sleep',
+  'system.shutdownIn',
   // Anything that needs administrator rights. Those are approved one action at
   // a time, with the person looking at the card; a watch acts when they are not.
   'service.start',
@@ -169,6 +173,21 @@ export function createWatchSkills(deps: WatchSkillDeps): Skill[] {
       /^(?:the\s+)?(?:internet|wi-?fi|connection|network)\s+comes\s+back$/.test(lower)
     ) {
       return { ok: true, condition: { kind: 'online' } };
+    }
+
+    // A device being plugged in: "I plug in my headphones", "my mic is connected".
+    const dev =
+      /^(?:i\s+)?(?:plug(?:s|ged)?(?:\s+in)?|connect(?:s|ed)?|attach(?:es|ed)?)\s+(?:in\s+)?(?:my\s+|the\s+|a\s+)?(.+)$/i.exec(when) ??
+      /^(?:my\s+|the\s+)?(.+?)\s+(?:is\s+|gets\s+|are\s+)?(?:plugged\s+in|connected|attached)$/i.exec(when);
+    if (dev && /\b(?:headphones?|headset|earbuds|earphones|airpods|mic(?:rophone)?|speakers?|dac|interface)\b/i.test(dev[1]!)) {
+      if (!platform.audioDevices) return { ok: false, error: 'I can’t see audio devices in this build.' };
+      const match = dev[1]!.replace(/\s+(?:in|again)$/i, '').trim();
+      const now = await platform.audioDevices().catch(() => ({ input: null, output: null }));
+      const already = deviceMatches(match, [now.input, now.output]);
+      if (already) {
+        return { ok: false, error: `Your ${match} is already connected (${already}), so there’s nothing to wait for.` };
+      }
+      return { ok: true, condition: { kind: 'device-appears', match } };
     }
 
     // A path appearing.

@@ -93,6 +93,13 @@ export interface SkillResult<T = unknown> {
   aloud?: boolean;
   /** Structured payload for callers that want the data, not the sentence. */
   data?: T;
+  /**
+   * How to put this back — one step that undoes what just happened ("set the
+   * volume back to 40"). Offered for reversible settings only; the engine keeps
+   * the latest one so "undo that" can run it, through the same checks as any
+   * other step.
+   */
+  undo?: { skill: string; args: SkillArgs; label: string };
 }
 
 /**
@@ -120,7 +127,11 @@ export interface SkillContext {
    */
   clarify?(question: Clarification): Promise<ClarifyAnswer>;
   /** Render rows the user can act on. */
-  showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string }): void;
+  /**
+   * `private` marks a list that must not outlive the screen: it is not saved with the
+   * conversation and not read aloud. For things like clipboard history.
+   */
+  showResults?(items: ResultRow[], meta?: { title?: string; subtitle?: string; private?: boolean }): void;
   /**
    * Aborts when the emergency stop is pressed. A skill that loops or waits
    * should check it; one that doesn't is still abandoned on time, because the
@@ -262,6 +273,14 @@ export interface Skill<T = unknown> {
    * would be a second, invisible execution path.
    */
   riskFor?(args: SkillArgs): SkillRisk | undefined;
+  /**
+   * What to say after "Atlas wants to" on a confirmation card — one short
+   * phrase that names the action and its target ("hide notes.txt", "put the PC
+   * to sleep"). Without it the card falls back to the skill's description plus
+   * its raw argument values, which reads like a form ("… · true"). Pure and
+   * synchronous, like `riskFor`.
+   */
+  confirmAs?(args: SkillArgs): string;
   /**
    * May this skill's message be read aloud? Default yes.
    *

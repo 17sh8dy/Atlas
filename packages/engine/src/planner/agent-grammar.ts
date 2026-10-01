@@ -55,7 +55,7 @@ const WATCHABLE =
  * on the *end* of the when-part, which is where the predicate sits in English.
  */
 const CONDITION_TAIL =
-  /(?:finish(?:es|ed)?|(?:is|are)\s+(?:done|finished|complete|closed|open|running|started|up|there|over|ready)|done|complete[sd]?|close[sd]?|exit(?:s|ed)?|quits?|stops?|ends?|crash(?:es|ed)?|starts?|opens?|launch(?:es|ed)?|loads?|boots?|comes\s+(?:up|back)|goes\s+away|shuts\s+down|no\s+longer\s+running|online(?:\s+again)?|back(?:\s+(?:up|on))?|connected|appears?|exists?|(?:is\s+)?created|shows\s+up|download(?:s|ed|ing)?|pass(?:es|ed)?|seconds?|secs?|minutes?|mins?|hours?|hrs?)$/i;
+  /(?:plug(?:s|ged)?\s+in\s+(?:my\s+|the\s+|a\s+)?[\w -]+|finish(?:es|ed)?|(?:is|are)\s+(?:done|finished|complete|closed|open|running|started|up|there|over|ready)|done|complete[sd]?|close[sd]?|exit(?:s|ed)?|quits?|stops?|ends?|crash(?:es|ed)?|starts?|opens?|launch(?:es|ed)?|loads?|boots?|comes\s+(?:up|back)|goes\s+away|shuts\s+down|no\s+longer\s+running|online(?:\s+again)?|back(?:\s+(?:up|on))?|connected|appears?|exists?|(?:is\s+)?created|shows\s+up|download(?:s|ed|ing)?|pass(?:es|ed)?|seconds?|secs?|minutes?|mins?|hours?|hrs?)$/i;
 
 export function createAgentGrammar(): GrammarRule[] {
   return [

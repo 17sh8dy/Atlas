@@ -122,10 +122,14 @@ describe('through the real Engine and the real skill', () => {
     expect(r.created).toEqual([`${DEV}\\Other Thing`]);
   });
 
-  test('a phrasing it will not claim creates nothing', async () => {
-    const r = rig();
-    await r.ask('create a folder called Atlas Test on my desktop');
-    expect(r.created).toEqual([]);
+  test('a place said in words is now claimed, and handed on as a name and a place', async () => {
+    // Resolved to a real folder by `withSpokenPaths` in the app (see spoken-paths.test.ts);
+    // this rig has no machine to resolve against, so it only shows what was understood.
+    const grammar = new Grammar();
+    grammar.addMany(createCoreGrammar(new WorkingMemory()));
+    const plan = grammar.parse('create a folder called Atlas Test on my desktop');
+    expect(plan?.steps[0]?.skill).toBe('files.createFolder');
+    expect(plan?.steps[0]?.args.path).toBe('Atlas Test in desktop');
   });
 
   test('an unsafe name is refused, not sanitised into something else', async () => {

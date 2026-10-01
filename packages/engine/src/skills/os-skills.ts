@@ -25,6 +25,28 @@ export function createOsSkills(platform: Platform): Skill[] {
   const skills: Skill[] = [];
 
   skills.push({
+    id: 'app.runAsAdmin',
+    label: 'Open as administrator',
+    icon: '🛡️',
+    domain: 'apps',
+    description:
+      "Explains that Atlas doesn't launch programs as administrator, rather than opening them without the elevation that was asked for.",
+    risk: 'safe',
+    examples: ['run notepad as administrator'],
+    params: { name: { type: 'string', required: true, description: 'the program' } },
+    run(args) {
+      const name = String(args.name ?? '').trim() || 'it';
+      // Refused, not approximated. Opening it normally would do something other
+      // than what was asked; and elevation in Atlas is a short closed list of
+      // operations (services, environment variables), never "run this as admin".
+      return {
+        ok: false,
+        error: `I don't start programs as administrator — I haven't opened ${name}. To do it yourself: search for it in the Start menu, right-click it, and choose "Run as administrator".`,
+      };
+    },
+  });
+
+  skills.push({
     id: 'system.lock',
     label: 'Lock the PC',
     icon: '🔒',
@@ -97,14 +119,36 @@ export function createOsSkills(platform: Platform): Skill[] {
     label: 'Mute or unmute',
     icon: '🔇',
     domain: 'system',
-    description: 'Toggle the system mute.',
+    description: 'Mute or unmute the speakers. Says which way it went.',
     needs: ['os'],
     risk: 'safe',
     examples: ['mute', 'unmute the sound'],
-    params: {},
-    async run() {
-      // Windows exposes mute as a toggle, not a state, so this reports what it
-      // did rather than claiming to know which way it went.
+    params: {
+      state: {
+        type: 'string',
+        required: false,
+        enum: ['mute', 'unmute', 'toggle'],
+        description: 'mute, unmute, or flip it (the default)',
+      },
+    },
+    async run(args) {
+      const state = String(args.state ?? 'toggle');
+      // Exact when Windows will say what it is now: "mute" means muted, not
+      // "flip whatever it was". The key tap is only the fallback.
+      if (platform.volumeSet && platform.volumeState) {
+        try {
+          const now = await platform.volumeState();
+          const muted = state === 'mute' ? true : state === 'unmute' ? false : !now.muted;
+          const after = await platform.volumeSet(null, muted);
+          return {
+            ok: true,
+            message: after.muted ? '🔇 Muted.' : `🔊 Sound on (volume ${after.level}%).`,
+            undo: { skill: 'system.mute', args: { state: now.muted ? 'mute' : 'unmute' }, label: now.muted ? 'mute again' : 'unmute again' },
+          };
+        } catch {
+          // fall through to the key
+        }
+      }
       const ok = await platform.toggleMute!();
       return ok
         ? { ok: true, message: '🔇 Mute toggled.' }

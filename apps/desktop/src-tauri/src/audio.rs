@@ -28,10 +28,10 @@ pub struct AudioDevices {
 }
 
 /// Same shape as uia.rs's guard: one apartment, torn down on the thread that made it.
-struct ComGuard(bool);
+pub(crate) struct ComGuard(bool);
 
 impl ComGuard {
-    fn new() -> Result<Self, String> {
+    pub(crate) fn new() -> Result<Self, String> {
         let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
         if hr.is_ok() {
             Ok(ComGuard(true))

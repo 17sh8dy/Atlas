@@ -416,6 +416,6 @@ describe('the model is off but the search worked', () => {
   test('a question that never searched still gets the normal offline message', async () => {
     const r = rig({ modelOffline: true, providers: { tavily: () => [FORTNITE_GG] } });
     await r.run('what is the capital of Peru');
-    expect(r.said.join(' ')).toMatch(/couldn.t reach that provider/);
+    expect(r.said.join(' ')).toMatch(/couldn.t reach your language model/);
   });
 });

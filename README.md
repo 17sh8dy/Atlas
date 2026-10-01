@@ -129,10 +129,13 @@ reviewed in a diff.
 
 ## Where things stand
 
-**Version 1.0.6**: five more accent colours (Emerald, Titanium, Arctic, Gold, Rose),
-execution modes that each behave differently and check what a button would do before
-pressing it, and Nova Intelligence that Atlas can find and start for you. Built on
-1.0.4’s fixes to the calculator, drafts and microphone. Built and working:
+**Version 1.0.6**: what Atlas can do grew a lot — reminders and alarms that survive a
+restart, sleep / hibernate / a timed shutdown, an exact volume, mic mute, dark mode, Wi-Fi,
+Bluetooth and Do Not Disturb, zip and unzip, duplicate files, comparing files, git and
+projects without typing a folder, ping, and what's playing — plus fixes for phrases that
+used to do the wrong thing, and Atlas no longer failing to start when Ctrl+Space is taken.
+It also carries 1.0.5's accent colours, execution modes that each behave differently, and
+Nova Intelligence that Atlas can find and start for you. Built and working:
 
 - **The engine and shell** — the kernel, the Tauri app, memory, and over 150
   skills, every one declared with its arguments, risk and required capabilities.
