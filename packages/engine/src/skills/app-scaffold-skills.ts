@@ -20,6 +20,7 @@
 import type { Platform, Skill } from '@atlas/core';
 import {
   APP_TEMPLATE_IDS,
+  allTemplates,
   chooseTemplate,
   displayNameFor,
   idFor,
@@ -87,10 +88,29 @@ export function createAppScaffoldSkills(platform: Platform, current?: CurrentPro
       label: 'Build a starter project',
       icon: '🧱',
       domain: 'project',
-      description:
-        'Write a complete starter project into a NEW folder, without needing a model: "clicker" is a finished desktop clicker game (generators, upgrades, ascension, huge numbers); "desktop" is a blank desktop app window; "website" is a one-page site. Refuses a folder that already has files in it. Follow it with dependency.installAll for a desktop template and project.launch to open it.',
+      // A getter, so a template a plugin adds later is described to the planner too.
+      get description() {
+        const lines = allTemplates().map((t) => `${t.id} (${t.summary})`);
+        return `Write a complete, working starter project into a NEW folder, without needing a model. Templates: ${lines.join('; ')}. Refuses a folder that already has files in it. Follow it with dependency.installAll for a desktop template and project.play to open it.`;
+      },
       needs: ['devtools'],
       risk: 'confirm',
+      // "Build me a game" names no game: ask which, with the real choices as buttons.
+      clarify(args) {
+        const given = String(args.template ?? '');
+        if (templateById(given) || chooseTemplate(given)) return null;
+        const order: Record<string, number> = { game: 0, tool: 1, starter: 2, engine: 3 };
+        const options = [...allTemplates()]
+          .sort((a, b) => (order[a.group] ?? 9) - (order[b.group] ?? 9))
+          .map((t) => ({ value: t.id, label: `${t.label.replace(/^an? /, '').replace(/^./, (c) => c.toUpperCase())} (${t.group})` }));
+        return {
+          param: 'template',
+          noun: 'project',
+          question: 'What kind of project should I build? These all work without a model.',
+          many: false,
+          options,
+        };
+      },
       confirmAs: (a) => {
         const found = resolveScaffold(a);
         return 'error' in found
@@ -104,7 +124,7 @@ export function createAppScaffoldSkills(platform: Platform, current?: CurrentPro
           type: 'string',
           required: true,
           enum: APP_TEMPLATE_IDS,
-          description: 'which starter to write: clicker, desktop or website',
+          description: 'which project to write: one of the template ids named in this skill\'s description',
         },
         name: {
           type: 'string',

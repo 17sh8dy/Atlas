@@ -15,40 +15,50 @@
 
 import type { GrammarRule } from './grammar';
 import { plan, step } from './grammar';
-import { chooseTemplate } from '../templates';
+import { chooseTemplate, templateById } from '../templates';
 
 const PATH = String.raw`[a-z]:[\\/]`;
 
 const BUILD_VERB =
   String.raw`(?:build|make|create|write|code|develop|generate|design|set\s+up|put\s+together|whip\s+up)`;
 
-/** Things Atlas has a better route for than a template, or cannot template at all. */
-const ELSEWHERE =
-  /\b(?:react|vue|svelte|vite|next\.?js|angular|python|rust|tauri|c\+\+|c#|java|unity|unreal|godot|roblox|minecraft|discord|bot|api|server|database|extension|plugin|mod|script|shortcut|routine|setup|reminder|alarm|timer|note|folder|file|backup)\b/i;
+/**
+ * Languages, frameworks and engines. A request that names one is not a request for a vanilla
+ * template: `project.scaffold` builds React/Vue/Svelte by name, the developer agent does the rest,
+ * and an engine plugin's own template (group 'engine') is the only template that may match.
+ */
+const OTHER_STACK =
+  /\b(?:react|vue|svelte|vite|next\.?js|angular|python|rust|tauri|c\+\+|c#|java|unity|unreal|ue4|ue5|godot|roblox|minecraft|discord|flutter|swift|kotlin)\b/i;
+
+/** Things that are not a project at all, whatever the verb. */
+const NOT_A_PROJECT =
+  /\b(?:shortcut|routine|setup|reminder|alarm|folder|file|backup|playlist|note|notes?\s+to|copy|zip)\b|\.(?:txt|md|docx?|pdf|png|jpe?g|gif|mp[34]|zip|json|csv|xlsx?|exe|lnk)\b/i;
 
 /** Words that carry no information about WHAT is being built. */
 const FILLER = new Set(
   (
     'a an the my me some please simple basic small little new nice cool clean good great high quality ' +
     'modern fancy beautiful pretty full complete working real proper decent polished professional ' +
-    'desktop windows native standalone app application program software tool starter blank empty ' +
-    'minimal electron one of for i can you could would to that with and it'
+    'desktop windows native standalone starter blank empty minimal electron one of for i can you ' +
+    'could would to that with and it fun quick classic retro arcade 2d video computer pc offline ' +
+    'playable little tiny custom'
   ).split(' '),
 );
 
+const GENERIC_NOUN = new Set(['game', 'games', 'app', 'apps', 'application', 'program', 'tool', 'utility', 'software']);
+
 /**
- * A request that only says "app" — no game, no subject — is a request for the blank starter.
- * "A todo app" says what it is, so it is not claimed: a blank window would be the wrong answer.
+ * "A game", "a simple app": a request that says what KIND of thing but not which one. It is
+ * claimed so Atlas can ask which, with the real choices as buttons, instead of guessing.
  */
-function isGenericApp(subject: string): boolean {
+function isGenericRequest(subject: string): boolean {
   const words = subject
     .toLowerCase()
     .replace(/[^a-z0-9 ]+/g, ' ')
     .split(/\s+/)
     .filter(Boolean);
-  if (!words.length) return false;
-  if (!words.some((w) => w === 'app' || w === 'application' || w === 'program')) return false;
-  return words.every((w) => FILLER.has(w));
+  if (!words.some((w) => GENERIC_NOUN.has(w))) return false;
+  return words.every((w) => FILLER.has(w) || GENERIC_NOUN.has(w));
 }
 
 /** The subject of the request: everything before the first clause break or the folder. */
@@ -93,7 +103,7 @@ export function parseAgentBuildRequest(raw: string): { goal: string; path: strin
 
 export function parseBuildRequest(
   raw: string,
-): { template: string; path?: string; name?: string } | null {
+): { template?: string; path?: string; name?: string } | null {
   const m = new RegExp(
     String.raw`^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?(?:i\s+(?:want|need)\s+(?:you\s+to\s+)?)?` +
       BUILD_VERB +
@@ -114,8 +124,6 @@ export function parseBuildRequest(
     rest = (rest.slice(0, where.index) + rest.slice(where.index + where[0].length)).trim();
   }
 
-  if (ELSEWHERE.test(rest)) return null;
-
   let name: string | undefined;
   const named = /\b(?:called|named)\s+["“]?([A-Za-z0-9][A-Za-z0-9 _'-]{0,40}?)["”]?(?=\s*(?:[,.;!]|\s+(?:in|at|with|and|that)\b|$))/i.exec(
     rest,
@@ -123,15 +131,17 @@ export function parseBuildRequest(
   if (named) name = named[1]!.trim();
 
   const subject = subjectOf(rest);
-  let template = chooseTemplate(subject)?.id;
-  // The generic starter only for a request that says nothing else.
-  if (template === 'desktop' && !isGenericApp(subject) && !/\b(?:desktop|windows)\s+app/i.test(subject)) {
-    template = undefined;
+  if (NOT_A_PROJECT.test(subject)) return null;
+
+  const found = chooseTemplate(subject);
+  if (found) {
+    // A template for plain web/desktop code is not the answer to "a React todo app": an engine
+    // plugin's own template is the one kind that may share a request with a stack name.
+    if (found.group !== 'engine' && OTHER_STACK.test(subject)) return null;
+    return { template: found.id, path, name };
   }
-  // "game" without a kind Atlas knows is not a clicker, and not a blank app either.
-  if (template === 'desktop' && /\bgame\b/i.test(subject)) template = undefined;
-  if (!template) return null;
-  return { template, path, name };
+  if (!OTHER_STACK.test(subject) && isGenericRequest(subject)) return { path, name };
+  return null;
 }
 
 /** "run powershell: Get-Date", "in powershell, run Get-Date", "ps> Get-Date", "run Get-Date in powershell". */
@@ -180,12 +190,16 @@ export function createAppGrammar(): GrammarRule[] {
           const agent = parseAgentBuildRequest(raw);
           return agent ? plan(step('devagent.run', { goal: agent.goal, path: agent.path }), 'build-agent') : null;
         }
-        const args: Record<string, string> = { template: request.template };
+        const args: Record<string, string> = {};
+        if (request.template) args.template = request.template;
         if (request.path) args.path = request.path;
         if (request.name) args.name = request.name;
         const steps = [step('app.scaffold', args)];
-        // Electron is what makes a desktop project a window instead of a web page.
-        if (request.template !== 'website') steps.push(step('dependency.installAll', {}));
+        // Electron is what makes a desktop project a window instead of a web page. When the kind is
+        // not known yet (Atlas is about to ask) the install is left for the person to ask for: the
+        // project opens in the browser until then, and the closing message says so.
+        const chosen = request.template ? templateById(request.template) : undefined;
+        if (chosen?.desktop) steps.push(step('dependency.installAll', {}));
         steps.push(step('project.play', {}));
         return plan(steps, 'build-app');
       },

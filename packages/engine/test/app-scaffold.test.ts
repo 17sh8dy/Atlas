@@ -273,7 +273,17 @@ test.each([
   ['Build me a cookie clicker in "D:\\My Games\\Cookie"', { template: 'clicker', path: 'D:\\My Games\\Cookie' }],
   ['build a website in D:\\Dev\\Site.', { template: 'website', path: 'D:\\Dev\\Site' }],
   ['make a landing page', { template: 'website' }],
-  ['build me a desktop app in D:\\Dev\\Thing', { template: 'desktop', path: 'D:\\Dev\\Thing' }],
+  ['build me a blank desktop app in D:\\Dev\\Thing', { template: 'desktop', path: 'D:\\Dev\\Thing' }],
+  ['build me a snake game in D:\\Dev\\Snake', { template: 'snake', path: 'D:\\Dev\\Snake' }],
+  ['make me a clicker game in D:\\Dev\\Orb\\', { template: 'clicker', path: 'D:\\Dev\\Orb' }],
+  ['make a pomodoro timer app in D:\\Dev\\Focus', { template: 'pomodoro', path: 'D:\\Dev\\Focus' }],
+  ['create a budget tracker called My Money in D:\\Dev\\Money', { template: 'budget', name: 'My Money', path: 'D:\\Dev\\Money' }],
+  ['build me a tic tac toe game', { template: 'tictactoe' }],
+  ['write a scientific calculator in D:\\Dev\\Calc', { template: 'calculator', path: 'D:\\Dev\\Calc' }],
+  // just "a game" / "an app": the kind is asked, not guessed
+  ['build me a game in D:\\Dev\\Thing', { path: 'D:\\Dev\\Thing' }],
+  ['make me a fun little game', {}],
+  ['create a simple desktop app', {}],
   ['create an incremental game in D:\\Dev\\v1.0, then play it', { template: 'clicker', path: 'D:\\Dev\\v1.0' }],
 ])('%s', (text, expected) => {
   expect(parseBuildRequest(text)).toMatchObject(expected);
@@ -292,15 +302,15 @@ test('the long Tauri request is NOT silently turned into an Electron one: it goe
 });
 
 test('a build with no template but a folder goes to the developer agent; with no folder it is left alone', () => {
-  expect(parseAgentBuildRequest('build me a snake game in D:\\Dev\\Snake')).toEqual({
-    goal: 'build me a snake game in D:\\Dev\\Snake',
-    path: 'D:\\Dev\\Snake',
+  expect(parseAgentBuildRequest('build me a flight simulator game in D:\\Dev\\Sim')).toEqual({
+    goal: 'build me a flight simulator game in D:\\Dev\\Sim',
+    path: 'D:\\Dev\\Sim',
   });
   expect(g.parse('write me a python script that renames my photos in D:\\Dev\\Photos')?.steps[0]?.skill).toBe(
     'devagent.run',
   );
   // no folder: the planner / the honest fallback, never a guess at where
-  expect(parseAgentBuildRequest('build me a snake game')).toBeNull();
+  expect(parseAgentBuildRequest('build me a flight simulator game')).toBeNull();
   // things that are not projects
   expect(parseAgentBuildRequest('make a folder called Games in D:\\Dev')).toBeNull();
   expect(parseAgentBuildRequest('create a note in D:\\Dev')).toBeNull();
@@ -310,8 +320,15 @@ test('a build with no template but a folder goes to the developer agent; with no
 });
 
 test.each([
-  'build me a snake game',
-  'make a todo app',
+  'build me a flight simulator game',
+  'make a social network app',
+  // everyday sentences that share a word with a template must not become projects
+  'make notes.txt read only',
+  'write a blog post about my trip',
+  'make a budget for next month',
+  'create a habit of reading',
+  'make a note: buy milk',
+  'build a memory of this',
   'create a react app called shop in D:\\Dev',
   'create a new project at D:\\Dev\\Thing',
   'make a note: buy milk',
@@ -328,6 +345,8 @@ test('the helpers behave', () => {
   expect(displayNameFor('ClickerGame')).toBe('Clicker Game');
   expect(idFor("Night Orb's Edge!")).toBe('night-orb-s-edge');
   expect(chooseTemplate('a clicker app')?.id).toBe('clicker');
-  expect(chooseTemplate('a snake game')).toBeUndefined();
+  expect(chooseTemplate('a flight simulator game')).toBeUndefined();
+  expect(chooseTemplate('a snake game')?.id).toBe('snake');
+  expect(chooseTemplate('play 2048 with me')?.id).toBe('2048');
   expect(statSync(tmpdir()).isDirectory()).toBe(true);
 });

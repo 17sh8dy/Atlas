@@ -161,11 +161,12 @@ test('a command nothing matched, with the model offline, is answered by Atlas', 
 
 test('a build request Atlas has no template for says what it CAN build instead of a shrug', async () => {
   const r = rig({ provider: 'offline' });
-  await r.engine.ask('build me a snake game', r.io);
+  await r.engine.ask('build me a flight simulator game', r.io);
   const said = r.said.join(' ');
   assert.notMatch(said, /reach that provider/i);
-  assert.match(said, /clicker game/);
-  assert.match(said, /build me a clicker game in D:/);
+  assert.match(said, /Games: .*clicker.*snake/s);
+  assert.match(said, /build me a snake game in D:/);
+  assert.match(said, /game engine/);
   assert.notMatch(said, /didn't catch/);
 });
 

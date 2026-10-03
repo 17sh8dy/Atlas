@@ -63,7 +63,7 @@ import { normalizeRequest } from './text/normalize';
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
 import { reporterFor, type ActivityEvent } from './planner/executor';
-import { APP_TEMPLATES } from './templates';
+import { allTemplates } from './templates';
 
 /**
  * What the chat model is told when an instruction reached it unresolved.
@@ -794,8 +794,16 @@ export class Engine {
       /^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:build|make|create|write|code|develop|generate|design)\s+(?:me\s+)?\S/i.test(text) &&
       /\b(?:game|app|apps|application|program|software|web\s?site|web\s?page|site|tool|bot|script|clicker|widget|extension|plugin|calculator|tracker|dashboard|launcher)\b/i.test(text)
     ) {
-      const can = APP_TEMPLATES.map((t) => t.label).join(', ');
-      return `I can build ${can} on my own, with no model. Try “build me a clicker game in D:\\Dev\\Clicker” (any new folder works; if it is not one I am allowed to use I will ask first).\n\nFor anything else, like a custom game or app, I need a language model to write the code. Start one in Settings → Intelligence and ask again, or tell me the folder and say “build a desktop app” and I will set up a starter you can fill in.`;
+      const names = (group: string) =>
+        allTemplates()
+          .filter((t) => t.group === group)
+          .map((t) => t.label.replace(/^an?\s+/, '').replace(/\s+(?:game|app)$/, ''))
+          .join(', ');
+      return [
+        `I can build these on my own, with no model. Games: ${names('game')}. Tools: ${names('tool')}. Also a website or a blank desktop app. Try “build me a snake game in D:\\Dev\\Snake” (any new folder works; if it is not one I am allowed to use I will ask first).`,
+        '',
+        'For anything else, like a custom game or app, I need a language model to write the code. Start one in Settings → Intelligence and ask again. Once a project gets big, a real game engine is the right tool: say “what game engines do I have” and I can set one up.',
+      ].join('\n');
     }
     const target = /^\s*(?:open|launch|start|run|go to|visit|play)\s+(.+?)\s*[?.!]*$/i.exec(text);
     const named = target?.[1]?.trim();

@@ -84,7 +84,7 @@ export { createDevAgentSkill } from './skills/devagent-skill';
 export { createAppScaffoldSkills } from './skills/app-scaffold-skills';
 export { createPowerShellSkills } from './skills/powershell-skills';
 export { embeddedPaths, powershellRefusal } from './safety/powershell-policy';
-export { APP_TEMPLATES, chooseTemplate } from './templates';
+export { allTemplates, chooseTemplate, registerTemplates, unregisterTemplates } from './templates';
 export type { DevAgentSkillOptions } from './skills/devagent-skill';
 export { runDevTask, MAX_DEV_ITERATIONS } from './devagent/loop';
 export type {
