@@ -1,0 +1,8 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+New: ask Atlas to build a game or tool and it just does, with no AI model needed — a clicker, Snake, 2048, Minesweeper, Breakout, a budget tracker, kanban board, flashcards and more.
+New: starter projects for Unreal Engine, Godot, Unity and Blender. Atlas only checks whether they are installed; it never downloads or starts them.
+New: add-ons (plugins) that bring in more project templates, safely: they are data only and can never run code.
+New: a careful PowerShell helper that shows you the whole script first and refuses anything dangerous.
+Fixed: when Atlas needs a folder it cannot reach yet, the "Add It?" button now appears and adds the folder for you.
+Fixed: the local AI (Ollama) no longer cuts off long requests.
+Improved: for huge games (3D, open-world, AAA), Atlas now explains honestly that a real game engine is needed, and what it can set up.

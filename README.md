@@ -129,6 +129,12 @@ reviewed in a diff.
 
 ## Where things stand
 
+**Version 1.0.7**: Atlas builds real things without a model — 17 ready-made games and tools
+(clicker, Snake, 2048, Minesweeper, budget, kanban and more), project starters for Unreal, Godot,
+Unity and Blender (it only checks they are installed; it never downloads or starts them), data-only
+plugins, a fenced PowerShell runner, and an "Add It?" button for folders it cannot reach yet.
+AAA-scale requests get an honest answer that a real game engine is needed.
+
 **Version 1.0.6**: what Atlas can do grew a lot — reminders and alarms that survive a
 restart, sleep / hibernate / a timed shutdown, an exact volume, mic mute, dark mode, Wi-Fi,
 Bluetooth and Do Not Disturb, zip and unzip, duplicate files, comparing files, git and
