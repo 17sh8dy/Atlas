@@ -352,7 +352,10 @@ test('the advice is honest about what is installed and what Atlas can and cannot
   assert.match(withUe, /hundreds of people over years/, 'AAA gets its own plain word');
   const godot = engineAdvice([{ ...UE57, kind: 'godot', version: '4.3' }]);
   assert.match(godot, /Godot 4\.3/);
-  assert.match(godot, /do not have a project template/);
+  assert.match(godot, /build me a Godot project/);
+  const mixed = engineAdvice([UE57, { ...UE57, kind: 'blender', version: '4.2' }]);
+  assert.match(mixed, /Blender 4\.2 is here too/);
+  assert.match(engineAdvice([]), /cannot install them for you/);
 });
 
 test('the engine and plugin skills read what is really there', async () => {
@@ -372,7 +375,10 @@ test('the engine and plugin skills read what is really there', async () => {
   const plugins = await run('plugin.list');
   assert.match(plugins.message!, /Built in \(\d+ projects/);
   assert.match(plugins.message!, /Games: .*snake/);
-  assert.match(plugins.message!, /Game engines: Unreal Engine project/);
+  assert.match(plugins.message!, /Game engines: Unreal Engine project, Godot project, Unity project, Blender project/);
+  // only looks, never installs: the engine list says so and names what is missing
+  assert.match(list.message!, /Not found: Unity, Godot, Blender/);
+  assert.match(list.message!, /never download or install/);
 });
 
 test('every built-in project is still found, and Unreal is among them', () => {

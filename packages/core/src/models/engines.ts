@@ -3,7 +3,7 @@
  * and the native side share; see `apps/desktop/src-tauri/src/engines.rs`.
  */
 
-export type EngineKind = 'unreal' | 'unity' | 'godot';
+export type EngineKind = 'unreal' | 'unity' | 'godot' | 'blender';
 
 /** One game engine editor that really exists on disk. */
 export interface EngineInfo {

@@ -69,14 +69,15 @@ that opens it treats it as yours. Read what a plugin adds with "what plugins do 
 
 ## Game engines
 
-"What game engines do I have" looks for Unreal Engine, Unity and Godot where each registers itself
+"What game engines do I have" looks for Unreal Engine, Unity, Godot and Blender where each registers itself
 (the registry, the Epic launcher's install list, Unity Hub's folder, the usual Godot places) and reports
 only editors that exist on disk. Atlas never starts one.
 
 Built in: **Unreal Engine** projects (`build me an unreal engine project in D:\Dev\MyGame`). It writes a
 content-only (Blueprint) project pointed at the newest Unreal found, with Python editor scripting on and
-a `Scripts/build_starter_level.py` that builds a small level when run from the editor. Unity and Godot
-are detected, and a plugin can add project templates for them.
+a `Scripts/build_starter_level.py` that builds a small level when run from the editor. **Godot**, **Unity** and **Blender** projects are built in too
+(`build me a Godot project in D:\Dev\MyGame`). They only check whether the program is installed, never download
+or start it, and are written to each program's documented layout but NOT yet tried in the real programs.
 
 When a request is past what hand-written code can do (AAA, 3D, open world, "like GTA"), Atlas says so
 and points at an engine instead of building a toy.

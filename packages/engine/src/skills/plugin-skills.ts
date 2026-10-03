@@ -16,7 +16,15 @@ import type { EngineInfo, Platform, Skill } from '@atlas/core';
 import { allTemplates } from '../templates';
 import { loadPlugins, pluginReport } from '../plugins/host';
 
-const NAMES: Record<string, string> = { unreal: 'Unreal Engine', unity: 'Unity', godot: 'Godot' };
+const NAMES: Record<string, string> = { unreal: 'Unreal Engine', unity: 'Unity', godot: 'Godot', blender: 'Blender' };
+
+/** What to say to get each one's project written. */
+const SAY: Record<string, string> = {
+  unreal: 'build me an Unreal Engine project in D:\\Dev\\MyGame',
+  unity: 'build me a Unity project in D:\\Dev\\MyGame',
+  godot: 'build me a Godot project in D:\\Dev\\MyGame',
+  blender: 'build me a Blender project in D:\\Dev\\MyScene',
+};
 
 function describeEngines(engines: readonly EngineInfo[]): string[] {
   return engines.map((e) => `${NAMES[e.kind] ?? e.kind} ${e.version}`.trim());
@@ -26,16 +34,17 @@ function describeEngines(engines: readonly EngineInfo[]): string[] {
 export function engineAdvice(engines: readonly EngineInfo[], request = ''): string {
   const intro =
     "That is past what a hand-written project can do. Anything 3D, open-world or AAA-scale needs a real game engine: it supplies the renderer, physics, animation, audio, networking, editor and asset pipeline that would take a team years to write from scratch. I can build small games and tools on my own (Snake, 2048, Breakout and so on), and I can set up the project for a real engine and keep helping with the scripts and tools around it.";
-  const unreal = engines.filter((e) => e.kind === 'unreal');
-  const others = engines.filter((e) => e.kind !== 'unreal');
+  const games = engines.filter((e) => e.kind !== 'blender');
+  const blender = engines.filter((e) => e.kind === 'blender');
   const lines: string[] = [intro, ''];
-  if (engines.length) {
-    lines.push(`On this PC I can see: ${describeEngines(engines).join(', ')}.`);
-    if (unreal.length) lines.push('Say “build me an Unreal Engine project in D:\\Dev\\MyGame” and I will write the project and a script that builds a starter level. I will not open the editor for you; it is a heavy program, so that is yours to start.');
-    if (others.length) lines.push(`I can see ${describeEngines(others).join(' and ')} too, but I do not have a project template for ${others.length === 1 ? 'it' : 'them'} yet. A plugin can add one (say “open the plugins folder”).`);
+  if (games.length) {
+    lines.push(`On this PC I can see: ${describeEngines(games).join(', ')}.`);
+    const kinds = [...new Set(games.map((e) => e.kind))];
+    lines.push(`To start a project, say ${kinds.map((k) => `“${SAY[k]}”`).join(' or ')}. I write the project and tell you how to open it. I will not open the editor for you; it is a heavy program, so that is yours to start.`);
   } else {
-    lines.push('I do not see Unreal Engine, Unity or Godot installed on this PC. Godot is free and small (godotengine.org); Unreal Engine comes from the Epic Games Launcher; Unity from Unity Hub. Once one is installed, say “what game engines do I have”.');
+    lines.push('I do not see Unreal Engine, Unity or Godot installed on this PC. Godot is free and small (godotengine.org); Unreal Engine comes from the Epic Games Launcher; Unity from Unity Hub. I cannot install them for you. Once one is installed, say “what game engines do I have”, or write a project anyway (“build me a Godot project in D:\\Dev\\MyGame”) and open it when the engine is there.');
   }
+  if (blender.length) lines.push(`Blender ${blender[0]!.version} is here too, for the 3D art: “${SAY.blender}” writes a script that builds a scene.`.replace('  ', ' '));
   if (request && /\b(?:aaa|triple[- ]?a)\b/i.test(request)) {
     lines.push('', 'A word on “AAA”: those games are built by hundreds of people over years, on an engine and a large library of art, so the goal for one person is a slice of it, or a smaller game built the same way.');
   }
@@ -49,21 +58,29 @@ export function createPluginSkills(platform: Platform): Skill[] {
       label: 'Which game engines do I have',
       icon: '🎮',
       domain: 'project',
-      description: 'List the game engine editors (Unreal Engine, Unity, Godot) really installed on this PC.',
+      description: 'List the game engine editors (Unreal Engine, Unity, Godot) and Blender really installed on this PC. Nothing is downloaded or started.',
       needs: ['devtools'],
       risk: 'safe',
       examples: ['what game engines do I have'],
       params: {},
       async run() {
         const engines = (await platform.gameEngines?.().catch(() => [])) ?? [];
+        const all = ['unreal', 'unity', 'godot', 'blender'];
+        const here = new Set(engines.map((e) => e.kind));
+        const missing = all.filter((k) => !here.has(k as never)).map((k) => NAMES[k]);
+        const lookOnly = 'I only look for them: I never download or install anything.';
         if (!engines.length) {
-          return { ok: true, message: 'I do not see Unreal Engine, Unity or Godot installed on this PC.', data: engines };
+          return {
+            ok: true,
+            message: `I do not see Unreal Engine, Unity, Godot or Blender on this PC. ${lookOnly} I can still write a project for one (“${SAY.godot}”) for when you install it.`,
+            data: engines,
+          };
         }
         const rows = engines.map((e) => `• ${NAMES[e.kind] ?? e.kind} ${e.version} — ${e.editor}`);
-        const unreal = engines.some((e) => e.kind === 'unreal');
+        const starts = [...here].map((k) => `“${SAY[k]}”`).join(', ');
         return {
           ok: true,
-          message: `Game engines on this PC:\n${rows.join('\n')}${unreal ? '\n\nI can start an Unreal project for you: say “build me an Unreal Engine project in D:\\Dev\\MyGame”.' : ''}`,
+          message: `On this PC:\n${rows.join('\n')}\n\nNot found: ${missing.length ? missing.join(', ') : 'none'}. ${lookOnly}\nTo start a project, say ${starts}.`,
           data: engines,
         };
       },

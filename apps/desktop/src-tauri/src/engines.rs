@@ -185,6 +185,53 @@ fn godot_engines() -> Vec<EngineInfo> {
     dirs.iter().flat_map(|d| scan_godot(d)).collect()
 }
 
+// ---------------------------------------------------------------- Blender
+
+/// Blender installs as `<root>\Blender <version>lender.exe` (the Foundation's installer, winget
+/// and Steam all follow this), or as a bare folder holding `blender.exe` (portable, Steam).
+fn scan_blender(root: &Path) -> Vec<EngineInfo> {
+    let mut out = Vec::new();
+    let mut check = |dir: &Path, version: String| {
+        let exe = dir.join("blender.exe");
+        if exe.is_file() {
+            out.push(EngineInfo { kind: "blender".into(), version, path: text(dir), editor: text(&exe) });
+        }
+    };
+    check(root, String::new());
+    if let Ok(entries) = fs::read_dir(root) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if let Some(v) = name.strip_prefix("Blender ") {
+                check(&e.path(), v.trim().to_string());
+            }
+        }
+    }
+    out
+}
+
+fn blender_engines() -> Vec<EngineInfo> {
+    let mut roots: Vec<PathBuf> = vec![
+        PathBuf::from(r"C:\Program Files\Blender Foundation"),
+        PathBuf::from(r"C:\Program Files\Blender"),
+        PathBuf::from(r"C:\Program Files (x86)\Steam\steamapps\common\Blender"),
+    ];
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let local = PathBuf::from(local);
+        roots.push(local.join(r"Programs\Blender Foundation"));
+        if let Ok(pkgs) = fs::read_dir(local.join(r"Microsoft\WinGet\Packages")) {
+            for p in pkgs.flatten() {
+                if p.file_name().to_string_lossy().to_lowercase().contains("blender") {
+                    roots.push(p.path());
+                }
+            }
+        }
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        roots.extend(std::env::split_paths(&path).filter(|p| p.to_string_lossy().to_lowercase().contains("blender")));
+    }
+    roots.iter().flat_map(|r| scan_blender(r)).collect()
+}
+
 // ---------------------------------------------------------------- the command
 
 fn dedupe(mut list: Vec<EngineInfo>) -> Vec<EngineInfo> {
@@ -200,6 +247,7 @@ pub fn game_engines() -> Vec<EngineInfo> {
     let mut all = unreal_engines();
     all.extend(unity_engines());
     all.extend(godot_engines());
+    all.extend(blender_engines());
     dedupe(all)
 }
 
@@ -324,6 +372,25 @@ mod tests {
         assert_eq!(godot_version("Godot_v4.4.1-stable_win64.exe"), "4.4.1");
         assert_eq!(godot_version("godot.exe"), "");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn blender_is_found_in_versioned_folders_and_bare_ones() {
+        let root = temp("blender");
+        for v in ["4.2", "3.6"] {
+            let d = root.join(format!("Blender {v}"));
+            fs::create_dir_all(&d).unwrap();
+            fs::write(d.join("blender.exe"), b"x").unwrap();
+        }
+        fs::create_dir_all(root.join("Blender Launcher")).unwrap(); // not an install
+        let mut versions: Vec<String> = scan_blender(&root).into_iter().map(|e| e.version).collect();
+        versions.sort();
+        assert_eq!(versions, vec!["3.6", "4.2"]);
+        let bare = temp("blender-bare");
+        fs::write(bare.join("blender.exe"), b"x").unwrap();
+        assert_eq!(scan_blender(&bare).len(), 1);
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&bare);
     }
 
     #[test]

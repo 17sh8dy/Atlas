@@ -2254,18 +2254,19 @@ engine, and plugins (an Unreal one if possible). Everything on branch `v1.0.7`, 
   files an engine runs by itself, `package.json` (so no plugin can make `npm install` run its choice), a template cannot
   take a built-in's id; checked again where files are written. Verified live with a good plugin (loaded and built a
   project) and a hostile one (refused, with the exact reason).
-- **Game engines.** `engines.rs` finds Unreal (registry, Epic launcher list), Unity and Godot, reporting only editors that
+- **Game engines.** `engines.rs` finds Unreal (registry, Epic launcher list), Unity, Godot and Blender, reporting only editors that
   exist on disk; Atlas never starts one. Built-in **Unreal Engine project** template: a content-only `.uproject` pointed
   at the newest Unreal found, Python editor scripting on, and `Scripts/build_starter_level.py`. **Verified against UE 5.7
   on this PC** headless (no window, no GPU): it loaded the project, ran the script, saved the level; the same for a project
-  Atlas itself wrote. NOT verified: opening the full editor and pressing Play (deliberately not started). No Godot or
-  Unity template yet (neither is installed here, so one could not be checked); a plugin can add them.
+  Atlas itself wrote. NOT verified: opening the full editor and pressing Play (deliberately not started). Godot, Unity and Blender
+  project templates also exist (detection-only, nothing downloaded): checked for valid JSON/Python/scene structure and safe
+  paths, but NOT opened in the real programs, none of which is installed here.
 - **The engine note.** A request that is clearly past hand-written code (AAA, 3D, open world, "like GTA") gets
   `engine.advise` instead of a toy: it says what a real engine supplies, names what is installed, offers the Unreal
   project, and will not open the editor for you. A finished game ends with a one-line pointer. The developer agent is told
   to say the same instead of faking it.
 - Skills: `engine.list`, `engine.advise`, `plugin.list`, `plugin.reload`, `plugin.openFolder`.
-- Not built: a Settings page for plugins (the skills and `docs/PLUGINS.md` cover it), Godot and Unity templates, a C++
+- Not built: a Settings page for plugins (the skills and `docs/PLUGINS.md` cover it), a C++
   Unreal variant (needs Visual Studio to compile, so it could not be checked here).
 
 ## Deliberately not doing

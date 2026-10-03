@@ -11,6 +11,7 @@ import { notesApp, pomodoroApp, todoApp } from './tools-a';
 import { calculatorApp, converterApp, passwordApp } from './tools-b';
 import { budgetApp, flashcardsApp, habitsApp, kanbanApp } from './tools-c';
 import { unrealProject } from './unreal';
+import { blenderProject, godotProject, unityProject } from './engines';
 import { allTemplates, registerTemplates } from './registry';
 import type { AppTemplate } from './types';
 
@@ -65,7 +66,7 @@ const website: AppTemplate = {
   files: websiteStarterFiles,
 };
 
-const BUILT_IN: readonly AppTemplate[] = [clicker, snakeGame, game2048, minesweeperGame, memoryGame, ticTacToeGame, breakoutGame, todoApp, notesApp, pomodoroApp, calculatorApp, converterApp, passwordApp, budgetApp, habitsApp, kanbanApp, flashcardsApp, unrealProject, desktop, website].map(
+const BUILT_IN: readonly AppTemplate[] = [clicker, snakeGame, game2048, minesweeperGame, memoryGame, ticTacToeGame, breakoutGame, todoApp, notesApp, pomodoroApp, calculatorApp, converterApp, passwordApp, budgetApp, habitsApp, kanbanApp, flashcardsApp, unrealProject, godotProject, unityProject, blenderProject, desktop, website].map(
   (t) => ({ ...t, source: t.source ?? 'built-in' }),
 );
 

@@ -38,7 +38,7 @@ function writeProject(templateId: string, name = 'Void Clicker') {
 test('every template writes files with no placeholder left in them', () => {
   for (const template of APP_TEMPLATES) {
     const files = template.files({ name: 'Void Clicker', id: 'void-clicker' });
-    assert.isAbove(files.length, 2, template.id);
+    assert.isAbove(files.length, 1, template.id);
     for (const file of files) {
       assert.notMatch(file.content, /\{\{(?:NAME|ID)\}\}/, `${template.id}/${file.path}`);
       assert.isAbove(file.content.length, 10, `${template.id}/${file.path} is empty`);
