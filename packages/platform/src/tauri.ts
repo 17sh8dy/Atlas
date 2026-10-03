@@ -75,6 +75,8 @@ import type {
   SearchMatch,
   ToolResult,
   TreeEntry,
+  EngineInfo,
+  PluginFolder,
   HaltEvent,
   HaltStatus,
   ElevationOutcome,
@@ -365,6 +367,9 @@ export function createTauriPlatform(): Platform {
       invoke<ToolResult>('run_devtool', { cwd, tool, arg: arg ?? null }),
     runPowerShell: (script, cwd) =>
       invoke<ToolResult>('run_powershell', { script, cwd: cwd ?? null }),
+    gameEngines: () => invoke<EngineInfo[]>('game_engines'),
+    pluginManifests: () => invoke<PluginFolder[]>('plugin_manifests'),
+    openPluginsFolder: () => invoke<string>('open_plugins_folder'),
     installDependency: (cwd, manager: DepManager, pkg, dev) =>
       invoke<ToolResult>('install_dependency', { cwd, manager, package: pkg, dev: dev ?? null }),
     writeTextFile: (path, content) => invoke<boolean>('write_text_file', { path, content }),

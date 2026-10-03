@@ -2228,6 +2228,46 @@ PowerShell if needed; and an inaccessible folder should be a Yes/No button that 
 - **Add It? for folders that do not exist yet.** `folderToOffer` offers the nearest existing ancestor (3 levels, never a
   drive root) for something about to be created, and finds paths written inside a script.
 
+## 1.0.7 — a library of things Atlas can build with no model, plugins, and game engines (2026-10-03)
+
+Brandon: "we need to make a lot of tools like game.js", Atlas should say once a game gets to AAA scale it needs a game
+engine, and plugins (an Unreal one if possible). Everything on branch `v1.0.7`, not pushed.
+
+- **Ollama context.** Atlas sent no `num_ctx`, so Ollama's default (4,096) silently cut the ~9,400-token planner prompt
+  to ~2,050 (`truncating input prompt limit=2050 prompt=9357` in its log): the model never saw most of the catalog and
+  its plans failed. `chat_body` now sends one fixed `num_ctx` of 16,384 (fixed on purpose: Ollama reloads a model when it
+  changes). Test-pinned.
+- **Eighteen ready-made projects** (`packages/engine/src/templates/`), each a pure rules file with its own `test.js`, a
+  page, and a launcher: games — Snake, 2048, Minesweeper, Memory, Tic-Tac-Toe, Breakout, Clicker; tools — To-do, Notes,
+  Pomodoro, Calculator, Unit converter, Password generator, Budget, Habits, Kanban, Flashcards. `web-app.ts` is the shared
+  frame, so a new one is its rules + page + tests only. What the tests prove rather than assume: Tic-Tac-Toe's AI never
+  loses (every possible human game, both sides, plus the known 255,168-game total); the calculator agrees with JavaScript
+  on 1,000 random sums and has no `eval`; the password generator rejects modulo bias; the notes renderer cannot be made
+  to emit script; budget money is integer cents and its CSV defuses spreadsheet formulas; SM-2 intervals are exact.
+  `templates.test.ts` writes every project to disk, syntax-checks it, runs its own tests, and rejects inline styles
+  (the CSP blocks them). All 19 played in a real browser with zero console errors.
+- **Matching.** Words are whole phrases, longest wins; single everyday words (notes, budget, habits, blog) deliberately do
+  not trigger a build ("make notes.txt read only" is not a notes app). "A game" / "an app" with no kind asks which, with
+  every project as a button.
+- **Plugins, as data** (`packages/engine/src/plugins/`, `docs/PLUGINS.md`). A plugin is a folder with a `plugin.json` that
+  adds templates; nothing in it is ever executed. `manifest.ts` is the security boundary: paths, executable extensions,
+  files an engine runs by itself, `package.json` (so no plugin can make `npm install` run its choice), a template cannot
+  take a built-in's id; checked again where files are written. Verified live with a good plugin (loaded and built a
+  project) and a hostile one (refused, with the exact reason).
+- **Game engines.** `engines.rs` finds Unreal (registry, Epic launcher list), Unity and Godot, reporting only editors that
+  exist on disk; Atlas never starts one. Built-in **Unreal Engine project** template: a content-only `.uproject` pointed
+  at the newest Unreal found, Python editor scripting on, and `Scripts/build_starter_level.py`. **Verified against UE 5.7
+  on this PC** headless (no window, no GPU): it loaded the project, ran the script, saved the level; the same for a project
+  Atlas itself wrote. NOT verified: opening the full editor and pressing Play (deliberately not started). No Godot or
+  Unity template yet (neither is installed here, so one could not be checked); a plugin can add them.
+- **The engine note.** A request that is clearly past hand-written code (AAA, 3D, open world, "like GTA") gets
+  `engine.advise` instead of a toy: it says what a real engine supplies, names what is installed, offers the Unreal
+  project, and will not open the editor for you. A finished game ends with a one-line pointer. The developer agent is told
+  to say the same instead of faking it.
+- Skills: `engine.list`, `engine.advise`, `plugin.list`, `plugin.reload`, `plugin.openFolder`.
+- Not built: a Settings page for plugins (the skills and `docs/PLUGINS.md` cover it), Godot and Unity templates, a C++
+  Unreal variant (needs Visual Studio to compile, so it could not be checked here).
+
 ## Deliberately not doing
 
 - **An unfenced `exec`.** Rejected in ARCHITECTURE §6.1. The one general runner is `powershell.run` above: the person

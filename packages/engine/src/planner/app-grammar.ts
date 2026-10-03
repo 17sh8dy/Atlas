@@ -22,6 +22,10 @@ const PATH = String.raw`[a-z]:[\\/]`;
 const BUILD_VERB =
   String.raw`(?:build|make|create|write|code|develop|generate|design|set\s+up|put\s+together|whip\s+up)`;
 
+/** How a request opens: "please", "can you", "I want to", "I would like you to", "I'd like to". */
+const LEAD_IN =
+  String.raw`^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?(?:i(?:'d|\s+would)?\s+(?:want|need|like)\s+(?:you\s+)?to\s+)?`;
+
 /**
  * Languages, frameworks and engines. A request that names one is not a request for a vanilla
  * template: `project.scaffold` builds React/Vue/Svelte by name, the developer agent does the rest,
@@ -61,6 +65,17 @@ function isGenericRequest(subject: string): boolean {
   return words.every((w) => FILLER.has(w) || GENERIC_NOUN.has(w));
 }
 
+/**
+ * Games past what hand-written code in a folder can reach: AAA, 3D, open worlds, shooters,
+ * "like GTA". Deliberately about the game being big, not about a word like "3d" alone in a note.
+ */
+const BIG_GAME = new RegExp(
+  String.raw`\b(?:aaa|triple[- ]?a|3d|open[- ]world|first[- ]person|third[- ]person|fps|mmo|mmorpg|battle royale|` +
+    String.raw`console game|next[- ]?gen|photoreal\w*|ray[- ]?trac\w*|game engine|unreal|ue[45]|unity|godot|` +
+    String.raw`(?:like|similar to|as good as)\s+(?:gta|grand theft auto|skyrim|elden ring|the witcher|fortnite|call of duty|cyberpunk|red dead|zelda|minecraft))\b`,
+  'i',
+);
+
 /** The subject of the request: everything before the first clause break or the folder. */
 function subjectOf(rest: string): string {
   return rest
@@ -83,7 +98,7 @@ const HAS_SCAFFOLDER = /\b(?:react|vue|svelte|vite)\b/i;
  */
 export function parseAgentBuildRequest(raw: string): { goal: string; path: string } | null {
   const m = new RegExp(
-    String.raw`^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?(?:i\s+(?:want|need)\s+(?:you\s+to\s+)?)?` +
+    LEAD_IN +
       BUILD_VERB +
       String.raw`\s+(?:me\s+)?(?!(?:a\s+)?new\s+project\b)(.+?)\s*$`,
     'i',
@@ -98,6 +113,9 @@ export function parseAgentBuildRequest(raw: string): { goal: string; path: strin
   const path = where[1]!.trim().replace(/^"|"$/g, '').replace(/[\\/]+$/, '');
   const subject = (rest.slice(0, where.index) + rest.slice(where.index + where[0].length)).trim();
   if (!BUILDABLE.test(subject) || HAS_SCAFFOLDER.test(subject)) return null;
+  // A game that big is not a job for the developer agent either: it gets the honest answer about
+  // engines (the needsEngine rule below), not a toy built to look like it.
+  if (BIG_GAME.test(subject)) return null;
   return { goal: raw.trim().replace(/[.!]+$/, ''), path };
 }
 
@@ -105,7 +123,7 @@ export function parseBuildRequest(
   raw: string,
 ): { template?: string; path?: string; name?: string } | null {
   const m = new RegExp(
-    String.raw`^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?(?:i\s+(?:want|need)\s+(?:you\s+to\s+)?)?` +
+    LEAD_IN +
       BUILD_VERB +
       String.raw`\s+(?:me\s+)?(?!(?:a\s+)?new\s+project\b)(.+?)\s*[.!]*$`,
     'i',
@@ -200,8 +218,52 @@ export function createAppGrammar(): GrammarRule[] {
         // project opens in the browser until then, and the closing message says so.
         const chosen = request.template ? templateById(request.template) : undefined;
         if (chosen?.desktop) steps.push(step('dependency.installAll', {}));
-        steps.push(step('project.play', {}));
+        // A game engine project is NOT opened for you: the editor is a heavy program (shader
+        // compiles, the GPU), so starting it stays the person's choice. "play it" opens it later.
+        if (chosen?.group !== 'engine') steps.push(step('project.play', {}));
         return plan(steps, 'build-app');
+      },
+    },
+    {
+      // "What game engines do I have", "is unreal installed".
+      name: 'engineList',
+      order: -11.65,
+      questionSafe: ['engine-list'],
+      test(lower) {
+        const t = lower.trim().replace(/[?.!]+$/, '');
+        return /^(?:what|which|list|show)\s+(?:me\s+)?(?:(?:the|all|my)\s+)?(?:game\s+)?engines?(?:\s+(?:do\s+i\s+have|are\s+installed|i\s+have|installed))?$/.test(t) ||
+          /^(?:do\s+i\s+have|is)\s+(?:unreal|unity|godot)(?:\s+engine)?\s+(?:installed|here|on\s+(?:this|my)\s+(?:pc|computer))$/.test(t) ||
+          /^(?:what|which)\s+game\s+engines\b/.test(t)
+          ? plan(step('engine.list', {}), 'engine-list')
+          : null;
+      },
+    },
+    {
+      name: 'pluginCommands',
+      order: -11.64,
+      questionSafe: ['plugin-list'],
+      test(lower) {
+        const t = lower.trim().replace(/[?.!]+$/, '');
+        if (/^(?:what|which|list|show)\s+(?:me\s+)?(?:(?:the|all|my)\s+)?plugins?(?:\s+(?:do\s+i\s+have|are\s+installed|i\s+have|installed))?$/.test(t)) {
+          return plan(step('plugin.list', {}), 'plugin-list');
+        }
+        if (/^(?:reload|refresh|rescan)\s+(?:my\s+|the\s+)?plugins?$/.test(t)) return plan(step('plugin.reload', {}), 'plugin-reload');
+        if (/^open\s+(?:my\s+|the\s+)?plugins?(?:\s+folder)?$/.test(t)) return plan(step('plugin.openFolder', {}), 'plugin-folder');
+        return null;
+      },
+    },
+    {
+      // "Make me an AAA open-world game": past what hand-written code can do. Say so, honestly,
+      // instead of building a toy or failing. A request a template or an engine template can
+      // already satisfy is left to the build rule above.
+      name: 'needsEngine',
+      order: -11.55,
+      pathSafe: true,
+      test(_lower, raw) {
+        if (!new RegExp(LEAD_IN + BUILD_VERB + String.raw`\b`, 'i').test(raw)) return null;
+        if (parseBuildRequest(raw)) return null;
+        if (!BIG_GAME.test(raw)) return null;
+        return plan(step('engine.advise', { request: raw.trim() }), 'engine-advise');
       },
     },
   ];

@@ -57,6 +57,7 @@ mod file_tools;
 mod catalog_files;
 mod platform;
 mod powershell;
+mod engines;
 #[cfg(windows)]
 mod secrets;
 #[cfg(windows)]
@@ -455,6 +456,9 @@ pub fn run() {
             devtools::open_project_editor,
             devtools::run_devtool,
             powershell::run_powershell,
+            engines::game_engines,
+            engines::plugin_manifests,
+            engines::open_plugins_folder,
             devtools::install_dependency,
             devtools::write_text_file,
             devtools::patch_text_file,

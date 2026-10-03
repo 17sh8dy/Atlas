@@ -83,6 +83,9 @@ export { ProjectContext, withCurrentProject, createProjectSkills } from './skill
 export { createDevAgentSkill } from './skills/devagent-skill';
 export { createAppScaffoldSkills } from './skills/app-scaffold-skills';
 export { createPowerShellSkills } from './skills/powershell-skills';
+export { createPluginSkills, engineAdvice } from './skills/plugin-skills';
+export { loadPlugins, pluginReport } from './plugins/host';
+export { parseManifest, manifestTemplates } from './plugins/manifest';
 export { embeddedPaths, powershellRefusal } from './safety/powershell-policy';
 export { allTemplates, chooseTemplate, registerTemplates, unregisterTemplates } from './templates';
 export type { DevAgentSkillOptions } from './skills/devagent-skill';

@@ -181,11 +181,18 @@ export function createProjectSkills(platform: Platform, ctx: ProjectContext, mem
       if (!path) path = (await ctx.get()) ?? '';
       if (!path) return { ok: false, error: 'Which project? Give me the folder, or build something first and I will open that.' };
       const exists = async (file: string) => Boolean(await platform.pathInfo?.(file).catch(() => null));
+      // A game engine project: its project file (opened by the engine, if installed).
+      const engineProject = async () => {
+        if (await exists(`${path}\\project.godot`)) return `${path}\\project.godot`;
+        const entries = (await platform.listDir?.(path, 200).catch(() => [])) ?? [];
+        const uproject = entries.find((e) => !e.isDirectory && /\.uproject$/i.test(e.name));
+        return uproject ? `${path}\\${uproject.name}` : null;
+      };
       const target = (await exists(`${path}\\Play.cmd`))
         ? `${path}\\Play.cmd`
         : (await exists(`${path}\\index.html`))
           ? `${path}\\index.html`
-          : path;
+          : ((await engineProject()) ?? path);
       try {
         const ok = await platform.openPath?.(target);
         if (!ok) return { ok: false, error: `I couldn't open ${target}.` };

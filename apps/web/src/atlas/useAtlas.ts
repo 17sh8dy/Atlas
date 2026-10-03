@@ -83,6 +83,8 @@ import {
   createDevToolsSkills,
   createAppScaffoldSkills,
   createPowerShellSkills,
+  createPluginSkills,
+  loadPlugins,
   ProjectContext,
   withCurrentProject,
   createProjectSkills,
@@ -626,6 +628,9 @@ export function useAtlas(
     skills.registerMany(createAppScaffoldSkills(platform, projectContext));
     // The last resort: a PowerShell script, shown in full and approved every time.
     skills.registerMany(createPowerShellSkills(platform));
+    // Plugins add project templates (data only, validated); engines are found, never started.
+    skills.registerMany(createPluginSkills(platform));
+    void loadPlugins(platform).catch(() => undefined);
     skills.registerMany(createWindowSkills(platform));
     skills.registerMany(createInputSkills(platform));
     skills.registerMany(createUiaSkills(platform));

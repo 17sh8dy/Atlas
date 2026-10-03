@@ -41,6 +41,7 @@ import type {
 } from '../models/elevation';
 import type { DisplayInfo } from '../models/screen';
 import type { WindowsCompatibility } from '../models/compat';
+import type { EngineInfo, PluginFolder } from '../models/engines';
 import type {
   DepManager,
   DevTool,
@@ -626,6 +627,12 @@ export interface Platform {
    * Allowed Folders on its own account. `cwd`, if given, must be an allowed folder.
    */
   runPowerShell?(script: string, cwd?: string): Promise<ToolResult>;
+  /** Game engine editors (Unreal, Unity, Godot) that are really installed. Read-only discovery. */
+  gameEngines?(): Promise<EngineInfo[]>;
+  /** The plugin.json text of every folder under Atlas's plugins folder. Plugins are data, never code. */
+  pluginManifests?(): Promise<PluginFolder[]>;
+  /** Open the plugins folder in Explorer, making it first if needed. Returns its path. */
+  openPluginsFolder?(): Promise<string>;
   /**
    * Add one dependency to a project, gated by `devtools` alongside the rest
    * of this group. The same rule as `runDevTool`, applied to `install`/`add`

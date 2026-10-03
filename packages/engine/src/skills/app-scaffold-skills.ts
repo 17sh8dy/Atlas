@@ -24,6 +24,7 @@ import {
   chooseTemplate,
   displayNameFor,
   idFor,
+  pascalFor,
   templateById,
   type AppTemplate,
 } from '../templates';
@@ -53,6 +54,26 @@ function foldersNeeded(files: readonly { path: string }[]): string[] {
   }
   return ordered;
 }
+
+/**
+ * A template's file paths come from the template, and a plugin's template comes from outside. Its
+ * paths were checked when the plugin loaded; this checks them again where they are used, so no
+ * path can ever climb out of the project folder, however a template was produced.
+ */
+export function unsafeFilePath(path: string): string | null {
+  if (!path || path.startsWith('/') || path.includes('\\') || /^[A-Za-z]:/.test(path)) return 'is not a relative path';
+  if (path.split('/').some((part) => !part || part === '.' || part === '..' || /[. ]$/.test(part))) {
+    return 'climbs out of the folder or has an empty part';
+  }
+  for (const ch of path) {
+    if (ch.charCodeAt(0) < 32 || '<>:"|?*'.includes(ch)) return 'has a character Windows does not allow';
+  }
+  return null;
+}
+
+/** Said after a game is built: the way past what hand-written code can do is a real engine. */
+const ENGINE_NOTE =
+  'When a game outgrows this (3D, big worlds, AAA scale) you will want a real game engine like Unreal, Unity or Godot; say “what game engines do I have” and I will set one up.';
 
 export interface ScaffoldPlanInfo {
   template: AppTemplate;
@@ -157,7 +178,13 @@ export function createAppScaffoldSkills(platform: Platform, current?: CurrentPro
           rootExists = true;
         }
 
-        const files = template.files({ name, id });
+        const engines = (await platform.gameEngines?.().catch(() => [])) ?? [];
+        const options = { name, id, pascal: pascalFor(name), engines };
+        const files = template.files(options);
+        for (const f of files) {
+          const bad = unsafeFilePath(f.path);
+          if (bad) return { ok: false, error: `That template tried to write ${JSON.stringify(f.path)}, which ${bad}. Nothing was written.` };
+        }
         const written: string[] = [];
         try {
           if (!rootExists) await platform.createFolder(root);
@@ -177,15 +204,17 @@ export function createAppScaffoldSkills(platform: Platform, current?: CurrentPro
         }
 
         await current?.set(root).catch(() => undefined);
+        const launch = template.launchFile?.(options) ?? template.launch;
+        const advice = template.group === 'game' ? ` ${ENGINE_NOTE}` : '';
         return {
           ok: true,
-          message: `Built ${name} - ${template.summary} - in ${root} (${files.length} files). ${template.tip}`,
+          message: `Built ${name} - ${template.summary} - in ${root} (${files.length} files). ${template.tip}${advice}`,
           data: {
             path: root,
             template: template.id,
             name,
             files: written,
-            launch: `${root}\\${template.launch}`,
+            launch: `${root}\\${launch}`,
             desktop: template.desktop,
           },
         };

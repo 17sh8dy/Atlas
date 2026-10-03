@@ -966,7 +966,7 @@ mod tests {
         // stop should not prevent it.
         const EXEMPT: &[&str] = &[
             // Reads — nothing changes on the machine.
-            "allowed_folders", "windows_compatibility", "detect_project", "dir_tree",
+            "game_engines", "plugin_manifests", "allowed_folders", "windows_compatibility", "detect_project", "dir_tree",
             "read_diagnostics", "folder_size", "largest_files", "list_environment_variables",
             "local_models_installed", "nova_intelligence_reachable", "web_search_with",
             "web_search_provider_ready", "kokoro_status", "kokoro_voices", "transcribe_speech",

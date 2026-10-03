@@ -10,10 +10,12 @@ import { breakoutGame, memoryGame, ticTacToeGame } from './games-b';
 import { notesApp, pomodoroApp, todoApp } from './tools-a';
 import { calculatorApp, converterApp, passwordApp } from './tools-b';
 import { budgetApp, flashcardsApp, habitsApp, kanbanApp } from './tools-c';
+import { unrealProject } from './unreal';
 import { allTemplates, registerTemplates } from './registry';
 import type { AppTemplate } from './types';
 
 export type { AppTemplate, TemplateFile, TemplateGroup, TemplateOptions } from './types';
+export { newestUnreal, pascalFor } from './unreal';
 export {
   APP_TEMPLATE_IDS,
   allTemplates,
@@ -63,7 +65,9 @@ const website: AppTemplate = {
   files: websiteStarterFiles,
 };
 
-const BUILT_IN: readonly AppTemplate[] = [clicker, snakeGame, game2048, minesweeperGame, memoryGame, ticTacToeGame, breakoutGame, todoApp, notesApp, pomodoroApp, calculatorApp, converterApp, passwordApp, budgetApp, habitsApp, kanbanApp, flashcardsApp, desktop, website];
+const BUILT_IN: readonly AppTemplate[] = [clicker, snakeGame, game2048, minesweeperGame, memoryGame, ticTacToeGame, breakoutGame, todoApp, notesApp, pomodoroApp, calculatorApp, converterApp, passwordApp, budgetApp, habitsApp, kanbanApp, flashcardsApp, unrealProject, desktop, website].map(
+  (t) => ({ ...t, source: t.source ?? 'built-in' }),
+);
 
 if (allTemplates().length === 0) registerTemplates(BUILT_IN);
 

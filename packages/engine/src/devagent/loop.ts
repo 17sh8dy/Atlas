@@ -43,9 +43,9 @@ export async function runDevTask(
       maxIterations: MAX_DEV_ITERATIONS,
       context: { 'Project folder': cwd },
       extraInstruction:
-        'use the project folder above for any path/cwd argument unless a prior step told you a different one',
+        'use the project folder above for any path/cwd argument unless a prior step told you a different one. If the goal is clearly beyond what hand-written code in one folder can deliver (a 3D, open-world or AAA-scale game), say so plainly and suggest a game engine project (Unreal, Unity or Godot) instead of building a toy that pretends to be it',
       noProviderMessage:
-        'That one needs an AI model to write the code — turn one on in Settings → Intelligence, then ask again. Without a model I can still build a clicker game, a desktop app starter or a website starter: try “build me a clicker game in D:\\Dev\\Clicker”.',
+        'That one needs an AI model to write the code — turn one on in Settings → Intelligence, then ask again. Without a model I can still build ready-made games and tools (Snake, 2048, a calculator, a to-do list and more): try “build me a snake game in D:\\Dev\\Snake”.',
     },
     deps,
     ctx,

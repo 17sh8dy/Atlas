@@ -1,3 +1,5 @@
+import type { EngineInfo } from '@atlas/core';
+
 /** One file a template writes, with a path relative to the project folder. */
 export interface TemplateFile {
   path: string;
@@ -9,6 +11,13 @@ export interface TemplateOptions {
   name: string;
   /** The same name as a safe identifier: "void-clicker". */
   id: string;
+  /**
+   * The same name as a code-friendly identifier with no spaces or dashes: "VoidClicker". Game
+   * engines want one for the project file ("VoidClicker.uproject").
+   */
+  pascal?: string;
+  /** Game engines found on this PC, for templates that target one. */
+  engines?: readonly EngineInfo[];
 }
 
 /** What kind of thing a template makes, for grouping in lists and questions. */
@@ -37,6 +46,8 @@ export interface AppTemplate {
   desktop: boolean;
   /** The file to open once it exists (relative to the project folder). */
   launch: string;
+  /** For a project whose main file is named after it ("VoidClicker.uproject"); wins over `launch`. */
+  launchFile?(options: TemplateOptions): string;
   /** What to say about running it after the first launch. */
   tip: string;
   /** Where it came from: a built-in, or the id of the plugin that supplies it. */
