@@ -74,7 +74,9 @@ export type DevTool =
   | 'dotnet-build'
   | 'dotnet-test'
   | 'make-build'
-  | 'pytest';
+  | 'pytest'
+  | 'python-run'
+  | 'node-run';
 
 export interface ToolResult {
   ok: boolean;

@@ -14,6 +14,7 @@
  */
 
 import type { PathInfo, SkillArgs } from '@atlas/core';
+import { embeddedPaths } from '@atlas/engine';
 
 function normalize(path: string): string {
   return path.trim().replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
@@ -53,10 +54,49 @@ function parentOf(path: string): string {
   return cut > 2 ? trimmed.slice(0, cut) : trimmed.slice(0, cut + 1);
 }
 
+/** How far up from a path that does not exist yet to look for a folder that does. */
+const MAX_LEVELS_UP = 3;
+
+/**
+ * What exists at, or just above, `path`. Something being created ("build it in
+ * D:\Dev\Clicker", "save it to E:\Games\notes.txt") names a place that is not
+ * there yet, and the folder that has to be allowed is the one it will be made
+ * in — the nearest ancestor that exists, a few levels up at most so a typo'd
+ * drive never turns into an offer to add the whole drive.
+ */
+async function nearestExisting(
+  path: string,
+  pathInfo: (path: string) => Promise<PathInfo>,
+): Promise<{ folder: string } | null> {
+  let current = path;
+  for (let level = 0; level <= MAX_LEVELS_UP; level++) {
+    const info = await pathInfo(current).catch(() => null);
+    if (info) return { folder: info.isDirectory ? current : parentOf(current) };
+    const up = parentOf(current);
+    if (!up || up === current) return null;
+    current = up;
+  }
+  return null;
+}
+
+/**
+ * The paths a step names: a whole argument that is a path, or — for an argument that is text with
+ * paths written inside it, like a PowerShell script — each path found in the text.
+ */
+function pathsIn(value: string): string[] {
+  const whole = value
+    .trim()
+    .replace(/^"(.*)"$/, '$1')
+    .trim();
+  if (ABSOLUTE.test(whole) && !/[\r\n]/.test(whole)) return [whole];
+  return /[A-Za-z]:[\\/]|\\\\/.test(value) ? embeddedPaths(value) : [];
+}
+
 /**
  * The folder worth offering to add, given the arguments of the step that was
- * refused: the first absolute path that is not already allowed, that really
- * exists, and that is not somewhere it would be unwise to offer. A file offers
+ * refused: the first absolute path that is not already allowed, whose folder
+ * really exists (or is the nearest one that does, for something about to be
+ * created), and that is not somewhere it would be unwise to offer. A file offers
  * its folder. `undefined` means "nothing to offer" and the failure stands.
  */
 export async function folderToOffer(
@@ -66,18 +106,15 @@ export async function folderToOffer(
 ): Promise<string | undefined> {
   for (const value of Object.values(args)) {
     if (typeof value !== 'string') continue;
-    const path = value
-      .trim()
-      .replace(/^"(.*)"$/, '$1')
-      .trim();
-    if (!ABSOLUTE.test(path)) continue;
-    if (isInsideAnyAllowedFolder(path, allowedFolders)) continue;
-    const info = await pathInfo(path).catch(() => null);
-    if (!info) continue;
-    const folder = info.isDirectory ? path : parentOf(path);
-    if (isSensitiveFolder(folder)) continue;
-    if (isInsideAnyAllowedFolder(folder, allowedFolders)) continue;
-    return folder;
+    for (const path of pathsIn(value)) {
+      if (isInsideAnyAllowedFolder(path, allowedFolders)) continue;
+      const found = await nearestExisting(path, pathInfo);
+      if (!found) continue;
+      const { folder } = found;
+      if (isSensitiveFolder(folder)) continue;
+      if (isInsideAnyAllowedFolder(folder, allowedFolders)) continue;
+      return folder;
+    }
   }
   return undefined;
 }

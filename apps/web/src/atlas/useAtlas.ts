@@ -81,6 +81,8 @@ import {
   createOrganizeSkills,
   withFileJournal,
   createDevToolsSkills,
+  createAppScaffoldSkills,
+  createPowerShellSkills,
   ProjectContext,
   withCurrentProject,
   createProjectSkills,
@@ -249,6 +251,7 @@ export const PREAPPROVABLE_PATH_ARGS: Readonly<Record<string, readonly string[]>
   'files.copy': ['path', 'destDir'],
   'files.append': ['path'],
   'project.create': ['path'],
+  'app.scaffold': ['path'],
 };
 
 /**
@@ -619,6 +622,10 @@ export function useAtlas(
     skills.registerMany(withCurrentProject(createDevToolsSkills(platform), projectContext, platform, memory));
     skills.registerMany(withCurrentProject(createCatalogGitSkills(platform), projectContext, platform, memory));
     skills.registerMany(createProjectSkills(platform, projectContext, memory));
+    // Starter projects written with no model (a clicker game, a desktop app, a site).
+    skills.registerMany(createAppScaffoldSkills(platform, projectContext));
+    // The last resort: a PowerShell script, shown in full and approved every time.
+    skills.registerMany(createPowerShellSkills(platform));
     skills.registerMany(createWindowSkills(platform));
     skills.registerMany(createInputSkills(platform));
     skills.registerMany(createUiaSkills(platform));
@@ -881,9 +888,12 @@ export function useAtlas(
       // touch. The card names the folder; "Add It?" is the grant, and nothing
       // is added on any other answer.
       offerFolder: async (args) => {
-        if (!platform.pathInfo || !platform.addAllowedFolder) return false;
+        // The offer is for a place that is not allowed yet, so it asks the probe (which works
+        // there) rather than pathInfo (which refuses outside Allowed Folders by design).
+        const probe = platform.probePath ?? platform.pathInfo;
+        if (!probe || !platform.addAllowedFolder) return false;
         const allowed = (await platform.allowedFolders?.().catch(() => [])) ?? [];
-        const folder = await folderToOffer(args, allowed, platform.pathInfo.bind(platform));
+        const folder = await folderToOffer(args, allowed, probe.bind(platform));
         if (!folder) return false;
         const yes = await askConfirm(
           'That folder is outside what Atlas is allowed to touch. Add it?',

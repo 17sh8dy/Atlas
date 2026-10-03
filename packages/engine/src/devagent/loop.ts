@@ -22,7 +22,7 @@ export const MAX_DEV_ITERATIONS = 12;
  * alongside the devtools-specific skills — this is not a second, wider
  * catalog, just the reads that already existed.
  */
-const DEV_AGENT_DOMAINS = new Set(['project', 'git', 'build', 'test', 'code', 'files']);
+const DEV_AGENT_DOMAINS = new Set(['project', 'git', 'build', 'test', 'code', 'files', 'powershell']);
 
 export type DevTaskStepLog = AgentTaskReport['steps'][number];
 export type DevTaskStopReason = AgentTaskReport['stoppedBecause'];
@@ -45,7 +45,7 @@ export async function runDevTask(
       extraInstruction:
         'use the project folder above for any path/cwd argument unless a prior step told you a different one',
       noProviderMessage:
-        'Dev tasks need an AI model connected — turn one on in Settings → Intelligence, then ask again.',
+        'That one needs an AI model to write the code — turn one on in Settings → Intelligence, then ask again. Without a model I can still build a clicker game, a desktop app starter or a website starter: try “build me a clicker game in D:\\Dev\\Clicker”.',
     },
     deps,
     ctx,

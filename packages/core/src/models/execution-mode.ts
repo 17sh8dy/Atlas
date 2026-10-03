@@ -15,6 +15,16 @@
  *                     explicit grant and runs without a second question.
  *                     Deleting is never in that group. What a UI control would
  *                     *do* is also weighed before it is pressed, in every mode.
+ * `doItPlus`       — Do It +. For a task you trust: nearly everything runs without
+ *                     asking, including writing files, building, running a project's
+ *                     tests and scripts, installing its dependencies and local git.
+ *                     It still asks before anything that cannot be taken back or that
+ *                     leaves this computer — deleting for good, emptying the Recycle
+ *                     Bin or a folder, installing/uninstalling software, `git push`,
+ *                     ending processes, power actions (the list is
+ *                     `engine/safety/dangerous.ts`). Refusals, the content policy,
+ *                     Allowed Folders, the UI-consequence check, previews and the
+ *                     emergency stop all still apply.
  * `planFirst`      — for a request whose plan contains anything consequential,
  *                     the whole plan is shown once, up front, and approving it
  *                     covers exactly the steps shown — no re-asking per step,
@@ -28,16 +38,16 @@
  *                     plan-approval shortcut never stands in for asking about
  *                     one specific action.
  *
- * There is deliberately no fourth mode that removes confirmation altogether.
- * A consequential action always stops somewhere; these three only differ in
- * where that stop happens.
+ * There is deliberately no mode that removes confirmation altogether. Do It +
+ * asks less, never nothing: the dangerous set always stops. The others differ
+ * only in where that stop happens.
  */
-export type ExecutionMode = 'doIt' | 'planFirst' | 'confirmActions';
+export type ExecutionMode = 'doIt' | 'doItPlus' | 'planFirst' | 'confirmActions';
 
 export const DEFAULT_EXECUTION_MODE: ExecutionMode = 'doIt';
 
 /** Cycle order — also the order Shift+Tab steps through. */
-export const EXECUTION_MODES: readonly ExecutionMode[] = ['doIt', 'planFirst', 'confirmActions'];
+export const EXECUTION_MODES: readonly ExecutionMode[] = ['doIt', 'doItPlus', 'planFirst', 'confirmActions'];
 
 export interface ExecutionModeMeta {
   /** Shown in the mode chip and in Settings. Atlas's own name, not borrowed. */
@@ -51,6 +61,11 @@ export const EXECUTION_MODE_META: Record<ExecutionMode, ExecutionModeMeta> = {
     label: 'Do It?',
     description:
       'Handles harmless actions automatically. Always asks before consequential actions.',
+  },
+  doItPlus: {
+    label: 'Do It +',
+    description:
+      'Does much more without asking: writing files, building, running a project and its tests. Still asks before anything dangerous: deleting for good, emptying the Recycle Bin or a folder, installing or uninstalling software, pushing to the internet, ending programs, or power actions. Use it for work you trust Atlas with.',
   },
   planFirst: {
     label: 'Plan First',

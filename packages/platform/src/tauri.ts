@@ -147,6 +147,7 @@ export function createTauriPlatform(): Platform {
     readTextFile: (path) => invoke<string>('read_text_file', { path }),
 
     pathInfo: (path) => invoke<PathInfo>('path_info', { path }),
+    probePath: (path) => invoke<PathInfo>('probe_path', { path }),
     appendFile: (path, content) => invoke<boolean>('append_file', { path, content }),
     listDir: (path, limit) => invoke<FileEntry[]>('list_dir', { path, limit: limit ?? null }),
     knownFolder: (id) => invoke<string>('known_folder', { id }),
@@ -362,6 +363,8 @@ export function createTauriPlatform(): Platform {
     openProjectEditor: (cwd) => invoke<boolean>('open_project_editor', { cwd }),
     runDevTool: (cwd, tool: DevTool, arg) =>
       invoke<ToolResult>('run_devtool', { cwd, tool, arg: arg ?? null }),
+    runPowerShell: (script, cwd) =>
+      invoke<ToolResult>('run_powershell', { script, cwd: cwd ?? null }),
     installDependency: (cwd, manager: DepManager, pkg, dev) =>
       invoke<ToolResult>('install_dependency', { cwd, manager, package: pkg, dev: dev ?? null }),
     writeTextFile: (path, content) => invoke<boolean>('write_text_file', { path, content }),

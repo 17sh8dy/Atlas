@@ -81,6 +81,10 @@ test.each([
   ['run the tests in D:\\Dev\\MyApp', 'test.run'],
   ['package the project in D:\\Dev\\MyApp', 'build.run'],
   ['build D:\\Dev\\MyApp', 'build.run'],
+  ['run python game.py', 'script.python'],
+  ['python game.py in D:\\Dev\\MyApp', 'script.python'],
+  ['run node app.js', 'script.node'],
+  ['node src/server.mjs from D:\\Dev\\MyApp', 'script.node'],
 ])('%s → %s', (text, skill) => {
   expect(first(text)?.skill).toBe(skill);
 });

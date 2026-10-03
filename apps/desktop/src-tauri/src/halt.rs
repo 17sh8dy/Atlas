@@ -281,6 +281,65 @@ impl Halt {
         output
     }
 
+    /// Like [`Halt::run`], but stops the process (and everything it started) once `limit` has
+    /// passed, and says so. A game or a server never exits on its own, and "it ran for N seconds
+    /// without crashing" is the answer worth having. The emergency stop still applies throughout.
+    pub fn run_for(&self, mut cmd: Command, limit: Duration) -> std::io::Result<(Output, bool)> {
+        let halted = || std::io::Error::new(std::io::ErrorKind::Interrupted, HALTED);
+        if self.is_halted() {
+            return Err(halted());
+        }
+        let started = self.epoch();
+
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = cmd.spawn()?;
+
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let process = child.as_raw_handle() as isize;
+        let job = assign_job(process);
+        self.processes
+            .lock()
+            .unwrap()
+            .push(Supervised { id, pid: child.id(), process, job });
+
+        if self.epoch() != started {
+            self.stop_processes();
+        }
+
+        let done = AtomicBool::new(false);
+        let timed_out = AtomicBool::new(false);
+        let output = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let begun = Instant::now();
+                while !done.load(Ordering::SeqCst) {
+                    if begun.elapsed() >= limit {
+                        let list = self.processes.lock().unwrap();
+                        if let Some(entry) = list.iter().find(|p| p.id == id) {
+                            timed_out.store(true, Ordering::SeqCst);
+                            match entry.job {
+                                Some(job) => unsafe {
+                                    let _ = TerminateJobObject(HANDLE(job as *mut _), TERMINATED_EXIT_CODE);
+                                },
+                                None => force_kill_tree(entry.pid),
+                            }
+                        }
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            });
+            let out = child.wait_with_output();
+            done.store(true, Ordering::SeqCst);
+            out
+        });
+        self.unregister(id);
+
+        if self.epoch() != started {
+            return Err(halted());
+        }
+        Ok((output?, timed_out.load(Ordering::SeqCst)))
+    }
+
     fn unregister(&self, id: u64) {
         let mut list = self.processes.lock().unwrap();
         if let Some(pos) = list.iter().position(|p| p.id == id) {

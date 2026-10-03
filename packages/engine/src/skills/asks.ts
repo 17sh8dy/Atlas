@@ -160,6 +160,16 @@ const which = (question: string, extra: Partial<ParamAsk> = {}): ParamAsk => ({
 });
 
 export const ASKS: Record<string, ParamAsk> = {
+  // ---- building ----------------------------------------------------------
+  'app.scaffold.path': {
+    question: 'Which folder should I build it in? A new folder is fine — I will make it.',
+    noun: 'folder',
+    tellLabel: 'Tell me the folder',
+    placeholder: 'D:\\Dev\\MyGame   or   MyGame in D:\\Dev',
+    normalize: pathOrNameInPlace,
+    hint: WHERE_HINT,
+    many: false,
+  },
   // ---- files -------------------------------------------------------------
   'files.createFolder.path': {
     question: 'Where should I create the folder, and what should it be called?',

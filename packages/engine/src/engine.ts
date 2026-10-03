@@ -63,6 +63,7 @@ import { normalizeRequest } from './text/normalize';
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
 import { reporterFor, type ActivityEvent } from './planner/executor';
+import { APP_TEMPLATES } from './templates';
 
 /**
  * What the chat model is told when an instruction reached it unresolved.
@@ -786,6 +787,15 @@ export class Engine {
   private unresolvedReply(text: string): string {
     if (/^\s*(?:stop|cancel|abort|enough|halt|quit)\s*[.!]*$/i.test(text)) {
       return "Nothing is running right now. (To stop something that is in progress, press the emergency-stop key, F8.)";
+    }
+    // "build me a snake game": a build request Atlas has no ready-made project for. Say so, and
+    // say what it CAN build on its own, instead of a generic "I didn't catch that".
+    if (
+      /^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:build|make|create|write|code|develop|generate|design)\s+(?:me\s+)?\S/i.test(text) &&
+      /\b(?:game|app|apps|application|program|software|web\s?site|web\s?page|site|tool|bot|script|clicker|widget|extension|plugin|calculator|tracker|dashboard|launcher)\b/i.test(text)
+    ) {
+      const can = APP_TEMPLATES.map((t) => t.label).join(', ');
+      return `I can build ${can} on my own, with no model. Try “build me a clicker game in D:\\Dev\\Clicker” (any new folder works; if it is not one I am allowed to use I will ask first).\n\nFor anything else, like a custom game or app, I need a language model to write the code. Start one in Settings → Intelligence and ask again, or tell me the folder and say “build a desktop app” and I will set up a starter you can fill in.`;
     }
     const target = /^\s*(?:open|launch|start|run|go to|visit|play)\s+(.+?)\s*[?.!]*$/i.exec(text);
     const named = target?.[1]?.trim();

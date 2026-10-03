@@ -81,6 +81,10 @@ export type {
 export { createDevToolsSkills } from './skills/devtools-skills';
 export { ProjectContext, withCurrentProject, createProjectSkills } from './skills/project-context';
 export { createDevAgentSkill } from './skills/devagent-skill';
+export { createAppScaffoldSkills } from './skills/app-scaffold-skills';
+export { createPowerShellSkills } from './skills/powershell-skills';
+export { embeddedPaths, powershellRefusal } from './safety/powershell-policy';
+export { APP_TEMPLATES, chooseTemplate } from './templates';
 export type { DevAgentSkillOptions } from './skills/devagent-skill';
 export { runDevTask, MAX_DEV_ITERATIONS } from './devagent/loop';
 export type {
@@ -101,6 +105,7 @@ export type {
 export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
 export { createAgentGrammar } from './planner/agent-grammar';
+export { createAppGrammar } from './planner/app-grammar';
 
 export { WatchManager, WATCHES_KEY } from './watch/manager';
 export type { WatchHost, WatchManagerOptions, NewWatch, WatchAnswer } from './watch/manager';

@@ -63,7 +63,7 @@ const CATEGORIES: readonly Category[] = [
   {
     label: 'Developer',
     icon: Icons.Terminal,
-    domains: ['project', 'git', 'code', 'build', 'test', 'devagent'],
+    domains: ['project', 'git', 'code', 'build', 'test', 'devagent', 'powershell'],
   },
 ];
 

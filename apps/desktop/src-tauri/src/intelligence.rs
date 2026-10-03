@@ -57,6 +57,18 @@ const MAX_MODEL_TAG_CHARS: usize = 100;
 /// How long Ollama keeps a model in memory after its last message.
 const KEEP_ALIVE: &str = "30m";
 
+/// How much text the model may read at once, in tokens.
+///
+/// Ollama's default is 4096, and a prompt longer than that is not refused: it is silently cut to
+/// its first few tokens plus its tail. Atlas's planner prompt (the instructions plus the catalog of
+/// everything it can do) is about 9,400 tokens, so on the default the model never saw most of it,
+/// and its plans failed or turned into chat (`truncating input prompt limit=2050 prompt=9357` in
+/// Ollama's own log). 16,384 holds the planner prompt and the reply with room to spare.
+///
+/// It is ONE fixed number on purpose: Ollama reloads a model whenever this changes, so sizing it
+/// to each prompt would pay a reload on every other message.
+const NUM_CTX: u32 = 16_384;
+
 /// Where Ollama listens when nothing says otherwise.
 pub const OLLAMA_DEFAULT_URL: &str = "http://127.0.0.1:11434";
 /// Where Nova Intelligence's server listens when nothing says otherwise.
@@ -141,6 +153,7 @@ fn chat_body(model: &str, prompt: &str, think: Option<bool>) -> serde_json::Valu
         // Ollama unloads a model after five idle minutes, and loading a big
         // one costs seconds on the next message. Keep it warm for a while.
         "keep_alive": KEEP_ALIVE,
+        "options": { "num_ctx": NUM_CTX },
     });
     if let Some(t) = think {
         body["think"] = serde_json::Value::Bool(t);
@@ -699,6 +712,16 @@ mod tests {
             assert_eq!(body["messages"][0]["role"], "user");
             assert_eq!(body["messages"][0]["content"], "hi");
         }
+    }
+
+    #[test]
+    fn the_model_gets_a_context_big_enough_for_the_planner_prompt() {
+        let body = chat_body("qwen3:8b", "x", None);
+        assert_eq!(body["options"]["num_ctx"], 16_384);
+        // The planner prompt was measured at ~9,400 tokens; keep real headroom over it.
+        assert!(NUM_CTX >= 9_400 + 4_096, "the context must hold the planner prompt and a long reply");
+        // `think` stays absent unless chosen, whatever else is in the body.
+        assert!(body.get("think").is_none());
     }
 
     #[test]

@@ -45,8 +45,31 @@ test('a path already inside an allowed folder is never offered', async () => {
   assert.isUndefined(await folderToOffer({ path: inside }, HOME, disk([inside])));
 });
 
-test('a path that does not exist is not offered — adding it would fail anyway', async () => {
+test('a path whose whole chain is missing is not offered — adding it would fail anyway', async () => {
   assert.isUndefined(await folderToOffer({ path: EPIC }, HOME, disk([])));
+});
+
+test('something about to be created offers the folder it will be made in', async () => {
+  // "build a clicker game in E:\Games\Clicker" — Clicker is not there yet, E:\Games is.
+  assert.equal(
+    await folderToOffer({ path: 'E:\\Games\\Clicker' }, HOME, disk(['E:\\Games'])),
+    'E:\\Games',
+  );
+  // a new file in a new subfolder climbs one more level
+  assert.equal(
+    await folderToOffer({ path: 'E:\\Games\\Clicker\\app.js' }, HOME, disk(['E:\\Games'])),
+    'E:\\Games',
+  );
+});
+
+test('a missing path directly under a drive never offers the drive', async () => {
+  assert.isUndefined(await folderToOffer({ path: 'E:\\Clicker' }, HOME, disk(['E:\\'])));
+});
+
+test('the climb stops after a few levels', async () => {
+  assert.isUndefined(
+    await folderToOffer({ path: 'E:\\Games\\a\\b\\c\\d\\e' }, HOME, disk(['E:\\Games'])),
+  );
 });
 
 test('a quoted path, as Explorer copies it, still resolves', async () => {
@@ -61,6 +84,14 @@ test('the destination is offered when only it is outside', async () => {
   const src = 'C:\\Users\\Brandon\\a.txt';
   const dest = 'E:\\Backup';
   assert.equal(await folderToOffer({ path: src, destDir: dest }, HOME, disk([dest], [src])), dest);
+});
+
+test('a path written inside a script is offered like any other', async () => {
+  const script = "Get-ChildItem 'E:\\Games' | Measure-Object";
+  assert.equal(await folderToOffer({ script }, HOME, disk(['E:\\Games'])), 'E:\\Games');
+  // two paths on one line: the allowed one is skipped, the outside one is offered
+  const two = 'Copy-Item C:\\Users\\Brandon\\a.txt E:\\Backup\\a.txt';
+  assert.equal(await folderToOffer({ script: two }, HOME, disk(['E:\\Backup'])), 'E:\\Backup');
 });
 
 test('a whole drive, the system and app data are never offered', async () => {

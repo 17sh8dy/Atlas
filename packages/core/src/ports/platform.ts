@@ -620,6 +620,13 @@ export interface Platform {
   openProjectEditor?(cwd: string): Promise<boolean>;
   runDevTool?(cwd: string, tool: DevTool, arg?: string): Promise<ToolResult>;
   /**
+   * Run one PowerShell script, window-less, under the emergency stop, for at most a minute.
+   * The last resort: the engine's `powershell.run` shows the person the whole script and gets a yes
+   * first, and the native side refuses a fixed list of dangerous things and any drive path outside
+   * Allowed Folders on its own account. `cwd`, if given, must be an allowed folder.
+   */
+  runPowerShell?(script: string, cwd?: string): Promise<ToolResult>;
+  /**
    * Add one dependency to a project, gated by `devtools` alongside the rest
    * of this group. The same rule as `runDevTool`, applied to `install`/`add`
    * instead of `build`/`test`: `manager` is a closed set naming a fixed
@@ -896,6 +903,12 @@ export interface Platform {
 
   /** What a path is, without opening it. */
   pathInfo?(path: string): Promise<PathInfo>;
+  /**
+   * Is there a folder (or file) at this absolute path? Answers only that — name and whether it is a
+   * folder — and works OUTSIDE Allowed Folders, which `pathInfo` deliberately does not. It exists
+   * for the "Add It? / Not Now" offer, which must know a folder is real before it is allowed.
+   */
+  probePath?(path: string): Promise<PathInfo>;
   /** Add a line to a file, creating it if it isn't there yet. */
   appendFile?(path: string, content: string): Promise<boolean>;
   /** One folder's direct contents — not a recursive walk. */

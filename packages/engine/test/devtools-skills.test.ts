@@ -205,6 +205,45 @@ test('test.run maps cmake to ctest, not cmake-build', async () => {
   assert.equal(captured, 'ctest');
 });
 
+test('script.python and script.node hand the file to the right tool, and never take a command line', async () => {
+  const calls: Array<[DevTool, string | undefined]> = [];
+  const find = skillsFrom(
+    stubPlatform({
+      runDevTool: async (_cwd, tool, arg) => {
+        calls.push([tool, arg]);
+        return { ok: true, stdout: 'hello', stderr: '', exitCode: 0, truncated: false };
+      },
+    }),
+  );
+
+  const py = await find('script.python').run({ path: 'C:\\proj', file: 'game.py' }, ctx());
+  const js = await find('script.node').run({ path: 'C:\\proj', file: 'src/app.js' }, ctx());
+
+  assert.isTrue(py.ok);
+  assert.isTrue(js.ok);
+  assert.deepEqual(calls, [
+    ['python-run', 'game.py'],
+    ['node-run', 'src/app.js'],
+  ]);
+  assert.equal(find('script.python').risk, 'confirm');
+  assert.equal(find('script.node').risk, 'confirm');
+});
+
+test('running a script with no file name asks which one instead of guessing', async () => {
+  let called = false;
+  const find = skillsFrom(
+    stubPlatform({
+      runDevTool: async () => {
+        called = true;
+        return { ok: true, stdout: '', stderr: '', exitCode: 0, truncated: false };
+      },
+    }),
+  );
+  const result = await find('script.python').run({ path: 'C:\\proj', file: '' }, ctx());
+  assert.isFalse(result.ok);
+  assert.isFalse(called);
+});
+
 test('a failed tool run reports the exit code and the output together', async () => {
   const find = skillsFrom(
     stubPlatform({

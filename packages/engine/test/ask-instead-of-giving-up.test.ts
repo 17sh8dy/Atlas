@@ -159,6 +159,26 @@ test('a command nothing matched, with the model offline, is answered by Atlas', 
   assert.match(said, /didn't catch|What are you trying to get done/);
 });
 
+test('a build request Atlas has no template for says what it CAN build instead of a shrug', async () => {
+  const r = rig({ provider: 'offline' });
+  await r.engine.ask('build me a snake game', r.io);
+  const said = r.said.join(' ');
+  assert.notMatch(said, /reach that provider/i);
+  assert.match(said, /clicker game/);
+  assert.match(said, /build me a clicker game in D:/);
+  assert.notMatch(said, /didn't catch/);
+});
+
+test('a ready-made project is planned by the grammar, with no model', async () => {
+  const r = rig({ provider: 'offline' });
+  const plan = await r.engine.planFor('Build me a high quality clicker desktop app game, it must be simple');
+  assert.equal(plan?.intent, 'build-app');
+  assert.deepEqual(
+    plan?.steps.map((s) => s.skill),
+    ['app.scaffold', 'dependency.installAll', 'project.play'],
+  );
+});
+
 test('suggestions point at things Atlas can really do', async () => {
   const r = rig({});
   await r.engine.ask('open the window list please sort', r.io).catch(() => undefined);

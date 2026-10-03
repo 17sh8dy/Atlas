@@ -15,6 +15,7 @@
 
 import { createIncompleteRules } from './incomplete-grammar';
 import { createAgentGrammar } from './agent-grammar';
+import { createAppGrammar } from './app-grammar';
 import { createTimeGrammar } from './time-grammar';
 import { createSystemGrammar } from './system-grammar';
 import { createFileGrammar } from './file-grammar';
@@ -60,6 +61,9 @@ export function createExtraGrammar(): GrammarRule[] {
     // Watch, setups, plain developer phrasings, window placement, the mic —
     // see agent-grammar.ts for why these sit ahead of the core rules.
     ...createAgentGrammar(),
+
+    // "build me a clicker game": ready-made projects written with no model.
+    ...createAppGrammar(),
 
     // Reminders, alarms and the stopwatch.
     ...createTimeGrammar(),

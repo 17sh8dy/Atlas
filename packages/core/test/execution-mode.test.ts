@@ -10,7 +10,7 @@ test('the default is Do It?, matching the concept this replaces', () => {
   assert.equal(DEFAULT_EXECUTION_MODE, 'doIt');
 });
 
-test('cycling steps through all three modes and wraps', () => {
+test('cycling steps through every mode and wraps', () => {
   const seen = [DEFAULT_EXECUTION_MODE];
   for (let i = 0; i < EXECUTION_MODES.length; i++) {
     seen.push(nextExecutionMode(seen[seen.length - 1]!));

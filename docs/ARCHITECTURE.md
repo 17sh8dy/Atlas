@@ -712,12 +712,13 @@ ready for recording"). It then stops at its card like any preview step.
 
 ### 6.11 Execution modes, and judging a control by what it does (`executor.ts`, `safety/ui-consequence.ts`, `nova_launcher.rs`)
 
-Three modes decide *when* a consequential step is put to the person. They never change which
+Four modes decide *when* a consequential step is put to the person. They never change which
 steps are consequential (that is `Skill.risk`, `riskFor` and `guard`), and none removes the stop.
 
 | Mode | Behaviour |
 | --- | --- |
 | **Do It?** (default) | Harmless steps run. A consequential step asks, immediately before it runs, except ordinary file work (create, rename, move, copy, append, new project) inside a folder in Allowed Folders, which is already an explicit grant. **Deleting is never in that group**, and neither is emptying a folder or the Recycle Bin, ending a process, closing a window, installing, or power. |
+| **Do It +** (2026-10-02) | For work you trust Atlas with. A consequential step runs without asking **unless** it is in the always-ask set in `safety/dangerous.ts`: deleting for good, emptying a folder or the Recycle Bin, installing / updating / uninstalling software, `git push` and deploys, discarding changes, clearing notes, ending processes, closing windows, restarting apps, power actions, system environment variables, driving another program's UI. A skill not on the list whose id sounds destructive (delete, remove, erase, wipe, format, uninstall, shutdown, kill, discard, purge) asks too, so a new skill fails safe. `guard` refusals, the content policy, Allowed Folders, `Skill.assess`, previews and the emergency stop are unchanged. This is the "asks less, never nothing" mode; there is still no mode that removes confirmation altogether. |
 | **Plan First** | If the plan has anything consequential, it is shown once and approving it covers exactly the steps shown. A plan of harmless steps shows no card. The bulk skills (`Skill.preview`) and the button check below still ask their own question. |
 | **Confirm Actions** | Every consequential step asks on its own. Nothing softens it: not Allowed Folders, not a plan. |
 

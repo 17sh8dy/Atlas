@@ -56,6 +56,7 @@ mod alert_sound;
 mod file_tools;
 mod catalog_files;
 mod platform;
+mod powershell;
 #[cfg(windows)]
 mod secrets;
 #[cfg(windows)]
@@ -273,6 +274,7 @@ pub fn run() {
             platform::read_text_file,
             platform::open_system_tool,
             platform::path_info,
+            platform::probe_path,
             platform::append_file,
             platform::list_dir,
             platform::known_folder,
@@ -452,6 +454,7 @@ pub fn run() {
             media_tools::edit_media,
             devtools::open_project_editor,
             devtools::run_devtool,
+            powershell::run_powershell,
             devtools::install_dependency,
             devtools::write_text_file,
             devtools::patch_text_file,

@@ -874,7 +874,15 @@ pub enum DevTool {
     DotnetTest,
     MakeBuild,
     Pytest,
+    /// `python <script>`: one .py file inside the project, never a command line. Stopped after
+    /// [`SCRIPT_RUN_SECS`] if it is still running (a game, a server).
+    PythonRun,
+    /// `node <script>`: one .js/.mjs/.cjs file inside the project. Same limit.
+    NodeRun,
 }
+
+/// How long a script may run before it is stopped and reported as "still running".
+const SCRIPT_RUN_SECS: u64 = 30;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolResult {
@@ -1002,7 +1010,74 @@ pub fn run_devtool(cwd: String, tool: DevTool, arg: Option<String>) -> Result<To
             Some(filter) => run_direct(&root, "python", &["-m", "pytest", "-k", filter]),
             None => run_direct(&root, "python", &["-m", "pytest"]),
         },
+        DevTool::PythonRun => {
+            let script = script_in_project(&root, arg.as_deref().ok_or("A script file is required.")?, &["py", "pyw"])?;
+            run_script(&root, "python", &script)
+        }
+        DevTool::NodeRun => {
+            let script = script_in_project(&root, arg.as_deref().ok_or("A script file is required.")?, &["js", "mjs", "cjs"])?;
+            run_script(&root, "node", &script)
+        }
     }
+}
+
+/// The script a "run it" call names, checked: relative, inside the project, a real file with an
+/// expected extension, and never something a program could read as an option (`-c`, `--eval`).
+/// Returned relative to the project, because that is how the program is started.
+fn script_in_project(root: &Path, script: &str, extensions: &[&str]) -> Result<String, String> {
+    let rel = script.trim().replace('\\', "/");
+    if rel.is_empty() || rel.starts_with('-') || rel.starts_with('/') || rel.contains(':') {
+        return Err("Name the script relative to the project folder, like game.py or src/app.js.".into());
+    }
+    if rel.split('/').any(|part| part == ".." || part.is_empty() || part.starts_with('-')) {
+        return Err("A script has to be inside the project folder.".into());
+    }
+    let ext_ok = Path::new(&rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| extensions.iter().any(|x| x.eq_ignore_ascii_case(e)));
+    if !ext_ok {
+        return Err(format!("That isn't a .{} file.", extensions.join(" / .")));
+    }
+    let full = root.join(&rel);
+    let (root_c, full_c) = (
+        root.canonicalize().map_err(|e| e.to_string())?,
+        full.canonicalize().map_err(|_| format!("There is no file called {rel} in this project."))?,
+    );
+    if !full_c.starts_with(&root_c) || !full_c.is_file() {
+        return Err("A script has to be a file inside the project folder.".into());
+    }
+    Ok(rel)
+}
+
+/// Run `program script` in the project under the emergency stop, for at most [`SCRIPT_RUN_SECS`].
+/// Still running at the limit is a result, not a failure: it is stopped and reported as such.
+fn run_script(root: &Path, program: &str, script: &str) -> Result<ToolResult, String> {
+    run_script_for(root, program, script, SCRIPT_RUN_SECS)
+}
+
+fn run_script_for(root: &Path, program: &str, script: &str, secs: u64) -> Result<ToolResult, String> {
+    let mut cmd = Command::new(program);
+    cmd.current_dir(root).arg(script).env("PYTHONUNBUFFERED", "1");
+    #[cfg(windows)]
+    no_window(&mut cmd);
+    let (out, timed_out) = crate::halt::global()
+        .run_for(cmd, std::time::Duration::from_secs(secs))
+        .map_err(|e| {
+            crate::halt::describe(&e, || format!("Couldn't run {program}: {e} (is it installed and on PATH?)"))
+        })?;
+    let (mut stdout, t1) = truncate_output(String::from_utf8_lossy(&out.stdout).into_owned());
+    let (stderr, t2) = truncate_output(String::from_utf8_lossy(&out.stderr).into_owned());
+    if timed_out {
+        stdout.push_str(&format!("\n[Still running after {secs} seconds, so it was stopped. It did not crash in that time.]"));
+    }
+    Ok(ToolResult {
+        ok: timed_out || out.status.success(),
+        stdout,
+        stderr,
+        exit_code: if timed_out { None } else { out.status.code() },
+        truncated: t1 || t2,
+    })
 }
 
 // ---- starting a project, and shipping one ------------------------------------------------
@@ -1284,6 +1359,53 @@ mod tests {
         assert_eq!(matches[0].path, "src/main.rs");
         assert_eq!(matches[0].line, 12);
         assert_eq!(matches[0].text, "let x = 1;");
+    }
+
+    #[test]
+    fn script_in_project_accepts_a_real_file_and_refuses_everything_else() {
+        let root = std::env::temp_dir().join(format!("atlas-script-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("game.py"), "print(1)").unwrap();
+        std::fs::write(root.join("src").join("app.js"), "1").unwrap();
+        std::fs::write(root.join("notes.txt"), "x").unwrap();
+
+        assert_eq!(script_in_project(&root, "game.py", &["py"]).unwrap(), "game.py");
+        assert_eq!(script_in_project(&root, "src\\app.js", &["js"]).unwrap(), "src/app.js");
+        // not a script, missing, an option, absolute, a drive, or climbing out
+        for bad in ["notes.txt", "nope.py", "-c", "--version", "/etc/x.py", "C:/x.py", "../x.py", "src/../../x.py", "", "a//b.py"] {
+            assert!(script_in_project(&root, bad, &["py"]).is_err(), "{bad} should be refused");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Runs a real Python (skipped quietly if there isn't one): a script that finishes is reported
+    /// as it finished, a crashing one as failed, and one that never exits is stopped and reported.
+    #[test]
+    fn run_script_reports_finished_crashed_and_still_running() {
+        if Command::new("python").arg("--version").output().is_err() {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("atlas-script-run-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("ok.py"), "print('hello from the script')").unwrap();
+        std::fs::write(root.join("bad.py"), "raise SystemExit('boom')").unwrap();
+        std::fs::write(root.join("loop.py"), "import time\nprint('started', flush=True)\ntime.sleep(60)").unwrap();
+
+        let ok = run_script_for(&root, "python", "ok.py", 20).unwrap();
+        assert!(ok.ok && ok.stdout.contains("hello from the script") && ok.exit_code == Some(0));
+
+        let bad = run_script_for(&root, "python", "bad.py", 20).unwrap();
+        assert!(!bad.ok && bad.stderr.contains("boom"));
+
+        let began = std::time::Instant::now();
+        let long = run_script_for(&root, "python", "loop.py", 2).unwrap();
+        assert!(long.ok, "still running at the limit is a result, not a failure");
+        assert!(long.stdout.contains("started") && long.stdout.contains("Still running after 2 seconds"));
+        assert!(long.exit_code.is_none());
+        assert!(began.elapsed().as_secs() < 15, "it must be stopped, not waited out");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

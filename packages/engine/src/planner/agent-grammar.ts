@@ -273,6 +273,22 @@ export function createAgentGrammar(): GrammarRule[] {
       },
     },
     {
+      name: 'devRunScript',
+      order: -11.495,
+      pathSafe: true,
+      test(_lower, raw) {
+        const m =
+          /^\s*(?:run\s+)?(python|node)\s+((?:[\w.-]+[\\/])*[\w.-]+\.(?:py|pyw|js|mjs|cjs))(?:\s+(?:in|from|at)\s+(.+?))?\s*[.!]*$/i.exec(
+            raw,
+          );
+        if (!m) return null;
+        const path = clean(m[3]).replace(/^["']|["']$/g, '');
+        const args: Record<string, string> = { file: m[2]! };
+        if (path) args.path = path;
+        return plan(step(m[1]!.toLowerCase() === 'python' ? 'script.python' : 'script.node', args), 'script-run');
+      },
+    },
+    {
       name: 'devBuild',
       order: -11.49,
       pathSafe: true,

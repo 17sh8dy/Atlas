@@ -943,6 +943,31 @@ pub struct PathInfo {
     pub entry_count: Option<usize>,
 }
 
+/// Does this place exist, and is it a folder? Nothing else.
+///
+/// `path_info` refuses any path outside Allowed Folders, which is right for reading and wrong for
+/// one question: "Add It? / Not Now" has to know whether the folder it is about to offer is real
+/// BEFORE it is allowed. So this answers that and only that: no size, no listing, no times, no
+/// reading, and only for an absolute path. It cannot be used to look inside anything.
+#[tauri::command]
+pub fn probe_path(path: String) -> Result<PathInfo, String> {
+    crate::halt::global().check()?;
+    let p = PathBuf::from(path.trim());
+    if !p.is_absolute() {
+        return Err("Give me a full path.".into());
+    }
+    let meta = std::fs::metadata(&p).map_err(|_| "No such path.".to_string())?;
+    Ok(PathInfo {
+        path: plain_path(&p),
+        name: p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        ext: String::new(),
+        is_directory: meta.is_dir(),
+        size_bytes: 0,
+        modified_at: None,
+        entry_count: None,
+    })
+}
+
 #[tauri::command]
 pub fn path_info(path: String) -> Result<PathInfo, String> {
     let p = PathBuf::from(&path);

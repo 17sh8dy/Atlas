@@ -1933,6 +1933,7 @@ one of them has to say so out loud:
 | **Atlas Mobile** | Atlas on the phone: talk to your PC's Atlas from anywhere (below). | Needs a relay (below). Pairing via Nova Account. The PC stays the thing that acts. |
 | **Hosted models** | A capable model without running Ollama or bringing a key. | The AI tier never becomes the only route to a documented phrasing (existing rule). Local models stay first-class. |
 | **More background capacity** | Longer-lived watches, more of them, scheduled setups that run while you're away. | The approval model (§6.9) is unchanged. Paying buys capacity, not fewer safeguards. |
+| **Image & video generation (hosted)** — added 2026-10-02 | Generating images and video on a server for people whose PC can't. A local generator stays the free path (see "Ideas for later — search, add-ons…" below). | Optional and clearly marked as leaving the computer. Never the only way to do something Atlas does today. The "no cloud vision" rule is about *reading* your screen and is untouched, but a generation prompt does leave the PC, so it needs its own disclosure. Model licences (some image models are non-commercial) and Nova Legal's `subscriptions` document (still a placeholder) have to be settled first. |
 
 Not proposed: charging for anything Atlas does today, ads, or selling usage data.
 
@@ -1982,6 +1983,76 @@ What has to be decided before building it:
 Brandon's example names *Nova OS* as the project Atlas is working on. It isn't in this repo
 or anywhere recorded yet. If it becomes a project, it gets its own entry. It is not a rename
 of Atlas.
+
+---
+
+## Ideas for later — search, add-ons, local intelligence (Brandon, 2026-10-02)
+
+Recorded, not decided; each needs its own decision before code. The same three standing rules
+as the section above apply, plus: **local models only for reading your screen** (no cloud
+vision), and **never train on Claude's outputs** (distillation breaks Anthropic's terms) — only
+data that is public-domain, Brandon's own, or permissively licensed.
+
+### 1. A private search for Atlas — and primary vs secondary sources
+
+**Where search stands (read from the code, 2026-10-02):** Atlas has no engine of its own. It asks
+Tavily (with a key), DuckDuckGo or Wikipedia for up to 8 results, keeps up to 5 (one per site
+first), and reads the top 3 pages (≤ 2 MB each, ~6,000 characters kept, 9 s timeout). Sources are
+numbered and cited, and a code check (not the model) counts independent sites and whether they
+agree. DuckDuckGo showed a CAPTCHA from this machine on 2026-09-19 (not re-checked). It is
+believed, not confirmed, that the page reader does not run JavaScript.
+
+**Not built: primary vs secondary.** Nothing distinguishes an official source from a wiki. Idea,
+done in code like the existing agreement check: tag sources *primary* (the subject's own site,
+government/university pages, original papers, publisher/vendor docs), *secondary* (news,
+wikis), *weakest* (forums, aggregators); show the tag on each citation; let "corroborated"
+require a primary source when one exists. It is a best-guess label, not proof.
+
+**A private index:** realistic for a small, chosen set of sites (official docs, wikis, papers):
+polite crawling (robots.txt, site terms), local full-text search (+ optional embeddings),
+refresh on a schedule, each site tagged primary/secondary up front, which also solves the
+labelling problem. A whole-web engine is not realistic for one person (crawl, storage, ranking,
+spam) and stays out. Suggested shape: curated local index + one search service for the rest.
+
+### 2. Bundled add-ons (Atlas feels like one app)
+
+Helper engines installed with Atlas and started in the background by name, so no separate
+program is ever visible. Decided shape, not built:
+
+- **Downloaded on demand** as add-ons in Settings (models are gigabytes); the installer stays small.
+- **Named and allowlisted** helpers only. This is not `exec`; arbitrary commands stay refused.
+- **Licences checked per tool/model before bundling** (ffmpeg builds differ; some image models
+  are non-commercial; Nova Cut already chose not to bundle ffmpeg).
+- **One heavy model in VRAM at a time** (16 GB card: the chat model and an image model can't both fit).
+- **Order:** OCR (Windows has one built in) and the curated search index first, then ffmpeg,
+  then local image generation last (heaviest; AMD on Windows is slower and rougher).
+
+### 3. More local intelligence
+
+Real gains, in order of leverage: send the planner only a relevant shortlist of skills (the
+catalogue is ~13.5k characters on every planning call, measured 2026-09-20), better retrieval
+over the local index, a reranker, bigger catalogued models where the hardware allows, a small
+fine-tune on data Brandon owns. **Nova Intelligence stays a learning sandbox**: its limit is
+training data, not steps, and it is not wired to Atlas.
+
+### 4. A safe place to test what Atlas can do
+
+Atlas acts on the real PC, so a throwaway test environment is worth having before new powers:
+a scratch folder or a virtual machine, an action log, the existing stop key (F8), tests with
+hostile web pages (prompt injection is the realistic risk with a local model), and **no real
+keys or logins inside**. Windows Sandbox reset this PC earlier (traced to the CPU, see the
+crash notes), so fix that first or use a VM. Prompted by reports of Anthropic's Claude Mythos
+Preview system card (April 2026), where an early version told to escape a sandbox did so: the
+lesson taken is "assume an agent will try", not that Atlas's local model is anywhere near that.
+
+### 5. Images, video, game-making and editing
+
+Atlas as the *conductor*, not the engine: understanding images with a local vision model plus
+OCR; generating them with a local generator Atlas calls; editing with ffmpeg / Nova Cut for
+exact trims, crops and colour fixes; game-making by a local coding model writing into a sandbox
+project, running the tests, and handing the result over for review. Quality will sit below the
+best cloud models, and creative judgment is limited. Hosted generation is a possible paid
+add-on (see the subscription table above).
 
 ---
 
@@ -2123,9 +2194,44 @@ DRIVEN LIVE in the real Tauri app (2026-09-30): hash, zip contents, find by type
 Round 3b (same day): `files.duplicate`, `files.createShortcut`, `cleanup.review` / `cleanup.clean`, clipboard history (opt-in, memory only, secrets skipped, list not saved with the conversation), `engine.selfTest`, Settings → General scroll speed. Driven live: all of them (installers clean → Recycle Bin verified; temp/crash-dump clean only up to the confirmation card, then declined — those are real files). Gates: engine 1314, web 275, Rust 285.
 Found live and fixed: new git skills ignored the current project; protected processes were 'not running' for read-only lookups; .git internals listed as empty folders; restart reopened a different app (Notepad -> Notepad++).
 
+## 2026-10-02 — Do It +, and running scripts (Brandon's request)
+
+- **Do It + (fourth execution mode).** Far fewer questions for work you trust (writing files, build, test, scripts, local git, installing a project's own dependencies), while the dangerous set in `engine/safety/dangerous.ts` still asks every time. Settings → General shows its note; Shift+Tab cycles to it. Tests: `mode-plus.test.ts` (8). ARCHITECTURE §6.11 updated. This supersedes the old "no fourth mode" line only in the sense that it asks less, never nothing.
+- **`script.python` / `script.node`** (`python game.py`, `node app.js`). Closed enum entries `python-run` / `node-run` in `devtools.rs`: one script **inside the project folder** (relative path, right extension, no `..`, never an option), run directly (no shell) under the emergency stop and stopped after **30 s**. Still running at the limit is reported as "still running, did not crash", not a failure. Risk `confirm`. Also reachable by phrase ("run python game.py in D:\\Dev\\X"). Verified with real Python: finished, crashed, and a script that never exits (`run_script_reports_finished_crashed_and_still_running`).
+
+## 2026-10-03 — Build without a model, a PowerShell last resort, and folders that do not exist yet (Brandon's request)
+
+Brandon asked Atlas to build a clicker game and it answered "I didn't catch that": a build request only ever reached
+`devagent.run` through the AI planner, so with no model every build sentence (even the one Atlas printed as its own
+example) fell through. His brief: Atlas should build and edit nearly anything with no model, using its tool catalog and
+PowerShell if needed; and an inaccessible folder should be a Yes/No button that adds it to Settings, not a dead end.
+
+- **`app.scaffold` + `app-grammar.ts` + `templates/`.** "Build me a clicker game [in D:\Dev\X]" is now a grammar plan:
+  `app.scaffold` → `dependency.installAll` → `project.play`. Templates: `clicker` (a finished desktop clicker: ten
+  generators priced `base × 1.15^owned` with closed-form bulk and max-buy, milestones, 49 upgrades incl. synergies,
+  Rift Surges, ascension `floor(cbrt(run/1e9))` shards with a shard shop, 15 achievements, offline progress, save
+  export/import; numbers format into Qa/Qi/… and past Dc to `1.23e45`), `desktop` (blank Electron window) and `website`.
+  The game rules are a pure `game.js` that `test.js` checks (`npm test`); balance is pinned by a test that plays it
+  (1 trillion in about 1h50m for a steady player, bounded 1h–4h). Verified in a real browser: clicking, buying, max-buy,
+  upgrades, ascension, shard shop, 3 h offline, surge, export/import, narrow layout.
+  Honest limits: a request with no template ("a snake game", "a todo app", Tauri, React…) is NOT claimed and not faked;
+  with no model Atlas now says what it can build instead of "I didn't catch that". A Tauri request is not turned into an
+  Electron one (Tauri needs a Rust build and icon files this route cannot write: `create_file` is text only).
+- **`powershell.run`: the general runner Atlas deliberately did not have, now fenced.** Shown in FULL on a `preview`
+  card that no mode softens (Do It + included), approved per script (the approval is a fingerprint of the script shown);
+  refusal table for the classes that have their own gated skills or exist to hide a script (elevation, encoded/built-up
+  commands, downloads, permanent deletes, disks/registry/services/tasks, ending processes/power, credentials,
+  keystrokes) — one table in `safety/powershell-policy.ts` and `powershell.rs`, with a test that fails if they differ;
+  every drive path written in the script must be in Allowed Folders (else the usual Add It? card); 60 s limit, capped
+  output, emergency stop. ⚠️ A blocklist is a seatbelt, not a boundary: a script can build a path or a command at run
+  time. The card is the consent. Reached by `run powershell: …`, by the planner as a last resort, and by the dev agent.
+- **Add It? for folders that do not exist yet.** `folderToOffer` offers the nearest existing ancestor (3 levels, never a
+  drive root) for something about to be created, and finds paths written inside a script.
+
 ## Deliberately not doing
 
-- **A general `exec`.** Discussed and rejected in ARCHITECTURE §6.1.
+- **An unfenced `exec`.** Rejected in ARCHITECTURE §6.1. The one general runner is `powershell.run` above: the person
+  reads the whole script every time, nothing softens that, and a table of things it will not do sits next to the machine.
 - **Cloud sync by default.** Local-first means the local case is the whole
   product, not the offline mode of a server product.
 - **An agent that acts unprompted.** Atlas does what you ask. Proactivity in

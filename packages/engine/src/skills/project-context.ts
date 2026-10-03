@@ -42,6 +42,8 @@ export const PROJECT_PATH_SKILLS = new Set([
   'build.configure',
   'build.run',
   'test.run',
+  'script.python',
+  'script.node',
   'project.deploy',
   'dependency.install',
   'dependency.installAll',
@@ -154,6 +156,44 @@ export function createProjectSkills(platform: Platform, ctx: ProjectContext, mem
       return p
         ? { ok: true, message: `📌 ${basename(p)} — ${p}`, data: p }
         : { ok: true, message: 'No project is set yet. Say "use D:\\Dev\\MyApp as my project".' };
+    },
+  });
+
+  skills.push({
+    id: 'project.play',
+    label: 'Play or open a project',
+    icon: '▶️',
+    domain: 'project',
+    description:
+      'Open the finished project the way a person would: its Play.cmd if it has one, otherwise its index.html, otherwise the folder. Defaults to the project just built.',
+    needs: ['devtools'],
+    // Opens something the person just asked to have built — the same class as app.open.
+    risk: 'safe',
+    examples: ['play it', 'open the game I just built'],
+    params: { path: { type: 'string', required: false, description: 'the project folder (defaults to your current project)' } },
+    async run(args) {
+      let path = String(args.path ?? '').trim();
+      if (path && !ABSOLUTE.test(path)) {
+        const found = await resolveTarget(platform, memory, path);
+        if (!found.ok) return { ok: false, error: found.error };
+        path = found.path;
+      }
+      if (!path) path = (await ctx.get()) ?? '';
+      if (!path) return { ok: false, error: 'Which project? Give me the folder, or build something first and I will open that.' };
+      const exists = async (file: string) => Boolean(await platform.pathInfo?.(file).catch(() => null));
+      const target = (await exists(`${path}\\Play.cmd`))
+        ? `${path}\\Play.cmd`
+        : (await exists(`${path}\\index.html`))
+          ? `${path}\\index.html`
+          : path;
+      try {
+        const ok = await platform.openPath?.(target);
+        if (!ok) return { ok: false, error: `I couldn't open ${target}.` };
+        await ctx.set(path);
+        return { ok: true, message: `▶️ Opened ${basename(target)}${target === path ? '' : ` from ${basename(path)}`}.` };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : `I couldn't open ${target}.` };
+      }
     },
   });
 

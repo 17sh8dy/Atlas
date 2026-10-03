@@ -664,6 +664,39 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
     },
   });
 
+  for (const runner of [
+    { id: 'script.python', label: 'Run a Python script', tool: 'python-run' as const, ext: '.py', cmd: 'python', example: 'game.py' },
+    { id: 'script.node', label: 'Run a Node script', tool: 'node-run' as const, ext: '.js / .mjs', cmd: 'node', example: 'app.js' },
+  ]) {
+    skills.push({
+      id: runner.id,
+      label: runner.label,
+      icon: '▶️',
+      domain: 'test',
+      description:
+        `Run one ${runner.ext} script from the project, like "${runner.cmd} ${runner.example}", and report what it printed and whether it crashed. It is stopped after 30 seconds, so a game or server that never exits is reported as "still running, did not crash" rather than hanging. "file" is relative to the project folder.`,
+      needs: ['devtools'],
+      risk: 'confirm',
+      confirmAs: (a) => `run ${String(a.file ?? 'a script')} in ${String(a.path ?? 'your current project')}`,
+      params: {
+        path: { type: 'string', required: true, description: 'the project folder (defaults to your current project)' },
+        file: { type: 'string', required: true, description: `the script to run, relative to the project folder, like ${runner.example}` },
+      },
+      examples: [`run ${runner.cmd} ${runner.example}`, `${runner.cmd} ${runner.example} in D:\\Dev\\MyApp`],
+      async run(args) {
+        const path = String(args.path);
+        const file = String(args.file ?? '');
+        if (!file.trim()) return { ok: false, error: 'Which script should I run?' };
+        try {
+          const result = await platform.runDevTool!(path, runner.tool, file);
+          return toolResultToSkillResult(result, `Ran ${file}.`);
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : `${file} failed to start.` };
+        }
+      },
+    });
+  }
+
   skills.push({
     id: 'dependency.installAll',
     label: 'Install a project\'s dependencies',

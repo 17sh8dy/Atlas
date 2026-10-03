@@ -25,6 +25,11 @@
  * plan-wide scan, the plan-approval labels and the per-step gate can never
  * disagree about which steps count as consequential.
  *
+ * `doItPlus` ("Do It +") also shares it: a confirm step runs without asking unless it is in
+ * the always-ask set (`safety/dangerous.ts`: permanent deletes, emptying, installing,
+ * pushing, power, ending processes…). Everything that is not a plain question — `guard`,
+ * the content policy, `Skill.assess`, previews, the emergency stop — is unchanged.
+ *
  * `doIt` and `confirmActions` share the per-step loop: a safe step runs, a
  * confirm step asks right there, immediately before it runs. They differ in
  * exactly one place, `isPreapproved` below: `doIt` lets ordinary file work in
@@ -69,6 +74,7 @@
  * emergency stop would be Atlas carrying on talking.
  */
 
+import { asksEvenInDoItPlus } from '../safety/dangerous';
 import {
   buildClarification,
   explainInText,
@@ -620,6 +626,7 @@ export class Executor {
         // meaning that.
         const preapproved =
           options.approvedStep?.(step) === true ||
+          (mode === 'doItPlus' && !asksEvenInDoItPlus(skill)) ||
           (mode === 'doIt' &&
             (await wait(options.isPreapproved?.(skill, step.args) ?? Promise.resolve(false))));
 
