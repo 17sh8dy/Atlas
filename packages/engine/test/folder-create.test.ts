@@ -194,7 +194,8 @@ describe('an instruction Atlas could not resolve, sent to the chat model', () =>
   test('ordinary questions and chat are sent exactly as written', async () => {
     const r = rigWithModel();
     await r.ask('what is the capital of Peru?');
-    expect(r.prompts.at(-1)).toBe('what is the capital of Peru?');
+    // asked for briefly (BRIEF_ASK), but never wrapped in Atlas's action context
+    expect(r.prompts.at(-1)).toMatch(/what is the capital of Peru\?$/);
     expect(r.prompts.join(' ')).not.toContain('You are Atlas');
   });
 });

@@ -39,7 +39,7 @@ import { stripFiller } from './normalize';
  * that would be answered identically to another has no reason to exist.
  */
 export type SmallTalkKind =
-  'greeting' | 'howAreYou' | 'thanks' | 'goodbye' | 'identity' | 'joke' | 'praise';
+  'greeting' | 'howAreYou' | 'thanks' | 'goodbye' | 'identity' | 'name' | 'joke' | 'praise';
 
 /**
  * Whole-utterance greetings.
@@ -161,17 +161,29 @@ const IDENTITY = new Set([
   'what are you',
   'who is atlas',
   'what is atlas',
-  'whats your name',
-  'what is your name',
-  'do you have a name',
   'tell me about yourself',
   'introduce yourself',
-  'what should i call you',
   'who am i talking to',
   'are you an ai',
   'are you a robot',
   'are you human',
   'are you real',
+]);
+
+/**
+ * Asking for the NAME wants the name, not the whole introduction -- "what's your name?" was
+ * answered with the full capability pitch, which is more than anybody asked for. "who are you"
+ * and "tell me about yourself" ask for the description and keep IDENTITY's longer answer.
+ */
+const NAME = new Set([
+  'whats your name',
+  'what is your name',
+  'do you have a name',
+  'what should i call you',
+  'what do i call you',
+  'what do they call you',
+  'your name',
+  'what are you called',
 ]);
 
 const JOKE = new Set([
@@ -234,6 +246,7 @@ const TABLES: ReadonlyArray<readonly [SmallTalkKind, ReadonlySet<string>]> = [
   ['thanks', THANKS],
   ['goodbye', GOODBYE],
   ['identity', IDENTITY],
+  ['name', NAME],
   ['joke', JOKE],
   ['praise', PRAISE],
 ];

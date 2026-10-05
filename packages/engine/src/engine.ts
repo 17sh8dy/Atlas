@@ -126,6 +126,29 @@ export interface AskOptions {
 const DEEPER_ASK =
   'Take your time. Work through this carefully, and give a thorough, detailed answer.';
 
+/**
+ * Sent ahead of a SHORT definition question ("what is a lagoon?", "who is Ada Lovelace?").
+ *
+ * Two reasons, both seen on a real machine. SPEED: on a CPU-only local model, time is almost
+ * entirely the length of the reply, so "what is lagoon?" took 35+ seconds to produce an encyclopaedia
+ * paragraph nobody asked for; three sentences is a fraction of that. AMBIGUITY: a one-word question
+ * usually has several meanings ("lagoon" is also a theme park), and the longest answer for the
+ * wrong one is the worst result, so the model is asked to name the other meanings in one closing
+ * line instead of guessing silently. Never sent with "Think longer", for an instruction, or for a
+ * question that asks for an explanation (why/how) — those want the room.
+ */
+const BRIEF_ASK =
+  'Answer briefly: one to three plain sentences, with no headings or lists. If the term has more than one common meaning, give the most likely one first and name the others in a short closing line, so it is easy to say which one was meant.';
+
+/** A short "what/who is X" or "define X": the shape that has a short right answer. */
+const SHORT_DEFINITION =
+  /^\s*(?:(?:what|who)(?:'s|\s+is|\s+are|\s+was|\s+were)\s+(?:an?\s+|the\s+)?\S|define\s+\S|what\s+does\s+.{1,40}\s+mean\b|tell\s+me\s+about\s+\S)/i;
+
+export function wantsBriefAnswer(text: string): boolean {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return words > 0 && words <= 10 && SHORT_DEFINITION.test(text);
+}
+
 export interface EngineOptions {
   skills: SkillRegistry;
   grammar: Grammar;
@@ -664,9 +687,11 @@ export class Engine {
       return { ok: false, mode: 'chat', error: 'not-configured' };
     }
 
+    // A short definition question gets a short, ambiguity-aware answer (see `BRIEF_ASK`).
+    const briefly = !asInstruction && !deeper && wantsBriefAnswer(text);
     return this.converseWithProvider(
       provider,
-      asInstruction ? `${ACTION_CONTEXT}\n\n${text}` : text,
+      asInstruction ? `${ACTION_CONTEXT}\n\n${text}` : briefly ? `${BRIEF_ASK}\n\n${text}` : text,
       io,
       signal,
       '',

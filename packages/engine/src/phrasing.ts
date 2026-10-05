@@ -207,6 +207,10 @@ const SMALL_TALK: Record<SmallTalkKind, (c: SmallTalkContext) => readonly string
       `nothing sent anywhere. Ask "what can you do?" to see the lot.`,
   ],
 
+  // Just the name and the one fact that matters. The full pitch is `identity`'s,
+  // for "who are you" -- asking a name should not get a capability brochure.
+  name: ({ atlasName }) => [`I'm ${atlasName} — an assistant that runs entirely on this machine.`],
+
   joke: () => JOKES,
 
   praise: () => ['Thanks — glad that helped.', 'Appreciated.', 'Any time.'],

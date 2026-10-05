@@ -253,7 +253,9 @@ describe('what stays offline', () => {
     const r = rig({ providers: { tavily: () => [FORTNITE_GG] } });
     await r.run('what is the capital of Peru');
     expect(r.asked).toEqual([]);
-    expect(r.prompts[0]).toBe('what is the capital of Peru');
+    // untouched by search: no evidence, no sources, just the question (asked for briefly)
+    expect(r.prompts[0]).toMatch(/what is the capital of Peru$/);
+    expect(r.prompts[0]).not.toMatch(/Sources|evidence|You are Atlas/);
   });
 
   test('a how-to with a recency word in a code context is not searched', async () => {

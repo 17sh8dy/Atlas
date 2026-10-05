@@ -135,7 +135,24 @@ export function useNovaAccount(storage: Storage, platform: Platform) {
   const [busy, setBusy] = useState(false);
   // The sign-in in flight, so Cancel actually stops it and a new attempt cannot leave an old
   // one polling (two live codes is how "that code did not work" happens).
-  const flowRef = useRef<{ cancel(): void } | null>(null);
+  const flowRef = useRef<{ cancel(): void; nudge(): void } | null>(null);
+
+  /* COMING BACK FROM THE BROWSER IS WHEN AN APPROVAL HAS MOST LIKELY JUST HAPPENED, so ask then
+     instead of waiting for the next scheduled poll. A window sitting behind the browser has its
+     timers throttled by the webview, which made Atlas notice an approval long after it was
+     done. The client ignores a nudge that is too soon after the last poll, so this can never
+     provoke a slow-down. */
+  useEffect(() => {
+    const comeBack = () => {
+      if (document.visibilityState !== 'hidden') flowRef.current?.nudge();
+    };
+    window.addEventListener('focus', comeBack);
+    document.addEventListener('visibilitychange', comeBack);
+    return () => {
+      window.removeEventListener('focus', comeBack);
+      document.removeEventListener('visibilitychange', comeBack);
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;

@@ -99,7 +99,7 @@ const SITES: NovaProduct[] = [
     kind: 'site',
     url: 'https://nova-legal.shadylabs.workers.dev/',
   },
-  { id: 'nova-cut-site', label: 'Nova Cut Website', tagline: 'Nova Cut, on the web', icon: Icons.Scissors, kind: 'soon' },
+  { id: 'nova-cut-site', label: 'Nova Cut Website', tagline: 'Nova Cut’s download site', icon: Icons.Scissors, kind: 'soon' },
 ];
 
 /** The Nova sparkle mark — identical to assets/favicon.svg in the Nova repo. */

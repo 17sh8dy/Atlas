@@ -1704,7 +1704,9 @@ test('conversation: an ordinary question is never searched or sent through augme
   const h = harness(undefined, { provider });
   await h.engine.ask('what is the capital of Peru?', io(h));
   assert.deepEqual(h.web.searchedQueries, []);
-  assert.equal(provider.prompts[0], 'what is the capital of Peru?');
+  // never searched or augmented; asked for briefly (BRIEF_ASK), which is an instruction, not evidence
+  assert.match(provider.prompts[0]!, /what is the capital of Peru\?$/);
+  assert.notMatch(provider.prompts[0]!, /Sources|You are Atlas/);
 });
 
 test('conversation: a failed search falls through to the plain provider reply instead of a dead end', async () => {
@@ -1713,7 +1715,10 @@ test('conversation: a failed search falls through to the plain provider reply in
   h.web.failSearch = true;
   await h.engine.ask('what is the latest Fortnite news?', io(h));
   assert.equal(provider.prompts.length, 1);
-  assert.equal(provider.prompts[0], 'what is the latest Fortnite news?'); // not augmented — nothing to augment with
+  // Not augmented — nothing to augment with. A short "what is…" question is asked for briefly (BRIEF_ASK),
+  // which is an instruction to answer in a few sentences, never search evidence.
+  assert.match(provider.prompts[0]!, /what is the latest Fortnite news\?$/);
+  assert.notMatch(provider.prompts[0]!, /Sources|You are Atlas/);
   assert.match(h.said.join(' '), /generally/i);
 });
 
@@ -1722,7 +1727,8 @@ test('conversation: without the network capability, freshness questions skip sea
   const h = harness(['files', 'fs', 'apps', 'system', 'clipboard', 'windows'], { provider });
   await h.engine.ask('what is the latest Fortnite news?', io(h));
   assert.deepEqual(h.web.searchedQueries, []);
-  assert.equal(provider.prompts[0], 'what is the latest Fortnite news?');
+  assert.match(provider.prompts[0]!, /what is the latest Fortnite news\?$/);
+  assert.notMatch(provider.prompts[0]!, /Sources|You are Atlas/);
 });
 
 // ---- intelligence registry -----------------------------------------------------
@@ -4844,6 +4850,7 @@ test('smalltalk: every social kind gets a real answer with no provider at all', 
     ['thanks', /any time/i],
     ['bye', /see you/i],
     ['who are you?', /assistant that runs entirely on this machine/i],
+    ['whats your name?', /^I'm \S+ — an assistant that runs entirely on this machine\.$/],
     ['tell me a joke', /\S/],
     ['nice one', /glad that helped/i],
   ];
@@ -4954,6 +4961,8 @@ test('smalltalk: the classifier reads the kinds it claims to', () => {
   assert.equal(readSmallTalk('Thank you so much!'), 'thanks');
   assert.equal(readSmallTalk('good night'), 'goodbye');
   assert.equal(readSmallTalk('what are you?'), 'identity');
+  assert.equal(readSmallTalk("what's your name?"), 'name');
+  assert.equal(readSmallTalk('whats your name'), 'name');
   assert.equal(readSmallTalk('can you tell me a joke'), 'joke');
   assert.equal(readSmallTalk('nonsense here'), null);
 });
