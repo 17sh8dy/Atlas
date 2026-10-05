@@ -53,7 +53,7 @@ rights asks first (or is refused); the emergency stop halts everything.
 | List ZIP contents | 🔨 | `files.listArchive` |
 | Add / remove file in ZIP · 7z / tar / tar.gz | ❌ | needs a second archive library |
 | Search inside text files / folders | ✅ | `code.search` (any allowed folder) |
-| Replace text across files | ❌ | project-wide replace would be `confirm` with a diff |
+| Replace text across files | 🔨 | `code.replaceAll` (1.0.8): exact, case-sensitive, 2+ chars; preview lists every file and count, the approval is for that plan, originals are saved to `.atlas-backup`, and `code.replaceAllUndo` puts them back. Never touches dependencies, lockfiles, build output or binaries |
 | Create shortcut · Desktop shortcut · Start Menu shortcut | 🔨 | `files.createShortcut` (.lnk to a file/folder, .url to a web address; desktop by default, any folder you name; undo = Recycle Bin). Start Menu: say the folder. A shortcut to an *installed app* is not built (app targets are opaque) |
 | Change attributes · Read-only · Hidden | ✅ | `files.attributes` |
 | Hash file · SHA-256 file | 🔨 | `files.hash` |
@@ -400,3 +400,23 @@ An arbitrary PowerShell / CMD runner (would need an effect-aware classifier); an
 changes permissions, firewall rules, certificates or the registry; audio device switching (no
 supported API); vision / OCR (no local model; cloud vision is excluded by rule); DOM-level
 browser automation (needs a driver); cloud accounts (each is its own permission domain).
+
+## 1.0.8 — project tools that need no model
+
+Added with the "switch the whole app to red" request that used to end in *"I couldn't reach your
+language model"*. All four share `skills/project-files.ts` (bounded reads that skip dependencies,
+lockfiles and build output; every original copied to `.atlas-backup\<label>-<time>\` before any
+write; restored backups are marked, never deleted).
+
+| Skill | What it does |
+|---|---|
+| `project.recolor` · `project.recolorUndo` | "make the whole app red", "switch the look of D:\Dev\X to blue". Rotates the hue of the theme's own colours (css, html `<style>`/`style=`/theme-color, js/ts hex strings and `rgb()`), keeping lightness, saturation and alpha. Colours with a meaning of their own (a gold "hot" chip, a green "good" badge) and greys stay. Preview first; **not** claimed for one part ("make the button red") or a build ("make me a red app") — those still need a model. `hsl()` and colour keywords are reported, not rewritten |
+| `code.replaceAll` · `code.replaceAllUndo` | `replace "old" with "new" in D:\Dev\X` (quoted text, and a project named as the place — plain-text replace keeps its own tool) |
+| `project.stats` | files and lines by language, biggest files — "how many lines of code are in my project" |
+| `project.todos` | TODO / FIXME / HACK / XXX comments with file and line |
+| edit requests with a folder | "add a shop to D:\Dev\Game" → `devagent.run` (needs a model, and says so plainly) instead of "that question needs one" and an offer to search the web |
+
+Also in 1.0.8: "what's your name?" answers with the name only (the full introduction is for "who are you?");
+short definition questions ("what is a lagoon?") are asked of the model for **three sentences** with the other
+meanings named, because on a CPU-only local model the length of the reply *is* the wait; and the sign-in client
+polls straight away when Atlas regains focus after you approve it in the browser.

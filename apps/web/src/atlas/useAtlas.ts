@@ -82,6 +82,8 @@ import {
   withFileJournal,
   createDevToolsSkills,
   createAppScaffoldSkills,
+  createRecolorSkills,
+  createProjectToolSkills,
   createPowerShellSkills,
   createPluginSkills,
   loadPlugins,
@@ -626,6 +628,10 @@ export function useAtlas(
     skills.registerMany(createProjectSkills(platform, projectContext, memory));
     // Starter projects written with no model (a clicker game, a desktop app, a site).
     skills.registerMany(createAppScaffoldSkills(platform, projectContext));
+    // Recolour a project's whole look with no model: preview, backup, undo.
+    skills.registerMany(withCurrentProject(createRecolorSkills(platform, projectContext), projectContext, platform, memory));
+    // Replace across a project (backed up, undoable), code statistics, and a TODO finder.
+    skills.registerMany(withCurrentProject(createProjectToolSkills(platform, projectContext), projectContext, platform, memory));
     // The last resort: a PowerShell script, shown in full and approved every time.
     skills.registerMany(createPowerShellSkills(platform));
     // Plugins add project templates (data only, validated); engines are found, never started.

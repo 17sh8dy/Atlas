@@ -82,6 +82,8 @@ export { createDevToolsSkills } from './skills/devtools-skills';
 export { ProjectContext, withCurrentProject, createProjectSkills } from './skills/project-context';
 export { createDevAgentSkill } from './skills/devagent-skill';
 export { createAppScaffoldSkills } from './skills/app-scaffold-skills';
+export { createRecolorSkills } from './skills/recolor-skills';
+export { createProjectToolSkills } from './skills/project-tools-skills';
 export { createPowerShellSkills } from './skills/powershell-skills';
 export { createPluginSkills, engineAdvice } from './skills/plugin-skills';
 export { loadPlugins, pluginReport } from './plugins/host';

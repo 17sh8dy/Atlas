@@ -45,6 +45,12 @@ export const PROJECT_PATH_SKILLS = new Set([
   'script.python',
   'script.node',
   'project.deploy',
+  'project.recolor',
+  'project.recolorUndo',
+  'project.stats',
+  'project.todos',
+  'code.replaceAll',
+  'code.replaceAllUndo',
   'dependency.install',
   'dependency.installAll',
 ]);

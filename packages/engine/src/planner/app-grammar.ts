@@ -16,6 +16,7 @@
 import type { GrammarRule } from './grammar';
 import { plan, step } from './grammar';
 import { chooseTemplate, templateById } from '../templates';
+import { COLOR_HUES } from '../skills/recolor-plan';
 
 const PATH = String.raw`[a-z]:[\\/]`;
 
@@ -186,8 +187,224 @@ export function parsePowerShellRequest(raw: string): string | null {
   return null;
 }
 
+/* ── Recolouring and editing a project ───────────────────────────────────────────────────── */
+
+const COLOR_WORDS = Object.keys(COLOR_HUES).join('|');
+
+/**
+ * What the request is changing. "The whole app", "the look", "the theme" — all of it. Deliberately
+ * NOT "the background", "the button" or "the title": a change to one part of a project is an edit
+ * that needs code written, not a recolour of the lot, and must never be claimed as one.
+ */
+const WHOLE_LOOK = String.raw`(?:app|apps|application|site|website|web\s?site|web\s?page|page|game|project|program|software|ui|gui|interface|design|look|looks|theme|style|styling|colou?rs?|colou?r\s+(?:scheme|palette)|palette|scheme|appearance|everything|whole\s+thing|it)`;
+
+/** A part of a project: its presence means "this is an edit", not a recolour of everything. */
+const ONE_PART =
+  /\b(?:background|backgrounds|button|buttons|text|font|fonts|heading|headings|header|title|titles|menu|menus|icon|icons|logo|border|borders|sidebar|panel|card|cards|link|links|image|images|chart|bar|bars|score|counter|chip|chips|badge|badges|banner|footer|nav|navbar|tab|tabs)\b/i;
+
+/** The folder a request names: "D:\Dev\Game", quoted or bare, ending at a sentence break. */
+function pathIn(raw: string): { path: string; rest: string } | null {
+  // Quoted, a path may hold spaces. Bare, it ends at the first space — "D:\Dev\Game to blue" must
+  // not swallow "to blue" — and at a sentence-ending full stop.
+  const m = new RegExp(String.raw`("${PATH}[^"]+"|${PATH}[^\s"]*[^\s".,;:!?])`, 'i').exec(raw);
+  if (!m) return null;
+  const path = m[1]!.trim().replace(/^"|"$/g, '').replace(/[\\/]+$/, '');
+  return { path, rest: (raw.slice(0, m.index) + ' ' + raw.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim() };
+}
+
+/**
+ * "Switch the whole app look to red", "make the app blue", "recolour D:\Dev\Game green", "change my
+ * project's theme to purple". Returns the colour as the person said it and the folder if one was
+ * named (otherwise the current project fills in). Anything that targets one PART of the project,
+ * or asks for a build ("make me a red app"), is not a recolour and returns null.
+ */
+export function parseRecolorRequest(raw: string): { color: string; path?: string } | null {
+  if (/\?\s*$/.test(raw)) return null;
+  // A question without its question mark ("what colour is the sky").
+  if (/^\s*(?:what|which|who|whom|why|how|when|where|is|are|was|were|do|does|did|can|could|should|would|will)\b/i.test(raw)) return null;
+  const named = pathIn(raw);
+  const text = (named?.rest ?? raw).replace(/[.!]+\s*$/, '').trim();
+  const lower = text.toLowerCase();
+
+  // A build, not a recolour: "make me a red clicker game", "build a blue app".
+  if (/\b(?:make|build|create|write|design|generate)\s+(?:me\s+)?(?:an?|some)\s+/.test(lower)) return null;
+  if (ONE_PART.test(lower)) return null;
+
+  const color = new RegExp(String.raw`\b(?:(?:dark|light|bright|deep|pale|soft|neon|hot)\s+)?(${COLOR_WORDS})\b`, 'gi');
+  const colours = [...lower.matchAll(color)];
+  if (!colours.length) return null;
+
+  const verb = /\b(?:re-?colou?r|re-?theme|re-?paint|re-?style|paint|colou?r|tint|switch|change|turn|make|set|swap|update|convert|shift|flip|go)\b/.test(lower);
+  if (!verb) return null;
+  if (!new RegExp(String.raw`\b${WHOLE_LOOK}\b`, 'i').test(lower) && !/\bre-?colou?r|re-?theme|re-?paint\b/.test(lower)) return null;
+
+  // "to red", "into blue", "in green": the colour after a preposition is the target; failing that,
+  // the last colour mentioned ("make the app red").
+  const to = new RegExp(String.raw`\b(?:to|into|in|as)\s+(?:an?\s+)?(?:(?:dark|light|bright|deep|pale|soft|neon|hot)\s+)?(${COLOR_WORDS})\b`, 'i').exec(lower);
+  const chosen = to?.[1] ?? colours[colours.length - 1]![1]!;
+  return { color: chosen, ...(named ? { path: named.path } : {}) };
+}
+
+/** "undo the recolor", "put the old colours back", "revert the colour change". */
+export function parseRecolorUndo(raw: string): { path?: string } | null {
+  const named = pathIn(raw);
+  const lower = (named?.rest ?? raw).toLowerCase().replace(/[.!]+\s*$/, '').trim();
+  const undo =
+    /^(?:please\s+)?(?:undo|revert|reverse|roll\s*back)\s+(?:the\s+|that\s+|my\s+)?(?:last\s+)?re-?colou?r(?:ing|ed)?(?:\s+(?:change|job|thing))?$/.test(lower) ||
+    /^(?:please\s+)?(?:undo|revert)\s+(?:the\s+|that\s+)?(?:colou?r|theme|look)\s+change$/.test(lower) ||
+    /^(?:please\s+)?(?:put|set|change)\s+(?:the\s+)?(?:old|original|previous)\s+colou?rs?\s+back$/.test(lower) ||
+    /^(?:please\s+)?(?:restore|bring\s+back)\s+(?:the\s+)?(?:old|original|previous)\s+(?:colou?rs?|look|theme)$/.test(lower);
+  return undo ? { ...(named ? { path: named.path } : {}) } : null;
+}
+
+/** Words that name the thing being searched: "in my project", "across the codebase". */
+const PROJECT_SCOPE = String.raw`(?:the\s+|my\s+|this\s+|our\s+)?(?:whole\s+|entire\s+)?(?:project|codebase|code\s?base|repo|repository|source(?:\s+code)?|code|app|game|site|website|folder)`;
+
+/**
+ * `replace "old" with "new" in D:\Dev\App` / `… across my project`. QUOTED text only, and only with a
+ * project named as the place: `replace "a" with "b" in hello world` is the plain text tool's, and
+ * this rule must never reach for it. Returns the exact strings, and the folder if one was named.
+ */
+export function parseReplaceAllRequest(raw: string): { find: string; replace: string; path?: string } | null {
+  const named = pathIn(raw);
+  const text = (named?.rest ?? raw).trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  const m = /^\s*(?:please\s+)?(?:replace|change|swap|rename)\s+(?:all\s+|every\s+)?(?:(?:occurrences?|instances?|uses?)\s+of\s+)?(["'`])(.+?)\1\s+(?:with|to|into|by)\s+(["'`])(.*?)\3\s*(.*)$/i.exec(text);
+  if (!m) return null;
+  const tail = m[5]!.trim().replace(/[.!]+$/, '');
+  // The scope must be a project: a folder was named, or the tail says "in/across … the project".
+  const scoped = named !== null || new RegExp(String.raw`^(?:in|across|throughout|inside|within|for)\s+${PROJECT_SCOPE}$`, 'i').test(tail);
+  if (!scoped) return null;
+  // Anything else in the tail ("… in hello world") means it is not what we think it is.
+  if (named !== null && tail && !new RegExp(String.raw`^(?:in|across|throughout|inside|within|for|at)(?:\s+${PROJECT_SCOPE})?$`, 'i').test(tail)) return null;
+  return { find: m[2]!, replace: m[4]!, ...(named ? { path: named.path } : {}) };
+}
+
+export function parseReplaceUndo(raw: string): { path?: string } | null {
+  const named = pathIn(raw);
+  const lower = (named?.rest ?? raw).toLowerCase().replace(/[.!]+\s*$/, '').trim();
+  return /^(?:please\s+)?(?:undo|revert|reverse|roll\s*back)\s+(?:the\s+|that\s+|my\s+)?(?:last\s+)?(?:find\s*(?:and|&)\s*replace|replace(?:ment)?(?:\s+all)?|rename)(?:\s+(?:change|job))?$/.test(lower)
+    ? { ...(named ? { path: named.path } : {}) }
+    : null;
+}
+
+/** "how many lines of code in D:\Dev\Game", "project stats", "count the lines in my project". */
+export function parseProjectStats(raw: string): { path?: string } | null {
+  const named = pathIn(raw);
+  const lower = (named?.rest ?? raw).toLowerCase().replace(/[?.!]+\s*$/, '').trim();
+  const hit =
+    /\b(?:project|code(?:\s?base)?|repo)\s+(?:stats|statistics|size|summary|metrics)\b/.test(lower) ||
+    /\b(?:stats|statistics)\s+(?:for|of|on)\s+(?:my\s+|the\s+|this\s+)?(?:project|code|codebase|repo)\b/.test(lower) ||
+    /\bhow\s+many\s+(?:lines|files)\b.*\b(?:code|project|codebase|repo|app|game|site|folder|in)\b/.test(lower) ||
+    /\bhow\s+(?:big|large)\s+(?:is|are)\s+(?:my\s+|the\s+|this\s+)?(?:project|codebase|repo|code)\b/.test(lower) ||
+    /\b(?:count|total)\s+(?:up\s+)?(?:the\s+)?(?:lines|loc)(?:\s+of\s+code)?\b/.test(lower) ||
+    /\blines\s+of\s+code\b/.test(lower);
+  if (!hit) return null;
+  // A different question that merely mentions lines ("how many lines does the poem have").
+  if (named === null && !/\b(?:code|project|codebase|repo|app|game|site|stats|loc)\b/.test(lower)) return null;
+  return named ? { path: named.path } : {};
+}
+
+/** "find the todos in D:\Dev\Game", "list the todo comments in my project", "show me the fixmes". */
+export function parseTodoRequest(raw: string): { path?: string } | null {
+  const named = pathIn(raw);
+  const lower = (named?.rest ?? raw).toLowerCase().replace(/[?.!]+\s*$/, '').trim();
+  const mentions = /\b(?:to-?dos?|fix-?mes?)\b/.test(lower);
+  if (!mentions) return null;
+  // "what's on my todo list", "add to my to-do list": the personal to-do list is its own skill.
+  if (/\b(?:my|the|a|our)\s+to-?do\s+(?:list|items?|app)\b|\bon\s+my\s+to-?do|\bto-?do\s+list\b/.test(lower)) return null;
+  // `search the project for "TODO"` is a text search and has its own skill; so is anything quoted.
+  if (/["'“”‘’`]/.test(raw)) return null;
+  // It has to be about CODE: a project is named, or the sentence says so ("in my code", "fixme comments").
+  const aboutCode =
+    named !== null ||
+    /\b(?:project|code(?:\s?base)?|repo|repository|source|app|game|site|website|folder)\b/.test(lower) ||
+    /\bfix-?mes?\b/.test(lower) ||
+    /\bto-?dos?\s+(?:comments?|notes?|markers?)\b/.test(lower) ||
+    /\bcomments?\b/.test(lower);
+  if (!aboutCode) return null;
+  const verb = /^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:find|list|show|get|scan|search|check|look\s+for|what|are\s+there|any|do\s+i\s+have|display|give\s+me)\b/.test(lower);
+  if (!verb) return null;
+  // Adding or making a todo is the todo list skill's job, not a scan of a project.
+  if (/\b(?:add|create|new|remind|set|mark|delete|remove|clear|finish|complete)\b/.test(lower)) return null;
+  return named ? { path: named.path } : {};
+}
+
+/**
+ * "Add a shop to D:\Dev\Game", "fix the bug in D:\Dev\Site", "redesign D:\Dev\Game": a change to a
+ * project that is NOT a recolour. It needs code written, so with a model it is the developer
+ * agent's job, and without one the answer says so plainly and says what Atlas can do alone —
+ * instead of "I couldn't reach your language model, and that question needs one" and an offer to
+ * search the web, which is what this used to get. Only claimed when a folder is NAMED: with none,
+ * there is nothing to point the agent at.
+ */
+export function parseEditRequest(raw: string): { goal: string; path: string } | null {
+  if (/\?\s*$/.test(raw)) return null;
+  const named = pathIn(raw);
+  if (!named) return null;
+  const lower = raw.toLowerCase();
+  const verb = /^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?(?:i(?:'d|\s+would)?\s+(?:want|need|like)\s+(?:you\s+)?to\s+)?(?:change|switch|update|edit|modify|restyle|redesign|rework|rewrite|improve|tweak|adjust|refactor|fix|add|remove|replace|rename|make|turn|convert|upgrade|polish|clean\s+up|extend|optimi[sz]e)\b/.test(lower);
+  if (!verb) return null;
+  // Not a request about files or folders as such: "move D:\a to D:\b", "copy…", handled elsewhere.
+  if (NOT_A_PROJECT.test(named.rest)) return null;
+  // A project is a folder: a path that ends in a file extension is a file, and has its own skills.
+  if (/\.[a-z0-9]{1,5}$/i.test(named.path)) return null;
+  return { goal: raw.trim().replace(/[.!]+$/, ''), path: named.path };
+}
+
 export function createAppGrammar(): GrammarRule[] {
   return [
+    {
+      // "replace "old" with "new" in D:\Dev\App": exact, previewed, backed up, undoable.
+      name: 'replaceAllInProject',
+      order: -11.79,
+      pathSafe: true,
+      test(_lower, raw) {
+        const undo = parseReplaceUndo(raw);
+        if (undo) return plan(step('code.replaceAllUndo', undo.path ? { path: undo.path } : {}), 'replace-undo');
+        const request = parseReplaceAllRequest(raw);
+        if (!request) return null;
+        const args: Record<string, string> = { find: request.find, replace: request.replace };
+        if (request.path) args.path = request.path;
+        return plan(step('code.replaceAll', args), 'replace-all');
+      },
+    },
+    {
+      // "how many lines of code in my project": read-only, a question by shape.
+      name: 'projectStats',
+      order: -11.78,
+      pathSafe: true,
+      questionSafe: ['project-stats'],
+      test(_lower, raw) {
+        const request = parseProjectStats(raw);
+        return request ? plan(step('project.stats', request.path ? { path: request.path } : {}), 'project-stats') : null;
+      },
+    },
+    {
+      // "find the todos in my project": read-only.
+      name: 'projectTodos',
+      order: -11.77,
+      pathSafe: true,
+      questionSafe: ['project-todos'],
+      test(_lower, raw) {
+        const request = parseTodoRequest(raw);
+        return request ? plan(step('project.todos', request.path ? { path: request.path } : {}), 'project-todos') : null;
+      },
+    },
+    {
+      // "Switch the whole app look to red", "make the app blue": no model, preview + backup + undo.
+      name: 'recolorProject',
+      order: -11.8,
+      pathSafe: true,
+      test(_lower, raw) {
+        const undo = parseRecolorUndo(raw);
+        if (undo) return plan(step('project.recolorUndo', undo.path ? { path: undo.path } : {}), 'recolor-undo');
+        const request = parseRecolorRequest(raw);
+        if (!request) return null;
+        const args: Record<string, string> = { color: request.color };
+        if (request.path) args.path = request.path;
+        return plan(step('project.recolor', args), 'recolor');
+      },
+    },
     {
       // The last resort, asked for by name. The script is shown in full and approved every time.
       name: 'powershellRun',
@@ -222,6 +439,18 @@ export function createAppGrammar(): GrammarRule[] {
         // compiles, the GPU), so starting it stays the person's choice. "play it" opens it later.
         if (chosen?.group !== 'engine') steps.push(step('project.play', {}));
         return plan(steps, 'build-app');
+      },
+    },
+    {
+      // "Add a shop to D:\Dev\Game": a change that needs code written. LAST on purpose (a high
+      // order): every more specific rule — allowed folders, git, files, the project skills — gets
+      // first refusal, so this only ever sees what nothing else wanted.
+      name: 'editProject',
+      order: 90,
+      pathSafe: true,
+      test(_lower, raw) {
+        const edit = parseEditRequest(raw);
+        return edit ? plan(step('devagent.run', { goal: edit.goal, path: edit.path }), 'edit-project') : null;
       },
     },
     {
