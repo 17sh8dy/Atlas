@@ -55,6 +55,27 @@ export function relativeTo(root: string, path: string): string | null {
   return p.slice(r.length).replace(/\\/g, '/');
 }
 
+/**
+ * A `dirTree` entry's path, resolved against the folder it was listed from.
+ *
+ * THE NATIVE `walk_tree` STRIPS THE ROOT: an entry's `path` is RELATIVE to the folder asked about
+ * (`src\app.js`, with the OS separator), not absolute. Code that assumed an absolute path found no
+ * files at all in the real app while every test (whose double returned absolute paths) passed — so
+ * the test double in `test/helpers/disk-platform.ts` now returns relative paths too. An absolute
+ * path is still accepted, for a platform that returns one, but must lie under `root`.
+ */
+export function resolveTreePath(root: string, entryPath: string): { full: string; rel: string } | null {
+  const p = entryPath.replace(/\//g, '\\');
+  const base = root.replace(/[\\/]+$/, '');
+  if (/^(?:[a-z]:\\|\\\\)/i.test(p)) {
+    const rel = relativeTo(base, p);
+    return rel ? { full: p, rel } : null;
+  }
+  const rel = p.replace(/^\\+/, '').replace(/\\/g, '/');
+  if (!rel || rel.split('/').some((part) => part === '..' || part === '')) return null;
+  return { full: `${base}\\${rel.replace(/\//g, '\\')}`, rel };
+}
+
 export interface ProjectFile {
   /** Full path on disk. */
   path: string;
@@ -85,14 +106,16 @@ export async function readProjectFiles(
   } catch (e) {
     return { error: e instanceof Error ? e.message : `I couldn't look inside ${root}.` };
   }
-  const wanted = tree.filter((t) => !t.isDirectory && accept(t.path) && !NEVER.test(t.path));
+  const resolved = tree
+    .filter((t) => !t.isDirectory)
+    .map((t) => resolveTreePath(root, t.path))
+    .filter((r): r is { full: string; rel: string } => r !== null);
+  const wanted = resolved.filter((r) => accept(r.full) && !NEVER.test(r.full));
   const files: ProjectFile[] = [];
   let skipped = 0;
   for (const entry of wanted.slice(0, MAX_FILES)) {
-    const rel = relativeTo(root, entry.path);
-    if (!rel) continue;
     try {
-      files.push({ path: entry.path, rel, text: await platform.readTextFile(entry.path) });
+      files.push({ path: entry.full, rel: entry.rel, text: await platform.readTextFile(entry.full) });
     } catch {
       skipped += 1; // over the 256 KB read cap, or unreadable
     }
@@ -186,11 +209,11 @@ export async function restoreLatestBackup(platform: Platform, root: string, labe
   const tree = await platform.dirTree(base, 6, 2000).catch(() => []);
   const restored: string[] = [];
   for (const entry of tree.filter((t) => !t.isDirectory && t.name !== RESTORED_MARKER)) {
-    const rel = relativeTo(base, entry.path);
-    if (!rel) continue;
+    const at = resolveTreePath(base, entry.path);
+    if (!at) continue;
     try {
-      await platform.writeTextFile(`${root}\\${rel.replace(/\//g, '\\')}`, await platform.readTextFile(entry.path));
-      restored.push(rel);
+      await platform.writeTextFile(`${root}\\${at.rel.replace(/\//g, '\\')}`, await platform.readTextFile(at.full));
+      restored.push(at.rel);
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       return { ok: false, error: `${why} I had put back ${plural(restored.length, 'file')} before it stopped.` };

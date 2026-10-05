@@ -32,15 +32,22 @@ export function diskPlatform(): Platform {
     isDirectory,
   });
 
-  const walk = (dir: string, maxDepth: number, cap: number, out: TreeEntry[], depth = 0) => {
+  /*
+   * `path` is RELATIVE to the folder that was asked about, as the native `walk_tree` returns it
+   * (it strips the root). An earlier version of this double returned absolute paths, which is
+   * exactly why code that assumed absolute paths passed every test and found no files at all in
+   * the real app. Dot-named entries are skipped at every level, files included, as the native one does.
+   */
+  const walk = (root: string, dir: string, maxDepth: number, cap: number, out: TreeEntry[], depth = 0) => {
     if (out.length >= cap || depth > maxDepth) return;
     for (const name of readdirSync(dir).sort()) {
       if (out.length >= cap) return;
+      if (name.startsWith('.')) continue;
       const p = join(dir, name);
       const isDirectory = statSync(p).isDirectory();
-      if (isDirectory && (SKIP_DIRS.has(name) || name.startsWith('.'))) continue;
-      out.push({ path: p, name, isDirectory, depth });
-      if (isDirectory) walk(p, maxDepth, cap, out, depth + 1);
+      if (isDirectory && SKIP_DIRS.has(name)) continue;
+      out.push({ path: relative(root, p), name, isDirectory, depth });
+      if (isDirectory) walk(root, p, maxDepth, cap, out, depth + 1);
     }
   };
 
@@ -48,7 +55,7 @@ export function diskPlatform(): Platform {
     pathInfo: async (p: string) => ({ exists: existsSync(p), isDirectory: existsSync(p) && statSync(p).isDirectory() }) as unknown as PathInfo,
     dirTree: async (cwd: string, depth = 3, max = 400) => {
       const out: TreeEntry[] = [];
-      walk(cwd, Math.min(depth, 6), Math.min(max, 2000), out);
+      walk(cwd, cwd, Math.min(depth, 6), Math.min(max, 2000), out);
       return out;
     },
     listDir: async (p: string) => readdirSync(p).map((n) => entry(join(p, n), n, statSync(join(p, n)).isDirectory())),

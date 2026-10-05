@@ -14,6 +14,7 @@ import { createCoreGrammar } from '../src/planner/core-grammar';
 import { createExtraGrammar } from '../src/planner/extra-grammar';
 import { parseProjectStats, parseReplaceAllRequest, parseReplaceUndo, parseTodoRequest } from '../src/planner/app-grammar';
 import { WorkingMemory } from '../src/working-memory';
+import { resolveTreePath } from '../src/skills/project-files';
 import { createProjectToolSkills, describeStats, findTodos, projectStats, replaceExact } from '../src/skills/project-tools-skills';
 import { diskPlatform, makeTempProject, snapshot } from './helpers/disk-platform';
 
@@ -274,4 +275,18 @@ test('project.stats and project.todos read a real folder and change nothing', as
   expect(t.ok && t.message).not.toMatch(/not mine/);
 
   expect(snapshot(made.root)).toEqual(before);
+});
+
+// ---------------------------------------------------------------- the native tree's relative paths
+
+test('dirTree paths are relative to the folder asked about — and are resolved against it', () => {
+  // exactly what the native walk_tree returns: the root stripped, the OS separator
+  expect(resolveTreePath(String.raw`D:\Dev\Game`, String.raw`src\app.js`)).toEqual({ full: String.raw`D:\Dev\Game\src\app.js`, rel: 'src/app.js' });
+  expect(resolveTreePath('D:\\Dev\\Game\\', 'style.css')).toEqual({ full: String.raw`D:\Dev\Game\style.css`, rel: 'style.css' });
+  // an absolute path under the root is accepted as it is
+  expect(resolveTreePath(String.raw`D:\Dev\Game`, String.raw`D:\Dev\Game\a\b.js`)).toEqual({ full: String.raw`D:\Dev\Game\a\b.js`, rel: 'a/b.js' });
+  // …but one outside it, or one that climbs out, is refused
+  expect(resolveTreePath(String.raw`D:\Dev\Game`, String.raw`D:\Other\x.js`)).toBeNull();
+  expect(resolveTreePath(String.raw`D:\Dev\Game`, String.raw`..\x.js`)).toBeNull();
+  expect(resolveTreePath(String.raw`D:\Dev\Game`, '')).toBeNull();
 });
