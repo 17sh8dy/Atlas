@@ -474,3 +474,8 @@ request a change → targeted edit → rebuild → verify again. Hosted backends
 `uia.typeInto` follows the same rule: it sets the field's value in the background, and when the control can't
 take text that way it now **asks** before focusing the field and typing with the real keyboard (it used to do that
 silently). Same `mode` argument: `virtual` never falls back, `real` goes straight to the keyboard.
+
+Note on `files.verify`: the signature check is Windows' own (`Get-AuthenticodeSignature`). To decide whether a signer is
+trusted, Windows can contact the certificate authority to check the certificate has not been revoked, so that one
+check may make a small network request the way any Windows signature check does. Atlas sends nothing about the file
+itself, and never runs it.
