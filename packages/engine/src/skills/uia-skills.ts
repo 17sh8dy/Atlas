@@ -481,7 +481,7 @@ export function createUiaSkills(platform: Platform): Skill[] {
         ctx,
         what: `type into that field in ${target.title}`,
         windowTitle: target.title,
-        realEffect: `bring ${target.title} to the front, click into the field and type with your keyboard`,
+        realEffect: `focus the field in ${target.title} and type with your keyboard`,
         async virtual(): Promise<VirtualOutcome> {
           let direct: boolean | undefined;
           try {

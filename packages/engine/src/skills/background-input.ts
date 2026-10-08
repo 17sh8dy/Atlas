@@ -98,16 +98,19 @@ export async function backgroundFirst(o: BackgroundFirst): Promise<SkillResult> 
   if (outcome.kind === 'failed') return { ok: false, error: outcome.error, data: { via: 'virtual' } };
 
   // The background route cannot do it. Say so; never switch quietly.
-  const cannot = `I can't ${o.what} in the background: ${outcome.reason.replace(/\.$/, '')}.`;
+  // The reason reads mid-sentence: no trailing full stop, and a sentence-case start (from the native
+  // side) is lowered.
+  const why = outcome.reason.replace(/\.$/, '').replace(/^([A-Z])(?=[a-z])/, (c) => c.toLowerCase());
+  const cannot = `I can't ${o.what} in the background: ${why}.`;
   if (o.mode === 'virtual') {
     return { ok: false, error: `${cannot} I didn't use your mouse or keyboard, because you asked for the background route only.`, data: { via: 'none', unsupported: outcome.reason } };
   }
   if (!o.ctx.confirm) {
-    return { ok: false, error: `${cannot} I didn't use your real mouse and keyboard without asking. Say “use my real mouse and keyboard” if you want that.`, data: { via: 'none', unsupported: outcome.reason } };
+    return { ok: false, error: `${cannot} I didn't use your real mouse and keyboard without asking, and I can't ask you from here, so I left it alone.`, data: { via: 'none', unsupported: outcome.reason } };
   }
   const approved = await o.ctx.confirm(
     `Use your real mouse and keyboard to ${o.what}?`,
-    `${cannot}\nUsing the real ones means Atlas will ${o.realEffect} in “${o.windowTitle}” while you wait — don't touch the mouse or keyboard meanwhile. You can press the emergency stop at any time.`,
+    `${cannot}\nUsing the real ones means Atlas will ${o.realEffect} while you wait — don't touch the mouse or keyboard meanwhile. You can press the emergency stop at any time.`,
     { yesLabel: 'Use real mouse and keyboard', noLabel: 'Not now' },
   );
   if (o.ctx.signal?.aborted) return { ok: false, error: STOPPED };

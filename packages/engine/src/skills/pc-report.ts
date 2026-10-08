@@ -53,7 +53,8 @@ export const gb = (bytes: number) => `${(bytes / GB).toFixed(1)} GB`;
 export const pct = (n: number) => `${Math.round(n)}%`;
 export const rate = (bytesPerSec: number) =>
   bytesPerSec >= 1024 ** 2 ? `${(bytesPerSec / 1024 ** 2).toFixed(1)} MB/s` : bytesPerSec >= 1024 ? `${Math.round(bytesPerSec / 1024)} KB/s` : `${bytesPerSec} B/s`;
-export const bytesText = (b: number) => (b >= GB ? `${(b / GB).toFixed(1)} GB` : b >= 1024 ** 2 ? `${Math.round(b / 1024 ** 2)} MB` : `${Math.max(0, Math.round(b / 1024))} KB`);
+export const bytesText = (b: number) =>
+  b >= GB ? `${(b / GB).toFixed(1)} GB` : b >= 1024 ** 2 ? `${Math.round(b / 1024 ** 2)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${Math.max(0, Math.round(b))} bytes`;
 
 /** Sources whose errors point at hardware or a failing driver rather than at one program. */
 const HARDWARE_SOURCES: Array<[RegExp, string]> = [
@@ -160,8 +161,10 @@ export function analyzePc(e: PcEvidence): PcReport {
       add({ severity: 'warn', area: 'drivers', title: `${unsigned.length} driver${unsigned.length === 1 ? ' is' : 's are'} not signed`, evidence: unsigned.slice(0, 4).map((d) => `${d.device} ${d.version}`).join('; ') + (unsigned.length > 4 ? ` …and ${unsigned.length - 4} more` : ''), suggestion: 'Unsigned drivers are not always a problem (some hardware tools ship them), but check that you recognise them.' });
     }
     const now = e.now ?? Date.now();
-    const core = new Set(['display', 'net', 'bluetooth', 'media', 'system', 'hdc']);
-    const old = e.drivers.filter((d) => core.has(d.class.toLowerCase()) && d.date && now - Date.parse(d.date) > 4 * 365 * 86400000 && !/microsoft/i.test(d.manufacturer));
+    // Only the drivers a person can actually update from the maker: graphics, network, Bluetooth, audio.
+    // Windows' own in-box drivers ("(Standard system devices)", Microsoft) are dated 2006 by design.
+    const core = new Set(['display', 'net', 'bluetooth', 'media']);
+    const old = e.drivers.filter((d) => core.has(d.class.toLowerCase()) && d.date && now - Date.parse(d.date) > 4 * 365 * 86400000 && !/microsoft|^\(standard/i.test(d.manufacturer));
     if (old.length) {
       add({ severity: 'info', area: 'drivers', title: `${old.length} driver${old.length === 1 ? ' is' : 's are'} over four years old`, evidence: old.slice(0, 4).map((d) => `${d.device} (${d.date})`).join('; ') + (old.length > 4 ? ` …and ${old.length - 4} more` : ''), suggestion: 'An old driver is only a problem if something is misbehaving; the maker\'s site has newer ones.' });
     }

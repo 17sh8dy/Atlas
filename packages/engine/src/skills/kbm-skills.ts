@@ -268,7 +268,7 @@ export function createKbmSkills(platform: Platform): Skill[] {
         ctx,
         what: `scroll ${what}`,
         windowTitle: win.title,
-        realEffect: `move your cursor over ${what} and turn the mouse wheel`,
+        realEffect: `move your cursor over ${what}${what === win.title ? '' : ` in ${win.title}`} and turn the mouse wheel`,
         async virtual(): Promise<VirtualOutcome> {
           if (!platform.uiaCapabilities || !platform.uiaScroll) return { kind: 'unsupported', reason: 'this build can’t scroll without the mouse wheel' };
           const caps = await platform.uiaCapabilities(win.id, path);
@@ -446,7 +446,7 @@ export function createKbmSkills(platform: Platform): Skill[] {
         ctx,
         what: `press ${label}`,
         windowTitle: found.win.title,
-        realEffect: `move your cursor onto ${label} and ${double ? 'double-click' : 'click'} it`,
+        realEffect: `move your cursor onto ${label} in ${found.win.title} and ${double ? 'double-click' : 'click'} it`,
         async virtual(): Promise<VirtualOutcome> {
           if (double) return { kind: 'unsupported', reason: 'a double-click needs the real mouse' };
           if (!platform.uiaCapabilities || !platform.uiaInvoke) {
@@ -566,7 +566,7 @@ export function createKbmSkills(platform: Platform): Skill[] {
           ctx,
           what: `type into ${where}`,
           windowTitle: found.win.title,
-          realEffect: `bring ${found.win.title} to the front, click ${found.node.name ? `“${found.node.name}”` : 'the field'} and type with your keyboard`,
+          realEffect: `bring ${found.win.title} to the front, focus ${found.node.name ? `“${found.node.name}”` : 'the field'} and type with your keyboard`,
           async virtual(): Promise<VirtualOutcome> {
             if (/[\r\n]/.test(text)) return { kind: 'unsupported', reason: 'a line break needs the Enter key' };
             if (!platform.uiaCapabilities || !platform.uiaAppendValue) {

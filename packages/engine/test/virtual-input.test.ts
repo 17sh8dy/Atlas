@@ -132,7 +132,7 @@ describe('click a control in the background', () => {
     expect(real).toEqual([]);
     expect(asked).toHaveLength(1);
     expect(asked[0]!.q).toMatch(/Use your real mouse and keyboard to press “Save”/);
-    expect(asked[0]!.d).toMatch(/move your cursor onto “Save” and click it/);
+    expect(asked[0]!.d).toMatch(/move your cursor onto “Save” in Something else and click it/);
     expect(asked[0]!.d).toMatch(/emergency stop/);
 
     const yes = await go(m, 'kbm.click_element', { control: 'save' }, ctx(true));
@@ -263,7 +263,7 @@ describe('type into a field in the background', () => {
     realMachine(m);
     const r = await go(m, 'kbm.type_text', { text: 'hi', control: 'search box' }, ctx(false, asked));
     expect(r.ok).toBe(false);
-    expect(asked[0]!.d).toMatch(/The control refused the text/);
+    expect(asked[0]!.d).toMatch(/the control refused the text/);
     expect(unsupportedReason(new Error('UNSUPPORTED: nope.'))).toBe('nope.');
     expect(unsupportedReason(new Error('something else'))).toBeNull();
   });

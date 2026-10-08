@@ -759,7 +759,14 @@ fn read_docx(p: &Path) -> Result<String, String> {
     let file = std::fs::File::open(p).map_err(|e| format!("I couldn't open that: {e}"))?;
     let mut zip = zip::ZipArchive::new(file).map_err(|_| "That doesn't look like a Word document.".to_string())?;
     let mut xml = String::new();
-    zip.by_name("word/document.xml")
+    // Word writes "word/document.xml"; some tools that make .docx files on Windows write the same path
+    // with backslashes. Same file, so accept either — and never any other name.
+    let name = zip
+        .file_names()
+        .find(|n| n.replace('\\', "/").eq_ignore_ascii_case("word/document.xml"))
+        .map(|n| n.to_string())
+        .ok_or_else(|| "That doesn't look like a Word document.".to_string())?;
+    zip.by_name(&name)
         .map_err(|_| "That doesn't look like a Word document.".to_string())?
         // A decompression bomb is a real thing: never read more than a few MB of XML.
         .take(24 * 1024 * 1024)
@@ -991,6 +998,16 @@ mod tests {
             zip.write_all(br#"<w:document><w:body><w:p><w:r><w:t>Dear Atlas &amp; friends</w:t></w:r></w:p><w:p><w:r><w:t>Second line</w:t></w:r></w:p></w:body></w:document>"#).unwrap();
             zip.finish().unwrap();
         }
+        // The same document written by a tool that puts backslashes in the entry name.
+        let odd = dir.join("backslash.docx");
+        {
+            let file = std::fs::File::create(&odd).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            zip.start_file(r"word\document.xml", zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(br#"<w:document><w:body><w:p><w:r><w:t>Backslash entry</w:t></w:r></w:p></w:body></w:document>"#).unwrap();
+            zip.finish().unwrap();
+        }
+        assert_eq!(block(document_text(odd.to_string_lossy().to_string())).unwrap().text, "Backslash entry");
         let d = block(document_text(docx.to_string_lossy().to_string())).unwrap();
         assert_eq!(d.format, "Word document");
         assert_eq!(d.text, "Dear Atlas & friends\nSecond line");

@@ -271,7 +271,10 @@ export function createFileIntelSkills(platform: Platform): Skill[] {
           if (hits.length > 2) lines.push(`    …and ${hits.length - 2} more line${hits.length - 2 === 1 ? '' : 's'}`);
         }
         if (byFile.size > 15) lines.push(`• …and ${byFile.size - 15} more text files`);
-        for (const d of docHits.slice(0, 10)) lines.push(`• ${d.path}  (${plural(d.count, 'time')})`, `    ${d.snippet}`);
+        // Documents are listed relative to the folder searched, like the text files above them.
+        const base = path.replace(/[\\/]+$/, '');
+        const rel = (p: string) => (p.toLowerCase().startsWith(`${base.toLowerCase()}\\`) ? p.slice(base.length + 1) : p);
+        for (const d of docHits.slice(0, 10)) lines.push(`• ${rel(d.path)}  (${plural(d.count, 'time')})`, `    ${d.snippet}`);
         if (docHits.length > 10) lines.push(`• …and ${docHits.length - 10} more documents`);
         if (docsRead >= DOC_SCAN_MAX) lines.push('', `I looked inside the first ${DOC_SCAN_MAX} PDF and Word documents only.`);
         if (docsSkipped) lines.push('', `${plural(docsSkipped, 'document')} could not be read (protected, scanned or damaged).`);

@@ -30,7 +30,7 @@ import { createPcHealthSkills } from '../src/skills/pc-health-skills';
 import { createFileIntelSkills, countOccurrences, signatureMeaning, snippetAround, splitPaths } from '../src/skills/file-intel-skills';
 import { createDevToolsSkills } from '../src/skills/devtools-skills';
 import { createCatalogGitSkills } from '../src/skills/catalog-git-skills';
-import { analyzePc, formatReport, groupErrors, type PcEvidence } from '../src/skills/pc-report';
+import { analyzePc, bytesText, formatReport, groupErrors, type PcEvidence } from '../src/skills/pc-report';
 import { diagnoseOutput, formatDiagnosis, parseIssues, stripAnsi } from '../src/skills/build-diagnose';
 import { buildReleaseNotes, classifyCommit, formatReleaseNotes, parseCommitLines } from '../src/skills/release-notes';
 
@@ -766,6 +766,59 @@ describe('release notes', () => {
   test('git.releaseNotes passes a git failure through', async () => {
     const p = readOnlyPlatform({ gitMore: async () => { throw new Error('That folder isn’t a git repository.'); } } as Partial<Platform>);
     expect(await run(find(createCatalogGitSkills(p), 'git.releaseNotes'), { path: 'D:\\x' })).toMatchObject({ ok: false, error: 'That folder isn’t a git repository.' });
+  });
+});
+
+describe('found in the real app on 2026-10-08', () => {
+  test('a few bytes are bytes, not "0 KB"', () => {
+    expect(bytesText(30)).toBe('30 bytes');
+    expect(bytesText(2048)).toBe('2 KB');
+    expect(bytesText(5 * 1024 ** 2)).toBe('5 MB');
+  });
+
+  test("Windows' own 2006-dated drivers are not reported as old; a maker's old one still is", () => {
+    const d = (over: Partial<DriverRow>): DriverRow => ({ device: 'X', class: 'System', manufacturer: '(Standard system devices)', version: '10', date: '2006-06-20', signed: true, ...over });
+    const e: PcEvidence = { metrics: null, gpu: null, errors: null, errorHours: 24, drivers: [d({}), d({ class: 'HDC', device: 'Standard SATA AHCI Controller' }), d({ class: 'Net', manufacturer: 'Realtek', device: 'Realtek GbE', date: '2019-01-01' })], startup: null, software: null, network: null, unavailable: [], now: Date.parse('2026-10-08') };
+    const r = analyzePc(e);
+    const old = r.findings.find((f) => f.title.includes('four years'))!;
+    expect(old.title).toBe('1 driver is over four years old');
+    expect(old.evidence).toContain('Realtek GbE');
+    expect(old.evidence).not.toContain('Standard');
+  });
+
+  test('a program whose name already carries its version is not shown with it twice', async () => {
+    const skills = createPcHealthSkills(readOnlyPlatform({ installedSoftware: async () => [{ name: 'Ollama version 0.35.1', version: '0.35.1', publisher: 'Ollama', installDate: '', sizeKb: 1 }] }));
+    const r = await run(find(skills, 'system.software'), {});
+    expect(r.message).toContain('Ollama version 0.35.1 — Ollama');
+    expect(r.message).not.toContain('0.35.1 0.35.1');
+  });
+
+  test('document hits in a content search are listed relative to the folder, like text files', async () => {
+    const platform = {
+      pathInfo: async (p: string) => ({ path: p, name: 'd', ext: '', isDirectory: true, sizeBytes: 0 }),
+      codeSearch: async () => [],
+      findFiles: async (q: { ext?: string }) => ({ items: q.ext === 'pdf' ? [{ path: 'D:\\Docs\\sub\\b.pdf', name: 'b.pdf', sizeBytes: 1, isDir: false, modifiedAt: 0 }] : [], total: 1, truncated: false }),
+      documentText: async (p: string) => ({ path: p, format: 'PDF', text: 'the invoice', truncated: false, pages: 1 }),
+    };
+    const r = await run(find(createFileIntelSkills(readOnlyPlatform(platform)), 'files.searchContent'), { path: 'D:\\Docs\\', query: 'invoice' });
+    expect(r.message).toContain('• sub\\b.pdf  (1 time)');
+  });
+
+  test('the reason in the real-keyboard question reads as one sentence', async () => {
+    const asked: Array<string | undefined> = [];
+    const out = (await (await import('../src/skills/background-input')).backgroundFirst({
+      mode: 'auto',
+      ctx: ctx({ confirm: async (_q: string, d?: string) => (asked.push(d), false) } as Partial<SkillContext>),
+      what: 'type into that field',
+      windowTitle: 'App',
+      realEffect: 'focus the field in App and type with your keyboard',
+      virtual: async () => ({ kind: 'unsupported', reason: "That control doesn't accept text directly." }),
+      real: async () => ({ ok: true }),
+    })) as R;
+    expect(out.ok).toBe(false);
+    expect(asked[0]).toContain("I can't type into that field in the background: that control doesn't accept text directly.");
+    expect(asked[0]).toContain('Atlas will focus the field in App and type with your keyboard while you wait');
+    expect(asked[0]).not.toMatch(/in “App” while you wait/);
   });
 });
 

@@ -145,7 +145,7 @@ export function createPcHealthSkills(platform: Platform): Skill[] {
         const shown = rows.slice(0, 40);
         const lines = [
           q ? `📦 ${rows.length} installed program${rows.length === 1 ? '' : 's'} match “${q}”:` : `📦 ${rows.length} programs installed:`,
-          ...shown.map((a) => `• ${a.name}${a.version ? ` ${a.version}` : ''}${a.publisher ? ` — ${a.publisher}` : ''}${a.sizeKb ? ` · ${bytesText(a.sizeKb * 1024)}` : ''}`),
+          ...shown.map((a) => `• ${a.name}${a.version && !a.name.includes(a.version) ? ` ${a.version}` : ''}${a.publisher ? ` — ${a.publisher}` : ''}${a.sizeKb ? ` · ${bytesText(a.sizeKb * 1024)}` : ''}`),
         ];
         if (rows.length > shown.length) lines.push(`• …and ${rows.length - shown.length} more (add a word to narrow it)`);
         return { ok: true, message: lines.join('\n'), aloud: false, data: { apps: rows } };
