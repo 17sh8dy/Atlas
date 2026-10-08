@@ -18,6 +18,7 @@ import { test, assert } from 'vitest';
 import type { IntelligenceProvider, IntelligenceRegistry, Skill, SkillContext } from '@atlas/core';
 import { SkillRegistry } from '../src/skills/registry';
 import { Executor } from '../src/planner/executor';
+import { USE_RULES } from '../src/safety/use-rules';
 import { runUiTask, MAX_UI_ITERATIONS, type UiAgentDeps } from '../src/uiagent/loop';
 
 function fakeContext(confirmAnswer = true): SkillContext & { said: string[] } {
@@ -268,4 +269,44 @@ test('a read skill reporting through .data (not .message) still reaches the next
 
   assert.equal(report.stoppedBecause, 'done');
   assert.equal(report.steps.length, 1);
+});
+
+test('the use rules are in every prompt the loop sends, ahead of the action list', async () => {
+  const skills = new SkillRegistry({ capabilities: () => ['ui-automation', 'window-control'] });
+  skills.register(windowListSkill(async () => ({ ok: true, message: 'one window' })));
+  const provider = fakeProvider((call) =>
+    call === 1
+      ? JSON.stringify({ skill: 'window.list', args: {} })
+      : JSON.stringify({ done: true, summary: 'Done.' }),
+  );
+
+  await runUiTask('goal', deps(skills, registryWith(provider)), fakeContext());
+
+  assert.equal(provider.prompts.length, 2);
+  for (const prompt of provider.prompts) {
+    assert.include(prompt, USE_RULES);
+    assert.isBelow(prompt.indexOf(USE_RULES), prompt.indexOf('You may ONLY use these actions'));
+  }
+});
+
+test('a goal the model declines under the use rules ends the task having run nothing', async () => {
+  const skills = new SkillRegistry({ capabilities: () => ['ui-automation', 'window-control'] });
+  let ran = 0;
+  skills.register(
+    windowListSkill(async () => {
+      ran += 1;
+      return { ok: true, message: '' };
+    }),
+  );
+  const provider = fakeProvider(() =>
+    JSON.stringify({ done: true, summary: "I won't do that." }),
+  );
+  const ctx = fakeContext();
+
+  const report = await runUiTask('goal', deps(skills, registryWith(provider)), ctx);
+
+  assert.equal(ran, 0);
+  assert.deepEqual(report.steps, []);
+  assert.equal(report.stoppedBecause, 'done');
+  assert.deepEqual(ctx.said, ["I won't do that."]);
 });

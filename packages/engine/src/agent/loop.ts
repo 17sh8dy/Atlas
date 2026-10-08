@@ -61,6 +61,7 @@ import type {
 } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import type { Executor } from '../planner/executor';
+import { USE_RULES } from '../safety/use-rules';
 import { HaltedError, untilHalted } from '@atlas/core';
 import type { HaltSignal } from '@atlas/core';
 
@@ -268,6 +269,7 @@ export async function runAgentTask(
     const prompt = [
       `You are Atlas's ${config.role}, working step by step toward one goal.`,
       `Goal: ${goal}`,
+      USE_RULES + ' If the goal is like that, reply {"done":true,"summary":...} saying you will not do it.',
       ...contextLines,
       'Reply with JSON only, no prose. One of two shapes:',
       '  {"done":true,"summary":string} — the goal is complete, or cannot be; explain which and why.',

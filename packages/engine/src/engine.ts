@@ -59,6 +59,7 @@ import { routeQuestion } from './web/router';
 import { gatherEvidence } from './web/pipeline';
 import { buildEvidencePrompt, formatEvidenceFallback, formatEvidenceFooter } from './web/evidence';
 import { refusalFor, screenRequest } from './safety/content-policy';
+import { USE_RULES } from './safety/use-rules';
 import { normalizeRequest } from './text/normalize';
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
@@ -82,7 +83,8 @@ const ACTION_CONTEXT =
   'only write the reply. Do not say Atlas cannot control the computer, and do not give ' +
   'command-line tutorials. If the request was not carried out, say Atlas did not catch the ' +
   'exact wording, and suggest a precise phrasing with a full folder path, for example: ' +
-  'create a folder called Notes in D:\\Dev. Keep it to a sentence or two.';
+  'create a folder called Notes in D:\\Dev. Keep it to a sentence or two. ' +
+  USE_RULES;
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -529,8 +531,9 @@ export class Engine {
       '- Never invent an argument the user did not give. If a step cannot be filled from the request, leave that step out.',
       '- Do not add a step that asks the user for something the request already states.',
       '- Steps run in order. After opening an app, use window.await for that app before typing or clicking in it.',
+      `- ${USE_RULES} For a request like that, reply with a plan that has no steps.`,
       'You may ONLY use these actions:',
-      this.skills.catalog(),
+      this.skills.catalog(text),
       '',
       `Request: ${text}`,
     ].join('\n');

@@ -2269,6 +2269,25 @@ engine, and plugins (an Unreal one if possible). Everything on branch `v1.0.7`, 
 - Not built: a Settings page for plugins (the skills and `docs/PLUGINS.md` cover it), a C++
   Unreal variant (needs Visual Studio to compile, so it could not be checked here).
 
+## 1.0.8 — use rules, and Atlas the same under any model (2026-10-07)
+
+On branch `v1.0.8`, not pushed, not built. The 1.0.8 build and release are for the next session.
+
+- **Use rules.** The Acceptable Use Policy and Atlas Terms (NovaLegal, pushed and deployed) now list prohibited uses and state
+  that they apply whichever model is connected. In Atlas, `safety/use-rules.ts` holds one general `USE_RULES` sentence sent
+  to a connected model on the paths where Atlas acts: the action context, the planner and the agent loop. A plain question
+  is still sent bare. The Atlas Terms "what Atlas sends" list describes it, so change both together.
+- **Deferred on purpose:** a deterministic check on harmful action requests in `content-policy.ts`. Keep it narrow if it
+  comes back (operative verb plus target, no large term lists). Known gap: `kbm.type_text` / `kbm.key_sequence` text is
+  not content-screened (the policy only screens destination-style arguments).
+- **The model never changes the tools.** `SkillRegistry.catalog(request)` caps the planner catalog at a fixed
+  `CATALOG_BUDGET_CHARS` and ranks it by the request, so a small context window can no longer hide tools.
+  `provider-invariance.test.ts` runs one engine under no/local/cloud/custom/failing models and pins identical tools,
+  prompts, confirm gates and refusals. Rule: no branch on provider or `isLocal` outside the intelligence layer.
+- **Next, if wanted:** a first batch of read-only and everyday tools from `TOOL-CATALOG.md` (firewall rules, permissions,
+  signature check, network usage, registry read, notifications, services enable/disable, region screenshot, copy name,
+  batch copy, merge text files). Several need new native code and a real-app check.
+
 ## Deliberately not doing
 
 - **An unfenced `exec`.** Rejected in ARCHITECTURE §6.1. The one general runner is `powershell.run` above: the person

@@ -185,19 +185,93 @@ export class SkillRegistry {
    * catalog that grows without bound eventually crowds out the conversation it
    * was meant to serve.
    */
-  catalog(): string {
-    const lines: string[] = [];
-    for (const [domain, skills] of this.byDomain()) {
-      lines.push(`# ${domain}`);
-      for (const s of skills) {
-        const params = Object.entries(s.params ?? {})
-          .map(([n, p]) => `${n}${p.required ? '' : '?'}:${p.type}`)
-          .join(', ');
-        lines.push(`${s.id}(${params}) — ${s.description}`);
+  catalog(request?: string): string {
+    const render = (groups: Map<string, Skill[]>): string => {
+      const lines: string[] = [];
+      for (const [domain, skills] of groups) {
+        lines.push(`# ${domain}`);
+        for (const s of skills) lines.push(catalogLine(s));
       }
+      return lines.join('\n');
+    };
+
+    const all = this.byDomain();
+    const full = render(all);
+    // No request, or everything fits: the whole catalog, as before.
+    if (!request || full.length <= CATALOG_BUDGET_CHARS) return full;
+
+    // Too big to send whole. Keep the skills most relevant to THIS request, up to a fixed size.
+    // The size is a constant, never a property of the connected model: whichever model is in use
+    // sees the same tools for the same request, and a small context window can no longer silently
+    // cut the list off partway through (which is what an unsized prompt does).
+    const words = significantWords(request);
+    const ranked = this.available()
+      .map((skill, order) => ({ skill, order, score: relevance(skill, words) }))
+      .sort((a, b) => b.score - a.score || a.order - b.order);
+
+    const keep = new Set<string>();
+    let size = 0;
+    for (const { skill, score } of ranked) {
+      const cost = catalogLine(skill).length + 1;
+      if (size + cost > CATALOG_BUDGET_CHARS) break;
+      // Everything that matched, then fill to a floor with the rest in registration order, so a
+      // request that shares no words with any description still gets a usable list.
+      if (score === 0 && keep.size >= CATALOG_MIN_SKILLS) break;
+      keep.add(skill.id);
+      size += cost;
     }
-    return lines.join('\n');
+
+    const trimmed = new Map<string, Skill[]>();
+    for (const [domain, skills] of all) {
+      const kept = skills.filter((s) => keep.has(s.id));
+      if (kept.length) trimmed.set(domain, kept);
+    }
+    return render(trimmed);
   }
+}
+
+/**
+ * The largest catalog a planner prompt carries, in characters (about 6k tokens). Fixed on purpose:
+ * it must not depend on which model is connected. See `catalog()`.
+ */
+export const CATALOG_BUDGET_CHARS = 24_000;
+/** A trimmed catalog is padded with unmatched skills up to at least this many. */
+const CATALOG_MIN_SKILLS = 40;
+
+function catalogLine(s: Skill): string {
+  const params = Object.entries(s.params ?? {})
+    .map(([n, p]) => `${n}${p.required ? '' : '?'}:${p.type}`)
+    .join(', ');
+  return `${s.id}(${params}) — ${s.description}`;
+}
+
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'into', 'onto', 'please', 'can', 'you',
+  'my', 'me', 'to', 'of', 'in', 'on', 'it', 'a', 'an', 'is', 'are', 'all', 'some', 'then',
+]);
+
+function significantWords(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length > 2 && !STOP_WORDS.has(w)),
+    ),
+  ];
+}
+
+/** How well a skill matches the words of a request. Same weighting as `engine.searchSkills`. */
+function relevance(skill: Skill, words: readonly string[]): number {
+  const label = skill.label.toLowerCase();
+  const hay = `${skill.id} ${label} ${skill.description} ${(skill.examples ?? []).join(' ')}`.toLowerCase();
+  let score = 0;
+  for (const w of words) {
+    // A plural or a "-ing" form still counts: "zipping files" should find "zip".
+    const stem = w.length > 4 ? w.replace(/(?:ing|ed|es|s)$/, '') : w;
+    if (hay.includes(w) || hay.includes(stem)) score += label.includes(stem) ? 3 : 1;
+  }
+  return score;
 }
 
 function coerce(
