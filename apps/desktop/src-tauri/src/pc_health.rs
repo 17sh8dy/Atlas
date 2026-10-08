@@ -885,4 +885,160 @@ mod tests {
         // "A" in UTF-16LE is 41 00 → "QQA="
         assert_eq!(base64_encode::encode_utf16le("A"), "QQA=");
     }
+
+    // ---- live checks against this PC (read-only, so they run by default) -------------------------
+
+    fn block<F: std::future::Future>(f: F) -> F::Output {
+        tauri::async_runtime::block_on(f)
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("atlas-pc-health-{}-{}", std::process::id(), name));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn live_metrics_read_this_pc() {
+        let m = block(live_metrics()).unwrap();
+        assert!(m.cpu_cores > 0);
+        assert!(m.memory_total_bytes > 0 && m.memory_used_bytes <= m.memory_total_bytes);
+        assert!(!m.disks.is_empty());
+        assert!(m.top_by_memory.len() <= 5 && !m.top_by_memory.is_empty());
+        assert!((0.0..=100.5).contains(&m.cpu_percent));
+    }
+
+    #[test]
+    fn installed_software_lists_real_programs_without_hidden_components() {
+        let apps = block(installed_software()).unwrap();
+        assert!(apps.len() > 3, "expected some installed programs");
+        assert!(apps.iter().all(|a| !a.name.trim().is_empty()));
+        let names = apps.iter().map(|a| a.name.to_lowercase()).collect::<Vec<_>>();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(sorted, names, "sorted by name");
+    }
+
+    #[test]
+    fn windows_errors_come_back_shaped() {
+        let rows = block(recent_errors(24 * 7, 20)).unwrap();
+        assert!(rows.len() <= 20);
+        for r in &rows {
+            assert!(!r.time.is_empty() && !r.log.is_empty());
+            assert!(r.message.chars().count() <= 221);
+        }
+        // Out-of-range inputs are clamped, never passed through.
+        assert!(block(recent_errors(0, 0)).unwrap().len() <= 1);
+        assert!(block(recent_errors(u32::MAX, u32::MAX)).unwrap().len() <= 200);
+    }
+
+    #[test]
+    fn drivers_network_and_gpu_read_without_failing() {
+        let drivers = block(driver_list()).unwrap();
+        assert!(!drivers.is_empty());
+        assert!(drivers.iter().all(|d| !d.device.is_empty()));
+        let net = block(network_usage()).unwrap();
+        assert!(net.iter().all(|n| n.received_bytes + n.sent_bytes > 0));
+        let gpu = block(gpu_live()).unwrap();
+        if let Some(u) = gpu.utilization_percent {
+            assert!((0.0..=100.0).contains(&u));
+        }
+    }
+
+    #[test]
+    fn a_real_microsoft_program_verifies_as_signed_and_a_disguised_file_is_flagged() {
+        let dir = scratch("verify");
+        let exe = dir.join("copy-of-notepad.exe");
+        std::fs::copy(r"C:\Windows\System32\notepad.exe", &exe).unwrap();
+        let v = block(verify_file(exe.to_string_lossy().to_string())).unwrap();
+        assert_eq!(v.real_type, "Windows program or library");
+        assert!(v.signable && !v.mismatch);
+        assert_eq!(v.signature, "Valid");
+        assert!(v.signer.to_lowercase().contains("microsoft"), "signer was {:?}", v.signer);
+
+        // A program wearing a .pdf name.
+        let fake = dir.join("invoice.pdf");
+        std::fs::copy(r"C:\Windows\System32\notepad.exe", &fake).unwrap();
+        let f = block(verify_file(fake.to_string_lossy().to_string())).unwrap();
+        assert!(f.mismatch && f.ext == "pdf" && f.real_type.starts_with("Windows program"));
+
+        // Plain text is not signable and not a mismatch.
+        let txt = dir.join("a.txt");
+        std::fs::write(&txt, "hello").unwrap();
+        let t = block(verify_file(txt.to_string_lossy().to_string())).unwrap();
+        assert!(!t.signable && !t.mismatch && t.real_type.is_empty());
+
+        // A folder, a missing file and an outside path are refused with a reason.
+        assert!(block(verify_file(dir.to_string_lossy().to_string())).is_err());
+        assert!(block(verify_file(dir.join("nope.exe").to_string_lossy().to_string())).is_err());
+        assert!(block(verify_file(r"C:\Windows\System32\notepad.exe".to_string())).is_err(), "outside Allowed Folders");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_word_document_and_a_pdf_are_read_and_the_wrong_kind_is_refused() {
+        use std::io::Write;
+        let dir = scratch("docs");
+
+        // .docx: a zip with word/document.xml.
+        let docx = dir.join("letter.docx");
+        {
+            let file = std::fs::File::create(&docx).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file("word/document.xml", opts).unwrap();
+            zip.write_all(br#"<w:document><w:body><w:p><w:r><w:t>Dear Atlas &amp; friends</w:t></w:r></w:p><w:p><w:r><w:t>Second line</w:t></w:r></w:p></w:body></w:document>"#).unwrap();
+            zip.finish().unwrap();
+        }
+        let d = block(document_text(docx.to_string_lossy().to_string())).unwrap();
+        assert_eq!(d.format, "Word document");
+        assert_eq!(d.text, "Dear Atlas & friends\nSecond line");
+
+        // A minimal one-page PDF with the text "Hello Atlas PDF".
+        let stream = "BT /F1 24 Tf 72 700 Td (Hello Atlas PDF) Tj ET";
+        let objs = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+            format!("<< /Length {} >>\nstream\n{}\nendstream", stream.len(), stream),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        let mut pdf = String::from("%PDF-1.4\n");
+        let mut offsets = Vec::new();
+        for (i, o) in objs.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf.push_str(&format!("{} 0 obj\n{}\nendobj\n", i + 1, o));
+        }
+        let xref = pdf.len();
+        pdf.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1));
+        for off in &offsets {
+            pdf.push_str(&format!("{:010} 00000 n \n", off));
+        }
+        pdf.push_str(&format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n", objs.len() + 1, xref));
+        let pdf_path = dir.join("note.pdf");
+        std::fs::write(&pdf_path, pdf).unwrap();
+        let p = block(document_text(pdf_path.to_string_lossy().to_string())).unwrap();
+        assert_eq!(p.format, "PDF");
+        assert_eq!(p.pages, Some(1));
+        assert!(p.text.contains("Hello Atlas PDF"), "pdf text was {:?}", p.text);
+
+        // Not a document, not a zip, and not allowed.
+        let junk = dir.join("junk.docx");
+        std::fs::write(&junk, "not a zip").unwrap();
+        assert!(block(document_text(junk.to_string_lossy().to_string())).is_err());
+        let txt = dir.join("a.txt");
+        std::fs::write(&txt, "x").unwrap();
+        assert!(block(document_text(txt.to_string_lossy().to_string())).unwrap_err().contains("PDF and Word"));
+        assert!(block(document_text(r"C:\Windows\win.ini".to_string())).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_registry_reader_reads_values_and_refuses_secrets() {
+        let r = block(registry_read(r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion".to_string())).unwrap();
+        assert!(r.values.iter().any(|v| v.name == "ProductName"));
+        assert!(block(registry_read(r"HKLM\SAM".to_string())).is_err());
+        assert!(block(registry_read(r"HKCU\Software\DefinitelyNotAKeyAtlasMadeUp".to_string())).is_err());
+    }
 }

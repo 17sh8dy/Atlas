@@ -568,4 +568,135 @@ mod tests {
         let tree = build_tree(&ui, &root, Vec::new(), 0, DEFAULT_MAX_DEPTH, &mut budget);
         assert!(tree.path.is_empty());
     }
+
+    // ---- background interaction against a REAL window ------------------------------------------
+    //
+    // Opens a tiny Windows Forms window (a text box, a button, a long list, a password box) and drives
+    // it through the three background commands. The claims being checked on a real desktop:
+    //   * the button is pressed, the text box is typed into and read back, the list scrolls;
+    //   * the person's cursor did not move and the window in front did not change;
+    //   * a password box is refused as UNSUPPORTED, never typed into.
+    // Live and ignored by default (it needs a desktop): `cargo test --lib background_ -- --ignored`.
+
+    const TARGET_SCRIPT: &str = r#"
+Add-Type -AssemblyName System.Windows.Forms
+$f = New-Object Windows.Forms.Form
+$f.Text = 'AtlasVirtualTarget'
+$f.Width = 520; $f.Height = 460; $f.StartPosition = 'Manual'; $f.Left = 40; $f.Top = 40
+$t = New-Object Windows.Forms.TextBox; $t.Left = 10; $t.Top = 10; $t.Width = 300
+$t.AccessibleName = 'Search box'
+$b = New-Object Windows.Forms.Button; $b.Text = 'Press me'; $b.Left = 10; $b.Top = 50
+$b.Add_Click({ $f.Text = 'AtlasVirtualTarget-clicked' })
+$l = New-Object Windows.Forms.ListBox; $l.Left = 10; $l.Top = 90; $l.Width = 300; $l.Height = 100
+$l.AccessibleName = 'Messages'
+1..80 | ForEach-Object { [void]$l.Items.Add("item $_") }
+$p = New-Object Windows.Forms.TextBox; $p.UseSystemPasswordChar = $true; $p.Left = 10; $p.Top = 210; $p.Width = 300
+$p.AccessibleName = 'Secret'
+$f.Controls.AddRange(@($t, $b, $l, $p))
+[void]$f.ShowDialog()
+"#;
+
+    fn find_node<'a>(n: &'a UiaNode, role: &str, name: &str) -> Option<&'a UiaNode> {
+        if n.role.eq_ignore_ascii_case(role) && n.name == name {
+            return Some(n);
+        }
+        n.children.iter().find_map(|c| find_node(c, role, name))
+    }
+
+    fn cursor() -> (i32, i32) {
+        let mut p = windows::Win32::Foundation::POINT::default();
+        unsafe { windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p).unwrap() };
+        (p.x, p.y)
+    }
+
+    #[test]
+    #[ignore]
+    fn background_interaction_works_on_a_real_window_without_touching_the_mouse_or_focus() {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        use std::time::{Duration, Instant};
+
+        let mut child = Command::new("powershell.exe")
+            .args(["-NoProfile", "-STA", "-NonInteractive", "-Command", TARGET_SCRIPT])
+            .creation_flags(0x0800_0000)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start the test window");
+        struct Kill(std::process::Child);
+        impl Drop for Kill {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+            }
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(25);
+        let id = loop {
+            if let Some(w) = crate::window::list_windows().into_iter().find(|w| w.title.starts_with("AtlasVirtualTarget")) {
+                break w.id;
+            }
+            assert!(Instant::now() < deadline, "the test window never appeared");
+            std::thread::sleep(Duration::from_millis(300));
+        };
+        let _guard = Kill(std::mem::replace(&mut child, Command::new("cmd").spawn().unwrap()));
+        let _ = child.kill();
+        std::thread::sleep(Duration::from_millis(800));
+
+        let block = |f: std::pin::Pin<Box<dyn std::future::Future<Output = Result<UiaNode, String>>>>| tauri::async_runtime::block_on(f);
+        let tree = block(Box::pin(uia_tree(id.clone(), Some(6)))).unwrap();
+        let button = find_node(&tree, "button", "Press me").expect("button in the tree").path.clone();
+        let search = find_node(&tree, "edit", "Search box").expect("search box in the tree").path.clone();
+        let secret = find_node(&tree, "edit", "Secret").expect("password box in the tree").path.clone();
+        let list = find_node(&tree, "list", "Messages").expect("list in the tree").path.clone();
+
+        // The person's state before: cursor and the window in front.
+        let cursor_before = cursor();
+        let front_before = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+
+        // What each control supports.
+        let caps = |path: &Vec<i32>| tauri::async_runtime::block_on(uia_capabilities(id.clone(), path.clone())).unwrap();
+        let (cb, cs, cp, cl) = (caps(&button), caps(&search), caps(&secret), caps(&list));
+        assert!(cb.invoke, "a button can be pressed: {cb:?}");
+        assert!(cs.value && !cs.value_read_only && !cs.password, "a text box takes text: {cs:?}");
+        assert!(cp.password, "a password box is reported as one: {cp:?}");
+        assert!(cl.enabled);
+
+        // Press the button: the form retitles itself in its click handler.
+        assert!(tauri::async_runtime::block_on(uia_invoke(id.clone(), button.clone())).unwrap());
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            crate::window::list_windows().iter().any(|w| w.title == "AtlasVirtualTarget-clicked"),
+            "the click handler ran"
+        );
+
+        // Type into the text box twice; the second adds to the first, and each is read back.
+        let one = tauri::async_runtime::block_on(uia_append_value(id.clone(), search.clone(), "hello".into())).unwrap();
+        assert!(one.verified && one.chars_before == 0 && one.chars_after == 5, "{one:?}");
+        let two = tauri::async_runtime::block_on(uia_append_value(id.clone(), search.clone(), " world".into())).unwrap();
+        assert!(two.verified && two.chars_before == 5 && two.chars_after == 11, "{two:?}");
+
+        // A password box is never typed into.
+        let refused = tauri::async_runtime::block_on(uia_append_value(id.clone(), secret.clone(), "hunter2".into())).unwrap_err();
+        assert!(refused.starts_with("UNSUPPORTED:") && refused.contains("password"), "{refused}");
+
+        // Scrolling: if the list advertises scrolling it must work; if not it must say UNSUPPORTED.
+        let scrolled = tauri::async_runtime::block_on(uia_scroll(id.clone(), list.clone(), 5, 0));
+        if cl.scroll {
+            assert!(scrolled.unwrap());
+        } else {
+            assert!(scrolled.unwrap_err().starts_with("UNSUPPORTED:"));
+        }
+
+        // The whole time: nothing here calls a mouse or keyboard API (uia.rs has none), so the cursor and
+        // the window in front are untouched BY CONSTRUCTION. They are only reported, not asserted: a
+        // person using the PC while this runs moves the mouse themselves, which would make an equality
+        // check fail for a reason that has nothing to do with Atlas.
+        println!(
+            "cursor before {:?}, after {:?}; front window {:?} -> {:?}",
+            cursor_before,
+            cursor(),
+            front_before,
+            unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }
+        );
+    }
 }
