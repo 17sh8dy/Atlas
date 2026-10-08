@@ -33,6 +33,8 @@ export interface Diagnosis {
   hints: string[];
 }
 
+// ANSI colour codes start with the ESC control character; that is the point of this pattern.
+// eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g;
 export const stripAnsi = (text: string) => text.replace(ANSI, '');
 

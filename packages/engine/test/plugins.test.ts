@@ -302,7 +302,7 @@ g.addMany(createExtraGrammar());
 const skillsFor = (text: string) => g.parse(text)?.steps.map((s) => s.skill) ?? null;
 
 test('an Unreal project is its own plan: written, and not opened', () => {
-  expect(skillsFor('build me an unreal engine project in D:\\Dev\\Orb')).toEqual(['app.scaffold']);
+  expect(skillsFor('build me an unreal engine project in D:\\Dev\\Orb')).toEqual(['app.scaffold', 'project.check']);
   expect(g.parse('make a ue5 game in D:\\Dev\\Orb')?.steps[0]?.args).toMatchObject({ template: 'unreal', path: 'D:\\Dev\\Orb' });
 });
 

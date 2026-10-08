@@ -255,6 +255,39 @@ export function createHealthGrammar(): GrammarRule[] {
       },
     },
     {
+      // "what did you just do", "what's left to do", "show the last task report": the last run, in one shape.
+      name: 'workflowLast',
+      order: -12.5,
+      questionSafe: ['workflow-last'],
+      test(lower) {
+        const t = lower.replace(/[?.!]+\s*$/, '').trim();
+        const hit =
+          /^(?:so\s+)?what\s+(?:did|have)\s+you\s+(?:just\s+)?(?:do|done|run|finish(?:ed)?|accomplish(?:ed)?)(?:\s+(?:so\s+far|there|just\s+now|last))?$/.test(t) ||
+          /^what(?:'s|\s+is|\s+was)\s+(?:left|remaining|still\s+to\s+do)(?:\s+to\s+do)?$/.test(t) ||
+          /^(?:show|give|tell)\s+(?:me\s+)?(?:the\s+)?(?:last|latest|previous)\s+(?:task|run|job|action)s?\s+(?:report|summary|result)s?$/.test(t) ||
+          /^(?:summari[sz]e|recap|report\s+on)\s+(?:the\s+)?(?:last|latest|previous)\s+(?:task|run|job)$/.test(t);
+        return hit ? plan(step('workflow.last'), 'workflow-last') : null;
+      },
+    },
+    {
+      // "check the project I just built", "what did you build": the builder's look at what is on disk.
+      name: 'builderCheck',
+      order: -12.52,
+      pathSafe: true,
+      questionSafe: ['project-check', 'builder-status'],
+      test(lower, raw) {
+        const paths = pathsIn(raw);
+        if (paths.length > 1) return null;
+        const s = tok(lower, paths);
+        const status =
+          /^(?:so\s+)?what\s+(?:did|have)\s+you\s+(?:just\s+)?(?:build|built|make|made)(?:\s+(?:so\s+far|for\s+me))?$/.test(s) ||
+          /^what(?:'s|\s+is)\s+my\s+current\s+(?:app|project|game|site|website)$/.test(s);
+        if (status) return plan(step('builder.status'), 'builder-status');
+        const check = /^(?:please\s+)?(?:check|verify)\s+(?:the\s+|my\s+)?(?:project|app|game|site|website)(?:\s+(?:i|you)\s+(?:just\s+)?(?:built|made)|\s+(?:you\s+)?(?:just\s+)?(?:built|made))?(?:\s+(?:in|at)\s+<p>)?$/.test(s) || (paths.length === 1 && /^(?:please\s+)?(?:check|verify)\s+(?:the\s+)?(?:project|app|game|site|website)?\s*<p>$/.test(s));
+        return check ? plan(step('project.check', paths[0] ? { path: paths[0] } : {}), 'project-check') : null;
+      },
+    },
+    {
       // "why does my build fail", "why are the tests failing", "diagnose the build in D:\Dev\App".
       name: 'buildDiagnose',
       order: -12.6,

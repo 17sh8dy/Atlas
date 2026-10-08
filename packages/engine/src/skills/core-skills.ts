@@ -1789,12 +1789,31 @@ export function createCoreSkills(
       title: { type: 'string', default: 'Atlas', description: 'the notification heading' },
     },
     async run(args) {
-      const message = String(args.message).trim();
+      // Control characters and runs of blank space make a notification unreadable (or, worse, a line
+      // that looks like two notices); a long one is cut by Windows mid-word. Tidy first, and say so
+      // when text was cut, so what the person sees is what was meant.
+      // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+      const tidy = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+      const message = tidy(String(args.message ?? ''));
       if (!message) return { ok: false, error: 'Give me something to say.' };
-      const ok = await platform.notify!(String(args.title ?? 'Atlas'), message);
+      const title = tidy(String(args.title ?? '')).replace(/\s*\n\s*/g, ' ') || 'Atlas';
+      const TITLE_MAX = 64;
+      const BODY_MAX = 240;
+      const clippedTitle = title.length > TITLE_MAX ? `${title.slice(0, TITLE_MAX - 1)}…` : title;
+      const clippedBody = message.length > BODY_MAX ? `${message.slice(0, BODY_MAX - 1)}…` : message;
+      const cut = clippedBody !== message || clippedTitle !== title;
+      let ok: boolean;
+      try {
+        ok = await platform.notify!(clippedTitle, clippedBody);
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? `I couldn't post the notification: ${e.message}` : "I couldn't post the notification." };
+      }
       return ok
-        ? { ok: true, message: `🔔 Notified: ${message}` }
-        : { ok: false, error: 'Notifications are turned off for Atlas.' };
+        ? { ok: true, message: `🔔 Notified: ${clippedBody}${cut ? ' (shortened to fit)' : ''}`, data: { title: clippedTitle, body: clippedBody, shortened: cut } }
+        : {
+            ok: false,
+            error: 'Windows is not letting Atlas show notifications. Turn them on in Settings → System → Notifications → Atlas (say “open notification settings”), then try again.',
+          };
     },
   });
 

@@ -264,7 +264,7 @@ function EntryView({
   }
 
   if (entry.kind === 'steps' && entry.steps) {
-    return <StepsDisclosure steps={entry.steps} />;
+    return <StepsDisclosure steps={entry.steps} report={entry.report} />;
   }
 
   if (entry.kind === 'halted') {
@@ -461,7 +461,7 @@ export function summarizeSteps(steps: { state: StepState }[]): string {
  * disclosure Claude uses for its own tool calls. The replies each step gave
  * stay where they were said; this is the index to them, not a second copy.
  */
-function StepsDisclosure({ steps }: { steps: NonNullable<Entry['steps']> }) {
+function StepsDisclosure({ steps, report }: { steps: NonNullable<Entry['steps']>; report?: Entry['report'] }) {
   const [open, setOpen] = useState(false);
   const summary = summarizeSteps(steps);
 
@@ -506,6 +506,36 @@ function StepsDisclosure({ steps }: { steps: NonNullable<Entry['steps']> }) {
           })}
         </ol>
       )}
+      {open && report && <RunReport report={report} />}
+    </div>
+  );
+}
+
+/** The standard account of a run, under its steps: what changed, what is left, where it is. */
+function RunReport({ report }: { report: NonNullable<Entry['report']> }) {
+  const sections: Array<[string, string[]]> = [
+    ['What changed', report.changes],
+    ['Still to do', report.remaining],
+    ['Where to find it', report.locations],
+  ];
+  return (
+    <div className="border-border atlas-reply-in ml-[5px] mt-2 border-l pl-3.5 text-xs">
+      <p className="text-foreground">{report.headline}</p>
+      {sections
+        .filter(([, items]) => items.length > 0)
+        .map(([title, items]) => (
+          <div key={title} className="mt-1.5">
+            <p className="text-foreground-subtle">{title}</p>
+            <ul className="mt-0.5">
+              {items.slice(0, 6).map((item, i) => (
+                <li key={i} className="text-foreground break-words py-0.5">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      {report.next && <p className="text-foreground-subtle mt-1.5">{report.next}</p>}
     </div>
   );
 }

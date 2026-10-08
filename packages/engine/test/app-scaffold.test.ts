@@ -257,7 +257,7 @@ test('Brandon\'s sentence builds a clicker game and asks where', () => {
     'Build me a high quality clicker desktop app game, it must be a simple layout but it can get very heavy on math and with upgrades, etc';
   const plan = g.parse(text)!;
   expect(plan.intent).toBe('build-app');
-  expect(plan.steps.map((s) => s.skill)).toEqual(['app.scaffold', 'dependency.installAll', 'project.play']);
+  expect(plan.steps.map((s) => s.skill)).toEqual(['app.scaffold', 'dependency.installAll', 'project.check', 'project.play']);
   expect(plan.steps[0]!.args).toEqual({ template: 'clicker' }); // no path: the executor asks for it
 });
 
@@ -295,8 +295,10 @@ test('the long Tauri request is NOT silently turned into an Electron one: it goe
   expect(parseBuildRequest(text)).toBeNull();
   const plan = g.parse(text)!;
   expect(plan.intent).toBe('build-agent');
-  expect(plan.steps).toHaveLength(1);
-  expect(plan.steps[0]!.skill).toBe('devagent.run');
+  // describe → build → check → open: the agent builds it, then the result is looked at and opened.
+  expect(plan.steps.map((s) => s.skill)).toEqual(['devagent.run', 'project.check', 'project.play']);
+  expect(plan.steps[1]!.args).toMatchObject({ path: String.raw`D:\Dev\ClickerGameTest`, built: 'agent' });
+  expect(plan.steps[2]!.args).toEqual({ path: String.raw`D:\Dev\ClickerGameTest` });
   expect(plan.steps[0]!.args).toMatchObject({ path: 'D:\\Dev\\ClickerGameTest' });
   expect(String(plan.steps[0]!.args.goal)).toMatch(/Tauri desktop app named Clicker Game Test/);
 });

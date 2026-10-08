@@ -48,6 +48,9 @@ import { createCatalogGitSkills } from '../src/skills/catalog-git-skills';
 import { createCatalogSystemSkills } from '../src/skills/catalog-system-skills';
 import { createPcHealthSkills } from '../src/skills/pc-health-skills';
 import { createFileIntelSkills } from '../src/skills/file-intel-skills';
+import { createBuilderSkills } from '../src/skills/builder-skills';
+import { createWorkflowSkills } from '../src/skills/workflow-skills';
+import { WorkflowLog } from '../src/workflow/report';
 import { createCatalogMediaSkills } from '../src/skills/catalog-media-skills';
 import { createCatalogMakeSkills } from '../src/skills/catalog-make-skills';
 import { createClipboardHistorySkills } from '../src/skills/clipboard-history-skills';
@@ -105,6 +108,8 @@ function everySkill(): Skill[] {
     ...createCatalogSystemSkills(NOTHING),
     ...createPcHealthSkills(NOTHING),
     ...createFileIntelSkills(NOTHING),
+    ...createBuilderSkills(NOTHING),
+    ...createWorkflowSkills(new WorkflowLog()),
     ...createCatalogMediaSkills(NOTHING),
     ...createCatalogMakeSkills(NOTHING),
     ...createClipboardHistorySkills({ platform: NOTHING, history: new ClipboardHistory(), isEnabled: () => true }),

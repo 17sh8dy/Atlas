@@ -176,7 +176,7 @@ test('a ready-made project is planned by the grammar, with no model', async () =
   assert.equal(plan?.intent, 'build-app');
   assert.deepEqual(
     plan?.steps.map((s) => s.skill),
-    ['app.scaffold', 'dependency.installAll', 'project.play'],
+    ['app.scaffold', 'dependency.installAll', 'project.check', 'project.play'],
   );
 });
 

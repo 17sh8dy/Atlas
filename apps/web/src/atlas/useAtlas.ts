@@ -70,6 +70,11 @@ import {
   createCatalogSystemSkills,
   createPcHealthSkills,
   createFileIntelSkills,
+  createWorkflowSkills,
+  createBuilderSkills,
+  WorkflowLog,
+  buildWorkflowReport,
+  type WorkflowReport,
   createCatalogMediaSkills,
   createCatalogMakeSkills,
   createSelfTestSkills,
@@ -145,6 +150,8 @@ export interface Entry {
   source?: HaltSource;
   /** `steps` entries: what a multi-step run actually did, one row per step. */
   steps?: { label: string; state: StepState; detail?: string }[];
+  /** `steps` entries: the standard account of the run — what changed, what is left, where it is. */
+  report?: Pick<WorkflowReport, 'headline' | 'changes' | 'remaining' | 'locations' | 'next'>;
   /** When the entry was added, for animating only what is new (restored entries have none). */
   at?: number;
   /** `atlas` entries: this reply arrived word by word, so it is drawn as it came and not re-animated. */
@@ -583,6 +590,9 @@ export function useAtlas(
   // direction.
   const [thinkLonger, setThinkLonger] = useState(false);
 
+  // What each run did, in one standard shape: feeds "what did you just do" and the steps disclosure.
+  const workflowLog = useMemo(() => new WorkflowLog(), []);
+
   const engine = useMemo(() => {
     const skills = new SkillRegistry({ capabilities: () => capabilities });
     // Every single-file skill is journaled, so "undo that" and "what did you
@@ -616,6 +626,7 @@ export function useAtlas(
     // 1.0.8: read-only PC health (metrics, errors, software, drivers, report) and file intelligence.
     skills.registerMany(createPcHealthSkills(platform));
     skills.registerMany(createFileIntelSkills(platform));
+    skills.registerMany(createWorkflowSkills(workflowLog));
     skills.registerMany(createCatalogMediaSkills(platform, memory));
     skills.registerMany(createCatalogMakeSkills(platform, memory));
     skills.registerMany(createClipboardHistorySkills({ platform, history: clipHistory, isEnabled: () => clipEnabled.current }));
@@ -631,6 +642,8 @@ export function useAtlas(
     skills.registerMany(withCurrentProject(createDevToolsSkills(platform), projectContext, platform, memory));
     skills.registerMany(withCurrentProject(createCatalogGitSkills(platform), projectContext, platform, memory));
     skills.registerMany(createProjectSkills(platform, projectContext, memory));
+    // describe → build → check → open: the check, and "what did you build".
+    skills.registerMany(withCurrentProject(createBuilderSkills(platform, projectContext, memory), projectContext, platform, memory));
     // Starter projects written with no model (a clicker game, a desktop app, a site).
     skills.registerMany(createAppScaffoldSkills(platform, projectContext));
     // Recolour a project's whole look with no model: preview, backup, undo.
@@ -727,6 +740,7 @@ export function useAtlas(
     });
     return built;
   }, [
+    workflowLog,
     clipHistory,
     storage,
     setupStore,
@@ -778,16 +792,24 @@ export function useAtlas(
     () =>
       engine.bus.on<{ mode: string; outcome?: PlanOutcome }>('engine:done', (payload) => {
         const outcome = payload.outcome;
-        if (payload.mode !== 'command' || !outcome || outcome.outcomes.length < 2) return;
+        if (payload.mode !== 'command' || !outcome) return;
+        // Every run is written down, so “what did you just do” can answer — except that question itself.
+        const report = buildWorkflowReport(outcome, {
+          labelFor: (id) => engine.skills.get(id)?.label ?? id,
+          riskOf: (id) => engine.skills.get(id)?.risk,
+        });
+        if (!(outcome.outcomes.length === 1 && outcome.outcomes[0]!.skill === 'workflow.last')) workflowLog.record(report);
+        if (outcome.outcomes.length < 2) return;
         const steps = stepRowsFrom(outcome, (id) => engine.skills.get(id)?.label ?? id);
         setEntries((prev) => {
-          const entry: Entry = { id: nextId++, kind: 'steps', steps, at: Date.now() };
+          const { headline, changes, remaining, locations, next } = report;
+          const entry: Entry = { id: nextId++, kind: 'steps', steps, report: { headline, changes, remaining, locations, next }, at: Date.now() };
           const last = prev[prev.length - 1];
           if (outcome.halted && last?.kind === 'halted') return [...prev.slice(0, -1), entry, last];
           return [...prev, entry];
         });
       }),
-    [engine],
+    [engine, workflowLog],
   );
 
   /**

@@ -423,7 +423,18 @@ export function createAppGrammar(): GrammarRule[] {
         const request = parseBuildRequest(raw);
         if (!request) {
           const agent = parseAgentBuildRequest(raw);
-          return agent ? plan(step('devagent.run', { goal: agent.goal, path: agent.path }), 'build-agent') : null;
+          // describe → build → check → open: the agent builds it, then Atlas looks at what is on disk
+          // and opens it. A build that fails or is stopped never reaches the last two.
+          return agent
+            ? plan(
+                [
+                  step('devagent.run', { goal: agent.goal, path: agent.path }),
+                  step('project.check', { path: agent.path, built: 'agent', goal: agent.goal }),
+                  step('project.play', { path: agent.path }),
+                ],
+                'build-agent',
+              )
+            : null;
         }
         const args: Record<string, string> = {};
         if (request.template) args.template = request.template;
@@ -435,6 +446,8 @@ export function createAppGrammar(): GrammarRule[] {
         // project opens in the browser until then, and the closing message says so.
         const chosen = request.template ? templateById(request.template) : undefined;
         if (chosen?.desktop) steps.push(step('dependency.installAll', {}));
+        // Look at what was written before opening it: the pieces are there and well-formed.
+        steps.push(step('project.check', { built: 'template', ...(request.template ? { template: request.template } : {}), ...(request.path ? { path: request.path } : {}) }));
         // A game engine project is NOT opened for you: the editor is a heavy program (shader
         // compiles, the GPU), so starting it stays the person's choice. "play it" opens it later.
         if (chosen?.group !== 'engine') steps.push(step('project.play', {}));

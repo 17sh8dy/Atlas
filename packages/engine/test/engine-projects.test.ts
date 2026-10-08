@@ -131,7 +131,7 @@ test('each is found by what people say, and a request builds only the project (t
     ['create a blender project in D:\\Dev\\Orb', 'blender'],
   ] as const) {
     const plan = g.parse(text);
-    expect(plan?.steps.map((s) => s.skill), text).toEqual(['app.scaffold']);
+    expect(plan?.steps.map((s) => s.skill), text).toEqual(['app.scaffold', 'project.check']);
     expect(plan?.steps[0]?.args).toMatchObject({ template: id, path: 'D:\\Dev\\Orb' });
   }
   assert.equal(templateById('godot')?.launch, 'project.godot');

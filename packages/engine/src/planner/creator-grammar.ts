@@ -9,6 +9,7 @@
  */
 
 import type { GrammarRule } from './grammar';
+import type { Plan } from '@atlas/core';
 import { plan, step } from './grammar';
 
 const VIDEO = String.raw`[^\s]+?\.(?:mp4|mkv|mov|avi|webm|m4v|wmv|flv)`;
@@ -176,7 +177,12 @@ export function createCreatorGrammar(): GrammarRule[] {
       name: 'filesBatchRename',
       order: -10.74,
       pathSafe: true,
-      test(_lower, raw) {
+      questionSafe: ['batch-rename'],
+      test(_lower, raw0) {
+        // "preview renaming …" / "what would happen if I rename …": the same plan, shown and not done.
+        const dry = /^\s*(?:please\s+)?(?:preview|dry[- ]run)\s+(?:of\s+|the\s+)?/i.exec(raw0) ?? /^\s*what\s+would\s+happen\s+if\s+(?:i|you)\s+/i.exec(raw0);
+        const raw = dry ? raw0.slice(dry[0].length) : raw0;
+        const inner = (): Plan | null => {
         const PLACE = String.raw`(?:the\s+)?(?:files?|photos?|pictures?|documents?|images?)\s+(?:in|inside|from)\s+(?:my\s+|the\s+)?(.+?)`;
         const replacing = new RegExp(String.raw`^\s*(?:please\s+)?rename\s+(?:all\s+)?${PLACE}\s+(?:by\s+)?replacing\s+["“']?(.+?)["”']?\s+with\s+["“']?(.*?)["”']?\s*[?.!]*$`, 'i').exec(raw);
         if (replacing) return plan(step('files.batchRename', { target: tidy(replacing[1]!), find: tidy(replacing[2]!), replace: replacing[3]! }), 'batch-rename');
@@ -195,6 +201,10 @@ export function createCreatorGrammar(): GrammarRule[] {
           return plan(step('files.batchRename', { target: tidy(where), ...(word === 'lowercase' ? { lower: true } : { upper: true }) }), 'batch-rename');
         }
         return null;
+        };
+        const result = inner();
+        if (result && dry) result.steps[0]!.args = { ...result.steps[0]!.args, dryRun: true };
+        return result;
       },
     },
   ];

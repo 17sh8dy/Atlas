@@ -188,3 +188,26 @@ test('deploy and scaffold ask first, and say what will happen', () => {
   assert.match(skills['project.deploy']!.confirmAs!({ path: 'D:\\x', target: 'vercel' }), /to Vercel — this publishes it/);
   for (const id of ['media.compress', 'media.convert', 'media.resizeImage', 'net.flushDns']) assert.equal(skills[id]!.risk, 'safe', id);
 });
+
+test('a preview shows every change, asks nothing, and changes nothing', async () => {
+  const m = machine(['IMG_1.jpg', 'IMG_2.jpg', 'notes.txt']);
+  const r = await m.run('files.batchRename', { target: 'documents/trip', find: 'IMG', replace: 'beach', dryRun: true });
+  assert.equal(r.ok, true);
+  assert.match(String(r.message), /Preview — nothing was renamed\. I would rename 2 of 3 files in trip \(1 would keep their names\)/);
+  assert.match(String(r.message), /IMG_1\.jpg → beach_1\.jpg/);
+  assert.deepEqual(m.renames, []);
+  assert.equal(m.cards.length, 0, 'a preview is not a question');
+});
+
+test('a preview still refuses what the real run would refuse', async () => {
+  const m = machine(['a 1.txt', 'a 2.txt']);
+  const r = await m.run('files.batchRename', { target: 'documents/trip', find: ' 1', replace: ' 2', dryRun: true });
+  assert.equal(r.ok, false);
+  assert.match(String(r.error), /Two files would end up called/);
+});
+
+test('"preview renaming" and "what would happen if I rename" are previews', () => {
+  assert.deepEqual(plan('preview renaming the files in documents/trip replacing IMG with beach'.replace('renaming', 'rename')), [['files.batchRename', { target: 'documents/trip', find: 'IMG', replace: 'beach', dryRun: true }]]);
+  assert.deepEqual(plan('what would happen if I rename the files in documents/trip replacing IMG with beach'), [['files.batchRename', { target: 'documents/trip', find: 'IMG', replace: 'beach', dryRun: true }]]);
+  assert.deepEqual(plan('dry run: number the files in documents/trip'.replace(':', '')), [['files.batchRename', { target: 'documents/trip', numbered: true, dryRun: true }]]);
+});

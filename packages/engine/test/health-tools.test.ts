@@ -435,7 +435,7 @@ describe('file intelligence', () => {
     expect(r.ok).toBe(true);
     expect(r.message).toMatch(/2 files/);
     expect(r.message).toMatch(/a\.txt/);
-    expect(r.message).toMatch(/b\.pdf  \(2 times\)/);
+    expect(r.message).toMatch(/b\.pdf {2}\(2 times\)/);
     expect(r.message).toMatch(/1 document could not be read/);
     const noDocs = await run(s, { path: 'D:\\Docs', query: 'invoice', documents: false });
     expect(noDocs.message).toMatch(/1 file/);

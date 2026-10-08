@@ -42,6 +42,7 @@ export const PROJECT_PATH_SKILLS = new Set([
   'build.configure',
   'build.run',
   'build.diagnose',
+  'project.check',
   'git.releaseNotes',
   'test.run',
   'script.python',

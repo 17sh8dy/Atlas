@@ -249,6 +249,7 @@ export function createCreatorSkills(platform: Platform, memory?: Memory): Skill[
       numbered: { type: 'boolean', required: false, description: 'add 01, 02, … to each' },
       lower: { type: 'boolean', required: false, description: 'make names lowercase' },
       upper: { type: 'boolean', required: false, description: 'make names UPPERCASE' },
+      dryRun: { type: 'boolean', required: false, description: 'only show what would be renamed; change nothing and ask nothing' },
     },
     async run(args, ctx) {
       const t = await locate(args.target);
@@ -283,8 +284,20 @@ export function createCreatorSkills(platform: Platform, memory?: Memory): Skill[
           lowerTargets.add(key);
         }
 
-        const preview = plan.slice(0, 8).map((p) => `${p.from} → ${p.to}`).join('\n');
-        const more = plan.length > 8 ? `\n…and ${plan.length - 8} more` : '';
+        const SHOWN = args.dryRun === true ? 40 : 12;
+        const preview = plan.slice(0, SHOWN).map((p) => `${p.from} → ${p.to}`).join('\n');
+        const more = plan.length > SHOWN ? `\n…and ${plan.length - SHOWN} more` : '';
+        // A preview asks for nothing and changes nothing: it is the same plan, and the same safety
+        // checks above, without the last step.
+        if (args.dryRun === true) {
+          const untouched = entries.length - plan.length;
+          return {
+            ok: true,
+            message: `👀 Preview — nothing was renamed. I would rename ${plan.length} of ${entries.length} file${entries.length === 1 ? '' : 's'} in ${base(t.path)}${untouched ? ` (${untouched} would keep their names)` : ''}:\n${preview}${more}\nSay it again without “preview” to do it.`,
+            aloud: false,
+            data: plan,
+          };
+        }
         const ok = await ctx.confirm(`⚠️ Rename ${plan.length} file${plan.length === 1 ? '' : 's'}?`, `In ${base(t.path)}:\n${preview}${more}`);
         if (!ok) return { ok: false, error: 'Okay — nothing renamed.' };
 
