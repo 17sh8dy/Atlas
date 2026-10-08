@@ -174,8 +174,11 @@ export function createHealthGrammar(): GrammarRule[] {
       pathSafe: true,
       questionSafe: ['registry-read'],
       test(_lower, raw) {
-        const m = /(?:"((?:HKEY_CURRENT_USER|HKEY_LOCAL_MACHINE|HKCU|HKLM)[\\/][^"]*)"|\b((?:HKEY_CURRENT_USER|HKEY_LOCAL_MACHINE|HKCU|HKLM)(?:[\\/][^\s"]*[^\s".,;:!?])?))/i.exec(raw);
+        const m = /(?:"((?:HKEY_CURRENT_USER|HKEY_LOCAL_MACHINE|HKCU|HKLM)[\\/][^"]*)"|\b((?:HKEY_CURRENT_USER|HKEY_LOCAL_MACHINE|HKCU|HKLM)(?:[\\/][^"\r\n]*[^\s".,;:!?])?))/i.exec(raw);
         if (!m) return null;
+        // A key name can hold spaces ("Windows NT"), so the unquoted form runs to the end of the sentence;
+        // if what follows the hive reads like an instruction to change something, it is not a read.
+        if (/\b(?:delete|remove|set|write|change|edit|modify|and\s+then)\b/i.test(m[2] ?? '')) return null;
         const before = raw.slice(0, m.index).toLowerCase();
         if (!/\b(?:read|show|view|inspect|look\s+at|open|list|display|what(?:'s|\s+is)\s+in)\b/.test(before) || !/\b(?:registry|reg\s+key|key|hive)\b/.test(before)) return null;
         // Changing the registry is not something Atlas does, and must not read as a read.

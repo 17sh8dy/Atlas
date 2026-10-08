@@ -128,6 +128,11 @@ describe('phrasings reach the new tools — and leave the old ones alone', () =>
       skill: 'registry.read',
       args: { key: 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' },
     });
+    // A key name can hold spaces; the unquoted form runs to the end of the sentence.
+    expect(route('read the registry key HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion')?.args).toEqual({ key: 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion' });
+    expect(route('show registry "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"')?.args).toEqual({ key: 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion' });
+    // ...but a read that turns into an instruction to change something is not a read.
+    expect(route('read the registry key HKCU\\Software\\X and then delete it')?.skill).not.toBe('registry.read');
     expect(route('read D:\\Documents\\report.pdf')).toEqual({ skill: 'files.readDocument', args: { path: 'D:\\Documents\\report.pdf' } });
     expect(route('read D:\\notes.txt')?.skill).toBe('files.readText'); // plain text keeps its own reader
     expect(route('find "budget" in D:\\Docs\\plan.docx')).toEqual({ skill: 'files.readDocument', args: { path: 'D:\\Docs\\plan.docx', around: 'budget' } });
