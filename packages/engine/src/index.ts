@@ -40,6 +40,8 @@ export { createCatalogSkills } from './skills/catalog-skills';
 export { createCatalogFileSkills } from './skills/catalog-file-skills';
 export { createCatalogGitSkills } from './skills/catalog-git-skills';
 export { createCatalogSystemSkills } from './skills/catalog-system-skills';
+export { createPcHealthSkills } from './skills/pc-health-skills';
+export { createFileIntelSkills } from './skills/file-intel-skills';
 export { createCatalogMediaSkills } from './skills/catalog-media-skills';
 export { createCatalogMakeSkills } from './skills/catalog-make-skills';
 export { ClipboardHistory, looksSensitive } from './clipboard/history';
@@ -111,6 +113,7 @@ export { createCoreGrammar } from './planner/core-grammar';
 export { createExtraGrammar } from './planner/extra-grammar';
 export { createAgentGrammar } from './planner/agent-grammar';
 export { createAppGrammar } from './planner/app-grammar';
+export { createHealthGrammar } from './planner/health-grammar';
 
 export { WatchManager, WATCHES_KEY } from './watch/manager';
 export type { WatchHost, WatchManagerOptions, NewWatch, WatchAnswer } from './watch/manager';

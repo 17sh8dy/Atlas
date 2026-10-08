@@ -40,6 +40,8 @@ mod ping;
 #[cfg(windows)]
 mod catalog_system;
 #[cfg(windows)]
+mod pc_health;
+#[cfg(windows)]
 mod catalog_make;
 #[cfg(windows)]
 mod cleanup;
@@ -320,6 +322,15 @@ pub fn run() {
             catalog_system::firmware_info,
             catalog_system::security_status,
             catalog_system::tool_versions,
+            pc_health::live_metrics,
+            pc_health::gpu_live,
+            pc_health::network_usage,
+            pc_health::recent_errors,
+            pc_health::installed_software,
+            pc_health::driver_list,
+            pc_health::verify_file,
+            pc_health::registry_read,
+            pc_health::document_text,
             shell_tools::recycle_bin_list,
             shell_tools::recycle_bin_restore,
             shell_tools::startup_apps,
@@ -400,6 +411,9 @@ pub fn run() {
             uia::uia_set_expanded,
             uia::uia_set_value,
             uia::uia_focus,
+            uia::uia_capabilities,
+            uia::uia_append_value,
+            uia::uia_scroll,
             screen::capture_window,
             screen::capture_screen,
             screen::capture_display,

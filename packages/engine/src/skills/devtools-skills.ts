@@ -50,6 +50,7 @@
  */
 
 import type { DepManager, DevTool, Platform, Skill } from '@atlas/core';
+import { diagnoseOutput, describeIssue, formatDiagnosis } from './build-diagnose';
 
 function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -664,6 +665,76 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
     },
   });
 
+  /** `rel` as printed by a compiler, resolved inside `root` — or null if it points anywhere else. */
+  function insideProject(root: string, rel: string): string | null {
+    const cleaned = rel.trim().replace(/^[.][\\/]/, '');
+    if (!cleaned || cleaned.split(/[\\/]/).includes('..')) return null;
+    const base = root.replace(/[\\/]+$/, '');
+    if (/^(?:[a-z]:[\\/]|\\\\|\/)/i.test(cleaned)) {
+      return cleaned.toLowerCase().replace(/\//g, '\\').startsWith(`${base.toLowerCase().replace(/\//g, '\\')}\\`) ? cleaned : null;
+    }
+    return `${base}\\${cleaned.replace(/\//g, '\\')}`;
+  }
+
+  skills.push({
+    id: 'build.diagnose',
+    label: 'Find out why the build fails',
+    icon: '🩻',
+    domain: 'build',
+    description:
+      'Run the project\'s own build, tests, lint or typecheck, and if it fails explain it: which file and line, what is wrong, and which error to fix first, with the code around it. It changes nothing in the project. Uses the same fixed build and test tools as build.run and test.run.',
+    needs: ['devtools'],
+    // It runs the project's own scripts, exactly as build.run and test.run do, so it asks exactly as they do.
+    risk: 'confirm',
+    confirmAs: (a) => `run the ${String(a.what ?? 'build')} in ${String(a.path ?? 'your current project')} and explain what fails`,
+    params: {
+      path: { type: 'string', required: true, description: 'the project folder' },
+      what: { type: 'string', required: false, enum: ['build', 'test', 'lint', 'typecheck'], description: 'what to run (default build)' },
+    },
+    examples: ['why does my build fail', 'diagnose the build in D:\\Dev\\MyApp', 'why are the tests failing'],
+    async run(args, ctx) {
+      const path = String(args.path);
+      const what = typeof args.what === 'string' && args.what ? args.what : 'build';
+      const wanted = what === 'test' ? TEST_SYSTEMS : BUILD_SYSTEMS;
+      const detected = await detectSystem(path, wanted, undefined);
+      if ('error' in detected) return { ok: false, error: detected.error };
+      const system = detected.system;
+      let tool: { name: DevTool; arg?: string } | null;
+      if (what === 'test') tool = testTool(system);
+      else if (what === 'lint' || what === 'typecheck') tool = system === 'npm' || system === 'pnpm' ? buildTool(system, what) : null;
+      else tool = buildTool(system);
+      if (!tool) return { ok: false, error: `I don't know how to run ${what} with ${system}.` };
+      try {
+        const result = await platform.runDevTool!(path, tool.name, tool.arg);
+        if (ctx.signal?.aborted) return { ok: false, error: 'Stopped before it finished.' };
+        if (result.ok) return { ok: true, message: `✅ The ${what} passes (${system}) — there is nothing to fix.`, data: result };
+        const output = [result.stdout, result.stderr].filter((s) => s.trim()).join('\n');
+        const d = diagnoseOutput(output);
+        const lines = [`❌ The ${what} fails (${system}, exit code ${result.exitCode ?? 'unknown'}).`, '', formatDiagnosis(d)];
+        // The code around the first few errors, read from the project (never from outside it).
+        let shown = 0;
+        for (const issue of d.errors) {
+          if (shown >= 3) break;
+          if (!issue.file || !issue.line || !platform.readTextFile) continue;
+          const file = insideProject(path, issue.file);
+          if (!file) continue;
+          const text = await platform.readTextFile(file).catch(() => null);
+          if (text === null) continue;
+          const src = text.split(/\r?\n/);
+          const from = Math.max(1, issue.line - 2);
+          const to = Math.min(src.length, issue.line + 2);
+          lines.push('', `${describeIssue(issue)}`, ...src.slice(from - 1, to).map((l, k) => `${from + k === issue.line ? '➜' : ' '} ${String(from + k).padStart(4)} │ ${l.slice(0, 160)}`));
+          shown += 1;
+        }
+        if (!d.errors.length) lines.push('', 'The last lines of its output:', previewOutput(output, 12));
+        lines.push('', 'I changed nothing in the project. Fix the first error, then ask me to diagnose again.');
+        return { ok: true, message: lines.join('\n'), aloud: false, data: { result, diagnosis: d } };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : `The ${what} failed to start.` };
+      }
+    },
+  });
+
   for (const runner of [
     { id: 'script.python', label: 'Run a Python script', tool: 'python-run' as const, ext: '.py', cmd: 'python', example: 'game.py' },
     { id: 'script.node', label: 'Run a Node script', tool: 'node-run' as const, ext: '.js / .mjs', cmd: 'node', example: 'app.js' },
@@ -875,9 +946,13 @@ function toolResultToSkillResult(
   if (result.ok) {
     return { ok: true, message: `${doneMessage}\n\n${body}`, data: result };
   }
+  // A failed run says what went wrong in file-and-line terms when the output allows it. Reading the
+  // output changes nothing, and when nothing recognisable is in it the message is exactly as before.
+  const diagnosis = diagnoseOutput(output);
+  const found = diagnosis.errors.length > 0;
   return {
     ok: false,
-    error: `Exit code ${result.exitCode ?? 'unknown'}.\n\n${body}`,
+    error: `Exit code ${result.exitCode ?? 'unknown'}.\n\n${body}${found ? `\n\n🔎 What went wrong:\n${formatDiagnosis(diagnosis, { max: 5 })}` : ''}`,
   };
 }
 

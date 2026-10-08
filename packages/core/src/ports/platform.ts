@@ -206,6 +206,112 @@ export interface SecurityStatus {
   defenderRealtime: boolean | null;
   atlasElevated: boolean;
 }
+/** What a control supports without the mouse or keyboard (UI Automation patterns). */
+export interface UiaCapabilities {
+  name: string;
+  role: string;
+  enabled: boolean;
+  offscreen: boolean;
+  /** True also when Windows cannot say — an unreadable control is never treated as safe to type into. */
+  password: boolean;
+  invoke: boolean;
+  toggle: boolean;
+  select: boolean;
+  expand: boolean;
+  value: boolean;
+  valueReadOnly: boolean;
+  scroll: boolean;
+}
+export interface UiaTyped {
+  charsBefore: number;
+  charsAfter: number;
+  /** The control, read back, now holds exactly what it held plus the new text. */
+  verified: boolean;
+}
+
+/** 1.0.8 — read-only PC health, from `pc_health.rs`. */
+export interface HeavyProcess {
+  name: string;
+  instances: number;
+  cpuPercent: number;
+  memoryBytes: number;
+}
+export interface LiveMetrics {
+  cpuPercent: number;
+  cpuCores: number;
+  memoryUsedBytes: number;
+  memoryTotalBytes: number;
+  swapUsedBytes: number;
+  swapTotalBytes: number;
+  disks: Array<{ mount: string; name: string; usedBytes: number; totalBytes: number }>;
+  topByCpu: HeavyProcess[];
+  topByMemory: HeavyProcess[];
+  uptimeSeconds: number;
+  sampledMs: number;
+}
+export interface GpuLive {
+  names: string[];
+  /** Busiest engine, 0–100; null when Windows exposes no GPU counters. */
+  utilizationPercent: number | null;
+  dedicatedUsedBytes: number | null;
+}
+export interface AdapterUsage {
+  name: string;
+  receivedBytes: number;
+  sentBytes: number;
+  receivedPerSec: number;
+  sentPerSec: number;
+}
+export interface EventRow {
+  time: string;
+  log: string;
+  source: string;
+  id: number;
+  level: string;
+  message: string;
+}
+export interface InstalledApp {
+  name: string;
+  version: string;
+  publisher: string;
+  installDate: string;
+  sizeKb: number;
+}
+export interface DriverRow {
+  device: string;
+  class: string;
+  manufacturer: string;
+  version: string;
+  date: string;
+  signed: boolean | null;
+}
+export interface FileVerdict {
+  path: string;
+  sizeBytes: number;
+  realType: string;
+  expectedExt: string[];
+  ext: string;
+  mismatch: boolean;
+  signable: boolean;
+  signature: string;
+  signer: string;
+  issuer: string;
+  signedAt: string;
+}
+export interface RegistryKeyView {
+  key: string;
+  subkeys: string[];
+  subkeyCount: number;
+  values: Array<{ name: string; kind: string; data: string }>;
+  valueCount: number;
+}
+export interface DocumentText {
+  path: string;
+  format: string;
+  text: string;
+  truncated: boolean;
+  pages: number | null;
+}
 export interface ArchiveListing {
   entries: Array<{ name: string; sizeBytes: number; isDir: boolean }>;
   totalEntries: number;
@@ -771,6 +877,19 @@ export interface Platform {
   uiaSetValue?(windowId: string, path: number[], value: string): Promise<boolean>;
   /** Bring keyboard focus to an element, e.g. before falling back to `typeText`. */
   uiaFocus?(windowId: string, path: number[]): Promise<boolean>;
+  /**
+   * Background ("virtual") interaction, 1.0.8: what can be done to a control WITHOUT the real mouse or
+   * keyboard. Read-only. The keyboard-and-mouse tools try this first when a window is named.
+   */
+  uiaCapabilities?(windowId: string, path: number[]): Promise<UiaCapabilities>;
+  /**
+   * Add text to the end of a text control through UI Automation, then read it back. Moves nothing,
+   * takes no focus. Rejects with a message starting `UNSUPPORTED:` when the control cannot take text
+   * this way — never types into a password field.
+   */
+  uiaAppendValue?(windowId: string, path: number[], text: string): Promise<UiaTyped>;
+  /** Scroll a control in the background: vertical > 0 down, < 0 up (small steps). `UNSUPPORTED:` if it can't. */
+  uiaScroll?(windowId: string, path: number[], vertical: number, horizontal: number): Promise<boolean>;
 
   /**
    * Would input to this target be allowed? Answered without sending anything —
@@ -1042,6 +1161,24 @@ export interface Platform {
   firmwareInfo?(): Promise<FirmwareInfo>;
   /** Firewall, Defender and whether Atlas is elevated. Reads only. */
   securityStatus?(): Promise<SecurityStatus>;
+  /** CPU, memory, disks and the heaviest programs over about a second. Read-only. */
+  liveMetrics?(): Promise<LiveMetrics>;
+  /** GPU names, load and dedicated memory, when Windows has counters for it. Read-only. */
+  gpuLive?(): Promise<GpuLive>;
+  /** Bytes moved per adapter, and the rate over a one-second sample. Counters only. */
+  networkUsage?(): Promise<AdapterUsage[]>;
+  /** Critical and error events from the System and Application logs. Read-only. */
+  recentErrors?(hours: number, limit: number): Promise<EventRow[]>;
+  /** Programs in Add/Remove Programs. Read-only. */
+  installedSoftware?(): Promise<InstalledApp[]>;
+  /** Installed device drivers. Read-only. */
+  driverList?(): Promise<DriverRow[]>;
+  /** A file's real type (from its bytes) and, for programs, its signature. Read-only. */
+  verifyFile?(path: string): Promise<FileVerdict>;
+  /** One registry key (HKCU / HKLM only, never the security hives). Read-only. */
+  registryRead?(key: string): Promise<RegistryKeyView>;
+  /** The text of a PDF or .docx. Read-only. */
+  documentText?(path: string): Promise<DocumentText>;
   /** Byte-for-byte comparison of two files. Read-only. */
   compareFiles?(a: string, b: string): Promise<FileComparison>;
   /** Identical files in a folder, largest first. Read-only. */

@@ -46,6 +46,8 @@ import { createCatalogSkills } from '../src/skills/catalog-skills';
 import { createCatalogFileSkills } from '../src/skills/catalog-file-skills';
 import { createCatalogGitSkills } from '../src/skills/catalog-git-skills';
 import { createCatalogSystemSkills } from '../src/skills/catalog-system-skills';
+import { createPcHealthSkills } from '../src/skills/pc-health-skills';
+import { createFileIntelSkills } from '../src/skills/file-intel-skills';
 import { createCatalogMediaSkills } from '../src/skills/catalog-media-skills';
 import { createCatalogMakeSkills } from '../src/skills/catalog-make-skills';
 import { createClipboardHistorySkills } from '../src/skills/clipboard-history-skills';
@@ -101,6 +103,8 @@ function everySkill(): Skill[] {
     ...createCatalogFileSkills(NOTHING),
     ...createCatalogGitSkills(NOTHING),
     ...createCatalogSystemSkills(NOTHING),
+    ...createPcHealthSkills(NOTHING),
+    ...createFileIntelSkills(NOTHING),
     ...createCatalogMediaSkills(NOTHING),
     ...createCatalogMakeSkills(NOTHING),
     ...createClipboardHistorySkills({ platform: NOTHING, history: new ClipboardHistory(), isEnabled: () => true }),

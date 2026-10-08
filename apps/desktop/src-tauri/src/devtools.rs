@@ -764,6 +764,27 @@ pub fn git_more(cwd: String, action: String, arg: Option<String>) -> Result<Stri
             }
             Ok(out.trim().to_string())
         }
+        // Read-only, for release notes: the newest tag, and the commits since a ref.
+        "lasttag" => {
+            let (ok, out, _) = run_git(&root, &["describe", "--tags", "--abbrev=0"])?;
+            Ok(if ok { out.trim().to_string() } else { String::new() })
+        }
+        "rangelog" => {
+            // `arg` is a tag or branch name (checked like any other); empty means the latest 200 commits.
+            let mut args: Vec<String> = vec!["log".into(), "--no-merges".into(), "--max-count=300".into(), "--date=short".into(), "--pretty=format:%h%x1f%an%x1f%ad%x1f%s".into()];
+            if !arg.is_empty() {
+                if !is_safe_branch_name(&arg) {
+                    return Err("That isn't a tag or branch name I'll pass to git.".into());
+                }
+                args.push(format!("{arg}..HEAD"));
+            }
+            let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+            let (ok, out, err) = run_git(&root, &refs)?;
+            if !ok {
+                return Err(fail(&err, "git log failed."));
+            }
+            Ok(out.trim().to_string())
+        }
         _ => Err(format!("There's no git action called “{action}”.")),
     }
 }

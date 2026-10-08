@@ -8,6 +8,7 @@
  */
 
 import type { Platform, Skill } from '@atlas/core';
+import { buildReleaseNotes, formatReleaseNotes, parseCommitLines } from './release-notes';
 
 const fail = (e: unknown, fallback: string) => ({
   ok: false as const,
@@ -144,6 +145,40 @@ export function createCatalogGitSkills(platform: Platform): Skill[] {
         return { ok: true, message: `🌱 ${out || 'Started a repository.'}` };
       } catch (e) {
         return fail(e, "I couldn't start a repository there.");
+      }
+    },
+  });
+
+  skills.push({
+    id: 'git.releaseNotes',
+    label: 'Release notes from git',
+    icon: '📰',
+    domain: 'git',
+    description:
+      'Write release notes from the commits since the last tag (or since a tag or branch you name), grouped into Added, Fixed, Improved, Changed and so on. It only reads the history; it changes nothing and writes no file.',
+    needs: ['devtools'],
+    risk: 'safe',
+    examples: ['write release notes', 'release notes since v1.0.7', 'what changed since the last tag'],
+    params: {
+      path: PATH,
+      since: { type: 'string', required: false, description: 'a tag or branch to start from; the latest tag when left out' },
+      version: { type: 'string', required: false, description: 'a version number for the heading, like 1.0.8' },
+    },
+    async run(args) {
+      try {
+        let since = typeof args.since === 'string' ? args.since.trim() : '';
+        let note = '';
+        if (!since) {
+          since = (await more(args.path, 'lasttag')).trim();
+          if (!since) note = 'There are no tags in this repository yet, so these are the most recent commits.';
+        }
+        const raw = await more(args.path, 'rangelog', since || undefined);
+        const commits = parseCommitLines(raw);
+        if (!commits.length) return { ok: true, message: since ? `📰 No new commits since ${since}.` : '📰 This repository has no commits yet.', data: { commits: [] } };
+        const notes = buildReleaseNotes(commits, { since: since || undefined, version: typeof args.version === 'string' && args.version.trim() ? args.version.trim() : undefined });
+        return { ok: true, message: `📰 ${formatReleaseNotes(notes)}${note ? `\n\n${note}` : ''}`, aloud: false, data: { notes, commits } };
+      } catch (e) {
+        return fail(e, "I couldn't read the git history.");
       }
     },
   });

@@ -16,6 +16,7 @@
 import { createIncompleteRules } from './incomplete-grammar';
 import { createAgentGrammar } from './agent-grammar';
 import { createAppGrammar } from './app-grammar';
+import { createHealthGrammar } from './health-grammar';
 import { createTimeGrammar } from './time-grammar';
 import { createSystemGrammar } from './system-grammar';
 import { createFileGrammar } from './file-grammar';
@@ -64,6 +65,9 @@ export function createExtraGrammar(): GrammarRule[] {
 
     // "build me a clicker game": ready-made projects written with no model.
     ...createAppGrammar(),
+
+    // PC health, file intelligence, build diagnosis, release notes (read-only, 1.0.8).
+    ...createHealthGrammar(),
 
     // Reminders, alarms and the stopwatch.
     ...createTimeGrammar(),

@@ -68,6 +68,8 @@ import {
   createCatalogFileSkills,
   createCatalogGitSkills,
   createCatalogSystemSkills,
+  createPcHealthSkills,
+  createFileIntelSkills,
   createCatalogMediaSkills,
   createCatalogMakeSkills,
   createSelfTestSkills,
@@ -611,6 +613,9 @@ export function useAtlas(
     skills.registerMany(createCatalogSkills(platform, skills));
     skills.registerMany(createCatalogFileSkills(platform, memory));
     skills.registerMany(createCatalogSystemSkills(platform));
+    // 1.0.8: read-only PC health (metrics, errors, software, drivers, report) and file intelligence.
+    skills.registerMany(createPcHealthSkills(platform));
+    skills.registerMany(createFileIntelSkills(platform));
     skills.registerMany(createCatalogMediaSkills(platform, memory));
     skills.registerMany(createCatalogMakeSkills(platform, memory));
     skills.registerMany(createClipboardHistorySkills({ platform, history: clipHistory, isEnabled: () => clipEnabled.current }));

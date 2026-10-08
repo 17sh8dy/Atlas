@@ -46,6 +46,8 @@ use windows::Win32::UI::Accessibility::{
     IUIAutomationInvokePattern, IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern,
     IUIAutomationTextPattern, IUIAutomationValuePattern, TreeScope_Children, UIA_TextPatternId, UIA_ExpandCollapsePatternId,
     UIA_InvokePatternId, UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
+    IUIAutomationScrollPattern, UIA_ScrollPatternId, ScrollAmount_NoAmount, ScrollAmount_SmallDecrement,
+    ScrollAmount_SmallIncrement,
 };
 
 use crate::window::resolve_hwnd;
@@ -376,6 +378,166 @@ pub async fn uia_focus(window_id: String, path: Vec<i32>) -> Result<bool, String
         let hwnd = resolve_hwnd(&window_id)?;
         let element = resolve_path(&ui, hwnd, &path)?;
         unsafe { element.SetFocus() }.map_err(|e| e.message())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| format!("The UI Automation task failed: {e}"))?
+}
+
+
+// ---- background ("virtual") interaction: nothing here moves the cursor or takes focus ------------
+//
+// 1.0.8. These three are what the keyboard-and-mouse tools try FIRST when a window is named:
+// they act on a control through UI Automation patterns, so the person's real mouse stays where it
+// is and the window in front stays in front. Anything a control does not support is reported as
+// `UNSUPPORTED:<why>` — a sentence the renderer shows — and NEVER worked around here: the choice to
+// fall back to the real mouse and keyboard is the person's, asked in words, never made quietly.
+//
+// The same guard as every other action applies: a permission screen, a protected desktop or a window
+// running above Atlas is refused (`BLOCKED:…`), not "supported". Nothing here reads a password.
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UiaCapabilities {
+    pub name: String,
+    pub role: String,
+    pub enabled: bool,
+    pub offscreen: bool,
+    pub password: bool,
+    pub invoke: bool,
+    pub toggle: bool,
+    pub select: bool,
+    pub expand: bool,
+    pub value: bool,
+    pub value_read_only: bool,
+    pub scroll: bool,
+}
+
+/// What can be done to this control without the mouse or keyboard. Reads only.
+#[tauri::command]
+pub async fn uia_capabilities(window_id: String, path: Vec<i32>) -> Result<UiaCapabilities, String> {
+    crate::halt::global().check()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _com = ComGuard::new()?;
+        let ui = automation()?;
+        let hwnd = resolve_hwnd(&window_id)?;
+        let el = resolve_path(&ui, hwnd, &path)?;
+        let value_pattern = unsafe { el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }.ok();
+        Ok(UiaCapabilities {
+            name: unsafe { el.CurrentName() }.map(|b| b.to_string()).unwrap_or_default(),
+            role: unsafe { el.CurrentLocalizedControlType() }.map(|b| b.to_string()).unwrap_or_default(),
+            enabled: unsafe { el.CurrentIsEnabled() }.map(|b| b.as_bool()).unwrap_or(true),
+            offscreen: unsafe { el.CurrentIsOffscreen() }.map(|b| b.as_bool()).unwrap_or(false),
+            // Unknown counts as a password: never treat an unreadable control as safe to type into.
+            password: unsafe { el.CurrentIsPassword() }.map(|b| b.as_bool()).unwrap_or(true),
+            invoke: unsafe { el.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) }.is_ok(),
+            toggle: unsafe { el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) }.is_ok(),
+            select: unsafe { el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId) }.is_ok(),
+            expand: unsafe { el.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId) }.is_ok(),
+            value: value_pattern.is_some(),
+            value_read_only: value_pattern
+                .as_ref()
+                .map(|p| unsafe { p.CurrentIsReadOnly() }.map(|b| b.as_bool()).unwrap_or(true))
+                .unwrap_or(false),
+            scroll: unsafe { el.GetCurrentPatternAs::<IUIAutomationScrollPattern>(UIA_ScrollPatternId) }.is_ok(),
+        })
+    })
+    .await
+    .map_err(|e| format!("The UI Automation task failed: {e}"))?
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiaTyped {
+    pub chars_before: usize,
+    pub chars_after: usize,
+    /// The control now ends with exactly what was added (read back from the control itself).
+    pub verified: bool,
+}
+
+/// Most that can be added in one background typing call.
+const MAX_APPEND_CHARS: usize = 4_000;
+
+/// Add text to the end of a text control, in the background, then read the control back to check.
+/// Replaces nothing the person typed: the new value is the old value plus the text.
+#[tauri::command]
+pub async fn uia_append_value(window_id: String, path: Vec<i32>, text: String) -> Result<UiaTyped, String> {
+    crate::halt::global().check()?;
+    crate::input_guard::check_window_id(&window_id)?;
+    if text.is_empty() {
+        return Err("There is nothing to type.".into());
+    }
+    if text.chars().count() > MAX_APPEND_CHARS {
+        return Err(format!("UNSUPPORTED:That is more than I add to a control in the background ({MAX_APPEND_CHARS} characters)."));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let _com = ComGuard::new()?;
+        let ui = automation()?;
+        let hwnd = resolve_hwnd(&window_id)?;
+        let el = resolve_path(&ui, hwnd, &path)?;
+        if !unsafe { el.CurrentIsEnabled() }.map(|b| b.as_bool()).unwrap_or(false) {
+            return Err("UNSUPPORTED:That control is greyed out.".to_string());
+        }
+        if unsafe { el.CurrentIsPassword() }.map(|b| b.as_bool()).unwrap_or(true) {
+            return Err("UNSUPPORTED:That is a password field (or one I cannot tell about), and I never type into those in the background.".to_string());
+        }
+        let pattern = unsafe { el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
+            .map_err(|_| "UNSUPPORTED:That control does not accept text without the keyboard.".to_string())?;
+        if unsafe { pattern.CurrentIsReadOnly() }.map(|b| b.as_bool()).unwrap_or(true) {
+            return Err("UNSUPPORTED:That control is read-only.".to_string());
+        }
+        let before = unsafe { pattern.CurrentValue() }.map(|b| b.to_string()).unwrap_or_default();
+        let after_text = format!("{before}{text}");
+        unsafe { pattern.SetValue(&BSTR::from(after_text.clone())) }
+            .map_err(|e| format!("UNSUPPORTED:The control refused the text ({}).", e.message()))?;
+        let read_back = unsafe { pattern.CurrentValue() }.map(|b| b.to_string()).unwrap_or_default();
+        Ok(UiaTyped {
+            chars_before: before.chars().count(),
+            chars_after: read_back.chars().count(),
+            verified: read_back == after_text,
+        })
+    })
+    .await
+    .map_err(|e| format!("The UI Automation task failed: {e}"))?
+}
+
+/// Scroll a scrollable control, in the background. `vertical` > 0 scrolls down, < 0 up; the same
+/// for `horizontal` (right / left). Up to 30 small steps each way.
+#[tauri::command]
+pub async fn uia_scroll(window_id: String, path: Vec<i32>, vertical: i32, horizontal: i32) -> Result<bool, String> {
+    crate::halt::global().check()?;
+    crate::input_guard::check_window_id(&window_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _com = ComGuard::new()?;
+        let ui = automation()?;
+        let hwnd = resolve_hwnd(&window_id)?;
+        let el = resolve_path(&ui, hwnd, &path)?;
+        let pattern = unsafe { el.GetCurrentPatternAs::<IUIAutomationScrollPattern>(UIA_ScrollPatternId) }
+            .map_err(|_| "UNSUPPORTED:That area cannot be scrolled without the mouse wheel.".to_string())?;
+        let v = vertical.clamp(-30, 30);
+        let h = horizontal.clamp(-30, 30);
+        if v == 0 && h == 0 {
+            return Ok(true);
+        }
+        let can_v = unsafe { pattern.CurrentVerticallyScrollable() }.map(|b| b.as_bool()).unwrap_or(false);
+        let can_h = unsafe { pattern.CurrentHorizontallyScrollable() }.map(|b| b.as_bool()).unwrap_or(false);
+        if (v != 0 && !can_v) || (h != 0 && !can_h) {
+            return Err("UNSUPPORTED:That area does not scroll in that direction.".to_string());
+        }
+        let step = |n: i32| {
+            if n > 0 {
+                ScrollAmount_SmallIncrement
+            } else if n < 0 {
+                ScrollAmount_SmallDecrement
+            } else {
+                ScrollAmount_NoAmount
+            }
+        };
+        for _ in 0..v.abs().max(h.abs()) {
+            crate::halt::global().check()?;
+            unsafe { pattern.Scroll(step(h), step(v)) }
+                .map_err(|e| format!("UNSUPPORTED:The area refused to scroll ({}).", e.message()))?;
+        }
         Ok(true)
     })
     .await

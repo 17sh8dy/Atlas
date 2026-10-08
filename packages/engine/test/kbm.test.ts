@@ -254,7 +254,7 @@ test('dragging onto something consequential asks, and names the drop', async () 
 test('click_element clicks the centre of a harmless control it found', async () => {
   const m = machine();
   const { cards } = await run(m.platform, [
-    { skill: 'kbm.click_element', args: { control: 'play' } },
+    { skill: 'kbm.click_element', args: { control: 'play', mode: 'real' } },
   ]);
   assert.deepEqual(cards, []);
   assert.deepEqual(m.clicks, [{ x: 330, y: 120, button: 'left', double: false }]);

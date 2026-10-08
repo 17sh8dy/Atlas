@@ -58,6 +58,8 @@ winreg = "0.52"
 # so the binary stays small and there is nothing exotic to parse in an archive
 # that arrives from the internet.
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# pc_health.rs: read-only text out of a PDF. Pure Rust, no network, no scripting engine.
+lopdf = { version = "0.34", default-features = false, features = ["nom_parser"] }
 # screen.rs: encodes the raw BGRA buffer GDI hands back into PNG. GDI capture
 # is real, bug-prone work the ecosystem already solved correctly; writing a
 # PNG encoder by hand for this would be new bugs for no new capability.

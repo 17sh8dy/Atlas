@@ -21,6 +21,15 @@
  * exactly as it does in `input.hotkey`: it closes the foreground application.
  *
  * Nothing here can run a command. It has no argument that reaches a shell.
+ *
+ * ── Two ways to act: the background first (1.0.8) ───────────────────────────
+ * A call that names a window or a control — `kbm.click_element`, `kbm.type_text` with a `control`,
+ * `kbm.scroll` with a `window` — is done in the BACKGROUND whenever the app supports it: through the
+ * window's own accessibility interface, so the person's cursor stays put and the window in front stays
+ * in front. When the app can't do it that way, Atlas says why and ASKS before using the real mouse and
+ * keyboard (`background-input.ts`); `mode: 'virtual'` never falls back and `mode: 'real'` goes
+ * straight to the real ones. Coordinates (`kbm.click`), bare keys and hotkeys, and text with no
+ * target are real input by their nature, and are described that way.
  */
 
 import type {
@@ -45,6 +54,7 @@ import {
 import { liveWindows, resolveWindow } from '../text/windows';
 import { findControlByName } from './uia-skills';
 import { performInput } from './input-verify';
+import { MODE_PARAM, backgroundFirst, modeOf, type VirtualOutcome } from './background-input';
 
 const NEEDS = ['input'] as const;
 const ICON = '🖱️';
@@ -217,7 +227,8 @@ export function createKbmSkills(platform: Platform): Skill[] {
     label: 'Scroll',
     icon: ICON,
     domain: 'system',
-    description: 'Scroll the mouse wheel. Positive scrolls up, negative scrolls down.',
+    description:
+      'Scroll. Positive scrolls up, negative scrolls down. With a `window` and/or `control` it scrolls that area in the background (your mouse and the window in front are not touched), and asks before using the real mouse wheel if the app can\'t; with neither it turns the real mouse wheel over whatever is under the cursor.',
     needs: NEEDS,
     risk: 'safe',
     params: {
@@ -226,11 +237,53 @@ export function createKbmSkills(platform: Platform): Skill[] {
         default: -3,
         description: 'notches; positive is up, negative is down',
       },
+      window: { type: 'string', required: false, description: 'the window to scroll in the background' },
+      control: { type: 'string', required: false, description: 'the list, page or pane by name (default: the whole window)' },
+      mode: MODE_PARAM,
     },
-    async run(args) {
-      const ok = await platform.mouseScroll?.(Number(args.amount ?? -3));
-      if (!ok) return { ok: false, error: "I couldn't scroll." };
-      return { ok: true, message: 'Scrolled.' };
+    async run(args, ctx) {
+      const amount = Number(args.amount ?? -3);
+      const realScroll = async () => {
+        const ok = await platform.mouseScroll?.(amount);
+        if (!ok) return { ok: false as const, error: "I couldn't scroll." };
+        return { ok: true as const, message: 'Scrolled.' };
+      };
+      // No target named: this has always been the real wheel, and still is.
+      if (!args.window && !args.control) return realScroll();
+
+      const win = await targetWindow(args.window);
+      if ('error' in win) return { ok: false, error: win.error };
+      let path: number[] = [];
+      let what = win.title;
+      let over = { x: Math.round(win.x + win.width / 2), y: Math.round(win.y + win.height / 2) };
+      if (args.control) {
+        const found = await resolveElement(args);
+        if ('error' in found) return { ok: false, error: found.error };
+        path = found.node.path;
+        what = `“${found.node.name}”`;
+        over = found.at;
+      }
+      return backgroundFirst({
+        mode: modeOf(args.mode),
+        ctx,
+        what: `scroll ${what}`,
+        windowTitle: win.title,
+        realEffect: `move your cursor over ${what} and turn the mouse wheel`,
+        async virtual(): Promise<VirtualOutcome> {
+          if (!platform.uiaCapabilities || !platform.uiaScroll) return { kind: 'unsupported', reason: 'this build can’t scroll without the mouse wheel' };
+          const caps = await platform.uiaCapabilities(win.id, path);
+          if (!caps.scroll) {
+            return { kind: 'unsupported', reason: `${what} can’t be scrolled without the mouse wheel${args.control ? '' : ' — name a list or pane to scroll'}` };
+          }
+          // Skill notches are positive-up; the accessibility interface is positive-down.
+          await platform.uiaScroll(win.id, path, -amount, 0);
+          return { kind: 'done', message: `Scrolled ${what} ${amount < 0 ? 'down' : 'up'} ${Math.abs(amount)}.`, data: { input: 'sent' } };
+        },
+        real: async () => {
+          await platform.moveMouse?.(over.x, over.y);
+          return realScroll();
+        },
+      });
     },
   });
 
@@ -354,7 +407,7 @@ export function createKbmSkills(platform: Platform): Skill[] {
     icon: ICON,
     domain: 'system',
     description:
-      'Find a control by its name in a window (the active one by default) and click its centre with the mouse. Checked first, like any click.',
+      'Find a control by its name in a window (the active one by default) and press it. By default this is done in the background through the window\'s accessibility interface, without moving your mouse or changing the window in front; if the app does not support that, Atlas says why and asks before using the real mouse to click its centre. Checked first, like any click.',
     needs: ['input', 'ui-automation', 'windows'],
     risk: 'safe',
     params: {
@@ -363,7 +416,8 @@ export function createKbmSkills(platform: Platform): Skill[] {
         type: 'string',
         description: 'the window, by title or app name — omit for the active window',
       },
-      double: { type: 'boolean', default: false, description: 'double-click instead' },
+      double: { type: 'boolean', default: false, description: 'double-click instead (needs the real mouse)' },
+      mode: MODE_PARAM,
     },
     async assess(args): Promise<SkillAssessment> {
       const found = await resolveElement(args);
@@ -382,17 +436,38 @@ export function createKbmSkills(platform: Platform): Skill[] {
         detail: `I checked what it does before clicking: ${verdict.reason}.`,
       };
     },
-    async run(args) {
+    async run(args, ctx) {
       const found = await resolveElement(args);
       if ('error' in found) return { ok: false, error: found.error };
-      return performInput({
-        platform,
-        label: `Clicked “${found.node.name}” in ${found.win.title}`,
-        failure: "I couldn't click there.",
-        send: () =>
-          platform.mouseClick?.(found.at.x, found.at.y, 'left', args.double === true) as Promise<
-            boolean | undefined
-          >,
+      const double = args.double === true;
+      const label = `“${found.node.name}”`;
+      return backgroundFirst({
+        mode: modeOf(args.mode),
+        ctx,
+        what: `press ${label}`,
+        windowTitle: found.win.title,
+        realEffect: `move your cursor onto ${label} and ${double ? 'double-click' : 'click'} it`,
+        async virtual(): Promise<VirtualOutcome> {
+          if (double) return { kind: 'unsupported', reason: 'a double-click needs the real mouse' };
+          if (!platform.uiaCapabilities || !platform.uiaInvoke) {
+            return { kind: 'unsupported', reason: 'this build can’t check what that control supports' };
+          }
+          const caps = await platform.uiaCapabilities(found.win.id, found.node.path);
+          if (caps.offscreen) return { kind: 'unsupported', reason: `${label} is scrolled out of view` };
+          if (!caps.invoke && !caps.toggle && !caps.select) {
+            return { kind: 'unsupported', reason: `${label} (${caps.role || found.node.role}) can’t be pressed without the mouse` };
+          }
+          const ok = await platform.uiaInvoke(found.win.id, found.node.path);
+          if (!ok) return { kind: 'failed', error: `The app didn’t accept the press on ${label}.` };
+          return { kind: 'done', message: `Pressed ${label} in ${found.win.title}.`, data: { input: 'sent', control: found.node.name } };
+        },
+        real: () =>
+          performInput({
+            platform,
+            label: `Clicked ${label} in ${found.win.title}`,
+            failure: "I couldn't click there.",
+            send: () => platform.mouseClick?.(found.at.x, found.at.y, 'left', double) as Promise<boolean | undefined>,
+          }),
       });
     },
   });
@@ -464,17 +539,75 @@ export function createKbmSkills(platform: Platform): Skill[] {
     icon: '⌨️',
     domain: 'system',
     description:
-      'Type text into whatever currently has keyboard focus. A line break in the text is an Enter and is checked like one.',
+      'Type text. With a `control` (and optionally a `window`) the text is added to that field in the background — your keyboard, mouse and the window in front are not touched; if the app can\'t take text that way, Atlas says why and asks before using the real keyboard. With no control it types into whatever currently has keyboard focus, using the real keyboard. A line break in the text is an Enter and is checked like one.',
     needs: NEEDS,
     risk: 'safe',
-    params: { text: { type: 'string', required: true, description: 'the text to type' } },
+    params: {
+      text: { type: 'string', required: true, description: 'the text to type' },
+      control: { type: 'string', required: false, description: 'the text field by name, to type into it in the background' },
+      window: { type: 'string', required: false, description: 'the window the field is in (default: the active window)' },
+      mode: MODE_PARAM,
+    },
     assess: async (args) =>
-      /[\r\n]/.test(String(args.text ?? ''))
+      // A named field is typed into in the background, where a line break is just a character it
+      // either accepts or doesn't; the Enter check belongs to the real keyboard, below.
+      /[\r\n]/.test(String(args.text ?? '')) && !(args.control && modeOf(args.mode) !== 'real')
         ? assessFocused(platform, 'Enter')
         : { kind: 'routine' },
-    async run(args) {
+    async run(args, ctx) {
       const text = String(args.text ?? '');
       if (!text) return { ok: false, error: "There's nothing to type." };
+      if (args.control) {
+        const found = await resolveElement(args);
+        if ('error' in found) return { ok: false, error: found.error };
+        const where = `“${found.node.name}” in ${found.win.title}`;
+        return backgroundFirst({
+          mode: modeOf(args.mode),
+          ctx,
+          what: `type into ${where}`,
+          windowTitle: found.win.title,
+          realEffect: `bring ${found.win.title} to the front, click ${found.node.name ? `“${found.node.name}”` : 'the field'} and type with your keyboard`,
+          async virtual(): Promise<VirtualOutcome> {
+            if (/[\r\n]/.test(text)) return { kind: 'unsupported', reason: 'a line break needs the Enter key' };
+            if (!platform.uiaCapabilities || !platform.uiaAppendValue) {
+              return { kind: 'unsupported', reason: 'this build can’t type into a field without the keyboard' };
+            }
+            const caps = await platform.uiaCapabilities(found.win.id, found.node.path);
+            if (caps.password) return { kind: 'unsupported', reason: 'that is a password field (or one I can’t tell about), and I never type into those in the background' };
+            if (!caps.value) return { kind: 'unsupported', reason: `${where} doesn’t accept text without the keyboard` };
+            if (caps.valueReadOnly) return { kind: 'unsupported', reason: `${where} is read-only` };
+            const typed = await platform.uiaAppendValue(found.win.id, found.node.path, text);
+            if (!typed.verified) {
+              return { kind: 'failed', error: `I added the text to ${where}, but reading the field back doesn’t show exactly that — I’m not calling it done.` };
+            }
+            return {
+              kind: 'done',
+              message: `Typed ${text.length} character${text.length === 1 ? '' : 's'} into ${where} — verified by reading the field back.`,
+              data: { input: 'verified', charsBefore: typed.charsBefore, charsAfter: typed.charsAfter },
+            };
+          },
+          async real() {
+            // The real keyboard types into whatever has focus, so first put focus on the field …
+            await platform.focusWindow?.(found.win.id);
+            await platform.uiaFocus?.(found.win.id, found.node.path);
+            // … and a line break is an Enter, judged by the control that now has focus.
+            if (/[\r\n]/.test(text)) {
+              const verdict = await assessFocused(platform, 'Enter');
+              if (verdict.kind === 'refuse') return { ok: false, error: verdict.message };
+              if (verdict.kind === 'ask' && !(await ctx.confirm(verdict.question, verdict.detail))) {
+                return { ok: false, error: 'You said no, so I left it alone — nothing was typed.' };
+              }
+            }
+            return performInput({
+              platform,
+              label: (secret) => (secret ? `Typed ${text.length} characters (hidden — password field)` : `Typed “${text.length > 60 ? `${text.slice(0, 57)}…` : text}”`),
+              failure: "I couldn't type that.",
+              typed: text,
+              send: () => platform.typeText?.(text) as Promise<boolean | undefined>,
+            });
+          },
+        });
+      }
       return performInput({
         platform,
         label: (secret) =>
