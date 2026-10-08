@@ -470,3 +470,7 @@ static (is there something to open, does every file the page loads exist, do JSO
 package.json point at real files) and runs nothing; it does not prove the program works and says so. All
 ready-made templates are built onto a real folder and checked by `builder.test.ts`. Not yet (planned 1.0.9):
 request a change → targeted edit → rebuild → verify again. Hosted backends and cloud deployment stay out of scope.
+
+`uia.typeInto` follows the same rule: it sets the field's value in the background, and when the control can't
+take text that way it now **asks** before focusing the field and typing with the real keyboard (it used to do that
+silently). Same `mode` argument: `virtual` never falls back, `real` goes straight to the keyboard.

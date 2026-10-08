@@ -30,7 +30,8 @@
  * validated actions.
  */
 
-import type { Platform, ResultRow, Skill, SkillArgs, UiaNode, WindowEntry } from '@atlas/core';
+import { InputBlockedError, type Platform, type ResultRow, type Skill, type SkillArgs, type UiaNode, type WindowEntry } from '@atlas/core';
+import { MODE_PARAM, backgroundFirst, modeOf, type VirtualOutcome } from './background-input';
 import { resolveWindow, liveWindows } from '../text/windows';
 import { assessControl } from '../safety/ui-consequence';
 import { probeTarget } from '../safety/ui-target';
@@ -455,7 +456,7 @@ export function createUiaSkills(platform: Platform): Skill[] {
     icon: '🧩',
     domain: 'system',
     description:
-      'Type text into a field, by name or by a path from uia.tree. Sets the value directly when the control supports it; otherwise focuses it and types, one keystroke at a time.',
+      'Type text into a field, by name or by a path from uia.tree. Sets the value directly through the window\'s accessibility interface when the control supports it — in the background, without touching your mouse, keyboard or the window in front. If it does not, Atlas says why and asks before focusing the field and typing with your real keyboard.',
     needs: ['ui-automation', 'window-control', 'input'],
     risk: 'safe',
     examples: ['type "hello" into the search field in the notepad window'],
@@ -464,6 +465,7 @@ export function createUiaSkills(platform: Platform): Skill[] {
       control: CONTROL_PARAM,
       path: { type: 'string', description: 'the control\'s path from uia.tree' },
       text: { type: 'string', required: true, description: 'the text to type' },
+      mode: MODE_PARAM,
     },
     async run(args, ctx) {
       const target = await targetWindowId(String(args.window ?? ''), ctx, 'uia.typeInto', args);
@@ -474,14 +476,33 @@ export function createUiaSkills(platform: Platform): Skill[] {
       const path = at.path;
       const text = String(args.text ?? '');
 
-      const direct = await platform.uiaSetValue?.(target.id, path, text);
-      if (direct) return { ok: true, message: `Typed into ${target.title}.` };
-
-      const focused = await platform.uiaFocus?.(target.id, path);
-      if (!focused) return { ok: false, error: "I couldn't reach that control at all." };
-      const typed = await platform.typeText?.(text);
-      if (!typed) return { ok: false, error: 'I focused it but the text failed to send.' };
-      return { ok: true, message: `Typed into ${target.title}.` };
+      return backgroundFirst({
+        mode: modeOf(args.mode),
+        ctx,
+        what: `type into that field in ${target.title}`,
+        windowTitle: target.title,
+        realEffect: `bring ${target.title} to the front, click into the field and type with your keyboard`,
+        async virtual(): Promise<VirtualOutcome> {
+          let direct: boolean | undefined;
+          try {
+            direct = await platform.uiaSetValue?.(target.id, path, text);
+          } catch (err) {
+            // A refusal (permission screen, window above Atlas) must stay a refusal.
+            if (err instanceof InputBlockedError) throw err;
+            return { kind: 'unsupported', reason: (err instanceof Error ? err.message : String(err)).replace(/^UNSUPPORTED:\s*/, '').replace(/\.$/, '') };
+          }
+          return direct
+            ? { kind: 'done', message: `Typed into ${target.title}.`, data: { input: 'sent' } }
+            : { kind: 'unsupported', reason: 'that control does not accept text without the keyboard' };
+        },
+        async real() {
+          const focused = await platform.uiaFocus?.(target.id, path);
+          if (!focused) return { ok: false, error: "I couldn't reach that control at all." };
+          const typed = await platform.typeText?.(text);
+          if (!typed) return { ok: false, error: 'I focused it but the text failed to send.' };
+          return { ok: true, message: `Typed into ${target.title}.` };
+        },
+      });
     },
   });
 

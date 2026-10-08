@@ -4414,8 +4414,9 @@ test('uia: setValue is tried first, and reported as typing either way', async ()
   assert.deepEqual(h.journal.typed, []);
 });
 
-test('uia: typeInto falls back to focus-plus-keystrokes when setValue fails', async () => {
+test('uia: when setValue fails, typeInto ASKS before using the real keyboard — never switches silently', async () => {
   const h = harness();
+  h.confirmAnswer = true;
   const outcome = await h.engine.skills.invoke(
     'uia.typeInto',
     { window: 'notepad', path: '1', text: 'hello' },
@@ -4423,8 +4424,36 @@ test('uia: typeInto falls back to focus-plus-keystrokes when setValue fails', as
   );
   assert.isTrue(outcome.ok);
   assert.deepEqual(h.journal.uiaSetValues, [{ id: '1001', path: [1], value: 'hello' }]);
+  // The question came first, named the reason, and only then did the real keyboard run.
+  assert.lengthOf(h.confirmsAsked, 1);
+  assert.match(h.confirmsAsked[0]!, /Use your real mouse and keyboard to type into that field/);
+  assert.match(String(h.confirmDetails[0]), /does not accept text without the keyboard/);
   assert.deepEqual(h.journal.uiaFocuses, [{ id: '1001', path: [1] }]);
   assert.deepEqual(h.journal.typed, ['hello']);
+});
+
+test('uia: a "no" to the real keyboard leaves everything alone, and mode virtual never asks', async () => {
+  const h = harness();
+  h.confirmAnswer = false;
+  const declined = await h.engine.skills.invoke(
+    'uia.typeInto',
+    { window: 'notepad', path: '1', text: 'hello' },
+    io(h),
+  );
+  assert.isFalse(declined.ok);
+  assert.deepEqual(h.journal.uiaFocuses, []);
+  assert.deepEqual(h.journal.typed, []);
+
+  const quiet = harness();
+  quiet.confirmAnswer = true;
+  const virtualOnly = await quiet.engine.skills.invoke(
+    'uia.typeInto',
+    { window: 'notepad', path: '1', text: 'hello', mode: 'virtual' },
+    io(quiet),
+  );
+  assert.isFalse(virtualOnly.ok);
+  assert.lengthOf(quiet.confirmsAsked, 0);
+  assert.deepEqual(quiet.journal.typed, []);
 });
 
 test('uia: expand and collapse both resolve the window and act immediately', async () => {
