@@ -420,3 +420,53 @@ Also in 1.0.8: "what's your name?" answers with the name only (the full introduc
 short definition questions ("what is a lagoon?") are asked of the model for **three sentences** with the other
 meanings named, because on a CPU-only local model the length of the reply *is* the wait; and the sign-in client
 polls straight away when Atlas regains focus after you approve it in the browser.
+
+## 1.0.8 — PC health, file intelligence, developer tools, background input
+
+Every tool below that only looks is `safe` and genuinely read-only: the native side (`pc_health.rs`) has
+no write path, its PowerShell reads are fixed scripts that take their inputs through environment
+variables (never pasted into the script), paths go through Allowed Folders, the registry reader is
+HKCU/HKLM only with the security hives refused and password-like values hidden, and every command checks
+the emergency stop first. Text that comes from outside (event-log messages, documents, build output) is
+shown as data and never acted on. Tests: `health-tools.test.ts`, `virtual-input.test.ts`,
+`workflow-report.test.ts`, `builder.test.ts`, `notify.test.ts`.
+
+| Skill | What it does |
+|---|---|
+| `system.metrics` | live CPU, memory, GPU, disks, network speed, and the programs using the most CPU / memory (one ~1 s sample, said to be one reading) |
+| `system.errors` | critical and error events from the System and Application logs, grouped by source, last 1–168 h |
+| `system.software` | installed programs (name, version, publisher, size), filter by word, biggest first |
+| `system.drivers` | installed drivers by class, versions and dates, unsigned ones flagged |
+| `net.usage` | bytes sent / received per adapter and the rate right now — counters only |
+| `system.report` | **the evidence-based performance report**: every finding quotes its numbers; what could not be measured is listed; thresholds are fixed and tested; same readings → same report |
+| `files.verify` | what a file really is (from its first bytes) vs its extension, SHA-256, and Authenticode signature (who signed, is it trusted / changed since). Never runs the file |
+| `files.readDocument` | text of a PDF or .docx, or only the passages around a word. Scanned PDFs have no text (no OCR) and password-protected ones are refused |
+| `files.searchContent` | text *inside* files in a folder: text/code files (the `code.search` engine) plus PDF / Word documents (first 25) |
+| `files.mergeText` | join text files into ONE NEW file — never overwrites, originals untouched, exact list shown first, approval is for that plan |
+| `registry.read` | one registry key's values and sub-keys. There is no registry *write* tool and none is planned |
+| `build.diagnose` | runs the project's own build / test / lint / typecheck (confirm, like `build.run`) and explains a failure: file, line, first cause, hint, the code around it. `build.run` / `test.run` failures now carry the same "What went wrong" summary |
+| `git.releaseNotes` | release notes from commits since the last tag (or a tag you name), grouped Added / Fixed / Improved / Changed / Removed / Documentation / Internal |
+| `workflow.last` | the standard account of the last run: each step done / failed / declined / stopped / not run, what changed, what is left, where the results are. The transcript's step disclosure shows the same account |
+| `files.batchRename` (+ `dryRun`) | "preview renaming…" shows every change, asks nothing, changes nothing; the real run still shows the plan and asks |
+| `notify.send` (improved) | control characters stripped, long text cut and said so, a denial tells you where to turn notifications on |
+| `project.check` · `builder.status` | the builder's **check** step and "what did you build" — see below |
+
+### Background keyboard and mouse (`kbm.*`)
+
+`kbm.click_element`, `kbm.type_text` (with a `control`) and `kbm.scroll` (with a `window`/`control`) now try the
+**background route first**: they act through the window's accessibility interface, so your cursor stays put,
+the keyboard is not used and the window in front stays in front. If the app can't do it that way Atlas says
+why and **asks** before using the real mouse and keyboard — never a silent fall-back. `mode: virtual` never
+falls back; `mode: real` goes straight to the real ones. A permission screen, protected desktop or window
+running above Atlas is refused (nothing is offered), and passwords are never typed into in the background.
+Coordinates (`kbm.click`), bare keys, hotkeys and untargeted text are real input by nature and say so.
+Native: `uia_capabilities` (read), `uia_append_value` (adds text, reads it back to verify), `uia_scroll`.
+
+### Builder foundation: describe → build → check → open
+
+"Build me a clicker game in D:\Dev\Clicker" is now `scaffold → (install) → project.check → open`; a request for
+something no template covers, in a named folder, is `developer agent → project.check → open`. The check is
+static (is there something to open, does every file the page loads exist, do JSON files parse, does
+package.json point at real files) and runs nothing; it does not prove the program works and says so. All
+ready-made templates are built onto a real folder and checked by `builder.test.ts`. Not yet (planned 1.0.9):
+request a change → targeted edit → rebuild → verify again. Hosted backends and cloud deployment stay out of scope.

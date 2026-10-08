@@ -2284,9 +2284,15 @@ On branch `v1.0.8`, not pushed, not built. The 1.0.8 build and release are for t
   `CATALOG_BUDGET_CHARS` and ranks it by the request, so a small context window can no longer hide tools.
   `provider-invariance.test.ts` runs one engine under no/local/cloud/custom/failing models and pins identical tools,
   prompts, confirm gates and refusals. Rule: no branch on provider or `isLocal` outside the intelligence layer.
-- **Next, if wanted:** a first batch of read-only and everyday tools from `TOOL-CATALOG.md` (firewall rules, permissions,
-  signature check, network usage, registry read, notifications, services enable/disable, region screenshot, copy name,
-  batch copy, merge text files). Several need new native code and a real-app check.
+- **Built (2026-10-08):** the batch Brandon picked — PC health (live metrics, GPU, Windows errors, software, drivers,
+  network usage, the evidence-based report), `files.verify` / `files.readDocument` / `files.searchContent` /
+  `files.mergeText` / `registry.read`, `build.diagnose` and `git.releaseNotes`, the standard run report
+  (`workflow.last`), bulk-rename preview, notification tidy-up, **background keyboard and mouse** (accessibility
+  first, asks before the real ones) and the builder's **check** step. Details and the safety rules are in
+  `TOOL-CATALOG.md` ("1.0.8 — PC health…"). Still to do from the earlier list: firewall rules, permissions,
+  services enable/disable, region screenshot (all change the machine or need new native work — separate decisions).
+- **1.0.9 target:** the full builder loop — describe → build → preview → request changes → targeted edits → rebuild →
+  verify. The foundation (`project.check`, `builder.status`, the remembered build) is in 1.0.8.
 
 ## Deliberately not doing
 
