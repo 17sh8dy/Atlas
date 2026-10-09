@@ -113,8 +113,8 @@ export function LocalModels({ platform, storage, localAi, activeId, onChange }: 
   return (
     <section>
       <SectionHeader icon={<Icons.Cpu className="text-primary h-4 w-4" />} title="Local Models">
-        Models that run on this PC through Ollama. Nothing is sent anywhere, and there is no account
-        or key.
+        Models that run on this PC. Nothing is sent anywhere, and there is no account or key.
+        Ollama is the only one tested so far, but any local model server can connect.
       </SectionHeader>
 
       <Surface className="flex items-center justify-between gap-4 p-4">

@@ -24,6 +24,9 @@ import type { Platform, WindowsCompatibility } from '@atlas/core';
 import { AtlasMark, Button, Icons, Switch } from '@atlas/ui';
 import type { Updater } from '../../update/useUpdater';
 
+/** Where ideas and feedback go. */
+export const DISCORD_URL = 'https://discord.gg/XBhER9Z6EB';
+
 /** Nova Legal, where the ecosystem disclosure and every product's terms live. */
 export const NOVA_LEGAL_URL = 'https://nova-legal.shadylabs.workers.dev/';
 
@@ -199,6 +202,20 @@ export function About({
           </div>
         </section>
       )}
+
+      <p className="text-foreground-subtle px-1 text-[11px] leading-relaxed">
+        💡 <span className="text-foreground font-medium">Have an idea for Atlas?</span> A new feature,
+        an improvement, a change, or something completely new — we'd love to hear it. 🚀 Submit your
+        ideas in our{' '}
+        <button
+          type="button"
+          className="text-primary underline"
+          onClick={() => void platform.openUrl?.(DISCORD_URL)}
+        >
+          Discord
+        </button>{' '}
+        (discord.gg/XBhER9Z6EB). Your feedback helps shape the future of Atlas.
+      </p>
 
       {platform.id === 'tauri' && (
         <section className="border-border flex items-start gap-3 rounded-xl border px-4 py-3.5">
