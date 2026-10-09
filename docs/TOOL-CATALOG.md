@@ -468,8 +468,8 @@ Native: `uia_capabilities` (read), `uia_append_value` (adds text, reads it back 
 something no template covers, in a named folder, is `developer agent → project.check → open`. The check is
 static (is there something to open, does every file the page loads exist, do JSON files parse, does
 package.json point at real files) and runs nothing; it does not prove the program works and says so. All
-ready-made templates are built onto a real folder and checked by `builder.test.ts`. Not yet (planned 1.0.9):
-request a change → targeted edit → rebuild → verify again. Hosted backends and cloud deployment stay out of scope.
+ready-made templates are built onto a real folder and checked by `builder.test.ts`. The change loop arrived in 1.0.9 (below).
+Hosted backends and cloud deployment stay out of scope.
 
 `uia.typeInto` follows the same rule: it sets the field's value in the background, and when the control can't
 take text that way it now **asks** before focusing the field and typing with the real keyboard (it used to do that
@@ -479,3 +479,18 @@ Note on `files.verify`: the signature check is Windows' own (`Get-AuthenticodeSi
 trusted, Windows can contact the certificate authority to check the certificate has not been revoked, so that one
 check may make a small network request the way any Windows signature check does. Atlas sends nothing about the file
 itself, and never runs it.
+
+## 1.0.9 — the builder loop, assist tools, transactional workflows
+
+- `builder.change` (asks): snapshot of the project's text files to `.atlas-backup\change-<time>`, the developer agent makes only the
+  asked change, `project.check` runs again; the reply says what changed and whether it is *verified* (a build/test passed AND the check is
+  clean). Needs a model; says so plainly without one. `builder.revert` restores the snapshot and never deletes files the change added.
+  Phrasings: "make the buttons bigger", "add a shop to the game", "undo the last change to my game", "rebuild it", "preview it".
+- `atlas.selfAudit`, `workflow.dryRun`, `diagnostics.explainFailure`, `git.changeImpact`, `config.diff`, `knowledge.citeEvidence` - read-only
+  (see docs/ROADMAP.md 1.0.9 for what each does and what it cannot see). `text.pronounce` speaks a word, slowly, then spells it.
+- **Workflows** - `workflow.transaction`, `workflow.resume`, `workflow.rollback`, `workflow.history`. "Do these as one workflow: A, then B".
+  Validate first (an un-understood part or an unavailable tool refuses everything before step 1), one approval for the plan, then every step
+  through the normal executor so its own approval, content policy and execution mode still apply. A checkpoint is saved before and after each
+  step (`atlas.workflow.transactions`, last 30). On a failure Atlas offers to run the undo each finished step reported, newest first, and lists
+  the steps with no undo - those stay done. An interrupted run resumes from the last finished step; the step that was in flight is asked about,
+  never assumed done. "Verified" means the tool reported success, not that Atlas inspected the result. At most 15 steps.

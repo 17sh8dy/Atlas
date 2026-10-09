@@ -1,0 +1,8 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+New: after Atlas builds something, ask for a change - "make the buttons bigger", "add a shop to the game". It saves a copy first, changes only that, checks the project again, says whether it is verified, and "undo the last change" puts it back.
+New: run several steps as one workflow - "do these as one workflow: open Notepad, then open the calculator". Atlas checks every step first, asks once, saves progress as it goes, offers to undo finished steps if one fails, and can resume if it is interrupted.
+New: Atlas can audit its own tools, dry-run a request to show what it would do without doing it, explain a pasted error, show what your uncommitted changes affect, compare two config files (secrets never shown), and quote the passages of your files that answer a question.
+New: voice and chat can say and spell a word with no AI model - "how do you pronounce chicken".
+Improved: typing a single letter or random keys gets "what did you mean?" instead of a message about a missing model.
+Improved: a small reminder under the chat box that Atlas can make mistakes, and About now links to the Nova ecosystem disclosure and to our Discord for ideas.
+Improved: Local Models says any local model can connect (Ollama is the one tested).

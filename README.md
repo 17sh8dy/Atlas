@@ -129,6 +129,20 @@ reviewed in a diff.
 
 ## Where things stand
 
+**Version 1.0.9**: the builder loop and tools you can trust. After Atlas builds something you can say "make the
+buttons bigger" or "add a shop to the game": it saves a copy, makes only that change, checks the project again, says whether
+the change is verified, and "undo the last change" puts it back. Several steps can run as one **workflow**: every part is
+checked first, you approve the plan once (each step still asks as usual), progress is saved after every step, a failure offers
+to undo the finished steps that can be undone and names the ones that cannot, and an interrupted workflow can be resumed.
+New read-only tools audit Atlas's own tools, dry-run a request, explain a pasted error, show what an uncommitted change
+affects, compare two config files (secrets never shown) and quote the passages of your files that answer a question. Typing a
+lone letter or keyboard mash gets "what did you mean?" instead of a missing-model message, voice can pronounce and spell a
+word with no model, and About links to the full Nova ecosystem disclosure and the Discord for ideas.
+
+**Version 1.0.8**: Atlas looks after the PC and the project — "why is my PC slow", file checks and document reading,
+background mouse and keyboard that don't take over yours, project tools with a preview, backup and undo, documentation
+research with sources, and coding jobs sized to the model you run.
+
 **Version 1.0.7**: Atlas builds real things without a model — 17 ready-made games and tools
 (clicker, Snake, 2048, Minesweeper, budget, kanban and more), project starters for Unreal, Godot,
 Unity and Blender (it only checks they are installed; it never downloads or starts them), data-only
