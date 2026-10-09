@@ -94,7 +94,19 @@ export interface DocExtract {
   truncated: boolean;
 }
 
-const SIGNATURE = /^(?:(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|def|fn|pub\s+fn|public|static|func)\b[^\n]{3,140}|[A-Za-z_$][\w$.]*(?:<[^>\n]*>)?\([^)\n]{0,100}\)(?:\s*(?::|->|=>)\s*[\w<>[\]|?., ]+)?)$/;
+/**
+ * Page furniture, not documentation: the "Skip to main content" strip, site menus, "Help improve…" and "last modified"
+ * footers, "On this page" lists. Recognised by what they say, so a section made of them is never offered as an answer.
+ */
+export function isPageChrome(heading: string, text: string): boolean {
+  const start = text.trimStart().slice(0, 160);
+  if (/^(?:skip to|help improve|this page was last modified|table of contents|on this page|in this article|was this page helpful|found a problem|sign (?:in|up)|cookie|privacy|subscribe)\b/i.test(start)) return true;
+  if (/^(?:help improve|related (?:topics|pages)|see also|feedback|navigation|menu)$/i.test(heading.trim())) return true;
+  const nav = text.match(/\b(?:Skip to|See all|Sign in|Privacy Policy|Terms of (?:Use|Service)|Cookie|Newsletter|Follow us)\b/g);
+  return (nav?.length ?? 0) >= 3;
+}
+
+const SIGNATURE = /^(?:(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|def|fn|pub\s+fn|public|static|func)\b[^\n=]{3,140}|[A-Za-z_$][\w$.]*(?:<[^>\n]*>)?\([^)\n]{0,100}\)(?:\s*(?::|->|=>)\s*[\w<>[\]|?., ]+)?)$/;
 const VERSION_LINE = /\b(?:version|v\d|since|requires?|added in|introduced in|deprecated|removed in|breaking|minimum|supported|compatible|node(?:\.js)?\s*\d|python\s*\d|>=\s*\d)\b[^\n]{0,140}\d+\.\d+/i;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -137,7 +149,7 @@ export function extractDocs(page: Pick<WebPage, 'title' | 'url' | 'text'> & { li
       const text = s.body.join('\n');
       return { heading: s.heading, text, score: countTerms(s.heading, terms) * 3 + countTerms(text, terms) };
     })
-    .filter((s) => s.text.length > 0);
+    .filter((s) => s.text.length > 0 && !isPageChrome(s.heading, s.text));
   // With no usable question terms the opening of the page is the best guess.
   const ranked = terms.length ? [...scored].sort((a, b) => b.score - a.score) : scored;
   const picked = ranked.filter((s) => s.score > 0 || !terms.length).slice(0, opts.sections ?? 3).map((s) => ({ ...s, text: clip(s.text, 700) }));

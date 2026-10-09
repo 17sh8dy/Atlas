@@ -474,18 +474,28 @@ fn ip_is_blocked(ip: IpAddr) -> bool {
     }
 }
 
+/// What `check_target` found.
+#[derive(Debug, PartialEq, Eq)]
+enum Target {
+    Fine,
+    /// Local, private, or a name that points there.
+    Blocked,
+    /// The name does not exist (or the network cannot resolve it).
+    Unresolved,
+}
+
 /// `is_safe_fetch_target`, plus where the NAME actually points: a host called `intranet.example.com` that
-/// resolves to 10.0.0.5 is the LAN too. A name that does not resolve is not safe either.
-async fn target_is_safe(url: &str) -> bool {
+/// resolves to 10.0.0.5 is the LAN too. A name that does not resolve is not fetched either, and says so.
+async fn check_target(url: &str) -> Target {
     if !is_safe_fetch_target(url) {
-        return false;
+        return Target::Blocked;
     }
-    let Ok(parsed) = reqwest::Url::parse(url) else { return false };
+    let Ok(parsed) = reqwest::Url::parse(url) else { return Target::Blocked };
     let host = match host_of(&parsed) {
         Some(Host::Name(name)) => name,
         // An address was already judged by is_safe_fetch_target.
-        Some(Host::Ip(_)) => return true,
-        None => return false,
+        Some(Host::Ip(_)) => return Target::Fine,
+        None => return Target::Blocked,
     };
     let port = parsed.port_or_known_default().unwrap_or(443);
     tauri::async_runtime::spawn_blocking(move || {
@@ -493,13 +503,23 @@ async fn target_is_safe(url: &str) -> bool {
         match (host.as_str(), port).to_socket_addrs() {
             Ok(addrs) => {
                 let addrs: Vec<_> = addrs.collect();
-                !addrs.is_empty() && addrs.iter().all(|a| !ip_is_blocked(a.ip()))
+                if addrs.is_empty() {
+                    Target::Unresolved
+                } else if addrs.iter().all(|a| !ip_is_blocked(a.ip())) {
+                    Target::Fine
+                } else {
+                    Target::Blocked
+                }
             }
-            Err(_) => false,
+            Err(_) => Target::Unresolved,
         }
     })
     .await
-    .unwrap_or(false)
+    .unwrap_or(Target::Unresolved)
+}
+
+async fn target_is_safe(url: &str) -> bool {
+    check_target(url).await == Target::Fine
 }
 
 // ---- robots.txt ---------------------------------------------------------------------------------------
@@ -652,8 +672,10 @@ async fn fetch_text_page(url: &str, opts: FetchOpts) -> Result<WebPageDto, Strin
     let client = fetch_client()?;
     let mut hops = 0usize;
     let resp = loop {
-        if !target_is_safe(current.as_str()).await {
-            return Err("That address isn't something I'll fetch.".into());
+        match check_target(current.as_str()).await {
+            Target::Fine => {}
+            Target::Blocked => return Err("That address isn't something I'll fetch.".into()),
+            Target::Unresolved => return Err("I couldn't find that website — is the address right?".into()),
         }
         if opts.respect_robots && !robots_permits(&client, &current).await {
             return Err("That site's robots.txt asks automated tools not to read that page, so I didn't.".into());
@@ -1214,8 +1236,8 @@ r.start()</code></pre>
         assert!(ip_is_blocked("fe80::1".parse().unwrap()));
         assert!(!ip_is_blocked("93.184.216.34".parse().unwrap()));
         // A name that does not resolve is not a target.
-        assert!(!tauri::async_runtime::block_on(target_is_safe("https://this-name-does-not-exist.invalid/")));
-        assert!(!tauri::async_runtime::block_on(target_is_safe("http://localhost:3000/")));
+        assert_eq!(tauri::async_runtime::block_on(check_target("https://this-name-does-not-exist.invalid/")), Target::Unresolved);
+        assert_eq!(tauri::async_runtime::block_on(check_target("http://localhost:3000/")), Target::Blocked);
     }
 
     #[test]

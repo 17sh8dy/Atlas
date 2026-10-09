@@ -33,7 +33,9 @@ const RULES: Array<[string, RegExp]> = [
   ['addresses-the-ai', /\b(?:attention|note\s+to|message\s+for|instructions?\s+for|if\s+you\s+are)\s+(?:the\s+|an?\s+)?(?:ai|llm|language\s+model|assistant|agent|chatbot|copilot)\b/i],
   ['run-a-command', /\b(?:run|execute|invoke|paste|type)\b[^.\n]{0,30}\b(?:powershell|cmd(?:\.exe)?|command\s+prompt|shell|terminal|bash|script)\b[^.\n]{0,60}(?:remove-item|rm\s+-rf|del\s+\/|format\s+[a-z]:|invoke-webrequest|iex\b|curl\b|wget\b|net\s+user|reg\s+(?:add|delete)|schtasks|certutil|bitsadmin|\|\s*(?:sh|bash|iex))/i],
   ['destructive', /\b(?:delete|erase|wipe|remove|format|destroy)\b\s+(?:all|every|the\s+entire|your)\s+(?:files?|folders?|data|drive|disk|documents|projects?|system)/i],
-  ['exfiltrate', /\b(?:send|upload|post|email|mail|forward|transmit|exfiltrate|copy)\b[^.\n]{0,40}\b(?:files?|contents?|passwords?|credentials?|tokens?|secrets?|api\s*keys?|\.env|private\s+keys?|ssh|cookies|history|clipboard)\b[^\n]{0,40}\b(?:to|at|via|into)\b/i],
+  // Secrets going somewhere. (Ordinary API documentation sends "files" and "contents" to endpoints all day; only
+  // passwords, keys, tokens, cookies and the like — or files/contents sent to a named address — count.)
+  ['exfiltrate', /\b(?:send|upload|post|email|mail|forward|transmit|exfiltrate|copy|paste)\b[^.\n]{0,40}\b(?:passwords?|credentials?|tokens?|secrets?|api\s*keys?|\.env|private\s+keys?|ssh\s+keys?|cookies|browser\s+history)\b[^\n]{0,60}\b(?:to|at|via|into)\b|\b(?:send|upload|post|email|forward|transmit|exfiltrate)\b[^\n]{0,30}\b(?:the\s+|your\s+|all\s+)?(?:files?|contents?|documents?)\b[^\n]{0,50}\b(?:to|at)\s+(?:https?:\/\/|[\w.+-]+@)/i],
   ['reveal-secrets', /\b(?:reveal|print|show|output|leak|display|repeat)\b[^.\n]{0,30}\b(?:your|the)\s+(?:system\s+prompt|instructions|api\s*key|secrets?|credentials?|hidden\s+prompt)/i],
   ['skip-approval', /\b(?:without|skip|bypass|don'?t\s+(?:ask|wait\s+for))\b[^.\n]{0,20}\b(?:asking|confirmation|approval|permission|the\s+user|user\s+approval)\b/i],
   ['conceal-from-user', /\b(?:do\s+not|don'?t|never)\s+(?:tell|inform|mention|alert|notify|show)\b[^.\n]{0,20}\b(?:the\s+)?user\b/i],
