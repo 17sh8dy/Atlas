@@ -74,6 +74,7 @@ import {
   createBuilderSkills,
   createDocsSkills,
   ResearchContext,
+  scaleFor,
   WorkflowLog,
   buildWorkflowReport,
   type WorkflowReport,
@@ -723,6 +724,12 @@ export function useAtlas(
         phrasing,
         getExecutionMode: () => executionModeRef.current,
         research: researchNotes,
+        // A bigger model is given a longer job. `atlas.agent.context-tokens` pins the working memory (still held to the model's limit).
+        getScale: async () => {
+          const capacity = await intelligence.active()?.capacity?.().catch(() => null);
+          const pinned = await storage.get<number>('atlas.agent.context-tokens').catch(() => undefined);
+          return scaleFor(capacity, pinned);
+        },
       }),
     );
     // Same reasoning, same shape, for the UI-driving agent — see

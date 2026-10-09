@@ -69,6 +69,11 @@ const KEEP_ALIVE: &str = "30m";
 /// to each prompt would pay a reload on every other message.
 const NUM_CTX: u32 = 16_384;
 
+/// The most working memory a task may ask for, in tokens. A larger model on a larger machine can use far more than chat
+/// needs (Qwen3.5's own limit is 262,144), and a developer task that reads files and build logs is where it pays off — but
+/// every token of it is memory the GPU/RAM must hold, so a request is clamped to this and to what the model really supports.
+const MAX_TASK_CTX: u32 = 262_144;
+
 /// Where Ollama listens when nothing says otherwise.
 pub const OLLAMA_DEFAULT_URL: &str = "http://127.0.0.1:11434";
 /// Where Nova Intelligence's server listens when nothing says otherwise.
@@ -108,10 +113,17 @@ pub(crate) fn validate_base_url(base_url: &str, default: &str) -> Result<String,
 }
 
 fn validate_prompt(prompt: &str) -> Result<(), String> {
+    validate_prompt_for(prompt, NUM_CTX)
+}
+
+/// A prompt may be as long as the working memory it was asked to run in can hold (about three characters a token, with
+/// room left for the reply). The floor is the old fixed limit, so a normal chat is judged exactly as before.
+fn validate_prompt_for(prompt: &str, num_ctx: u32) -> Result<(), String> {
     if prompt.trim().is_empty() {
         return Err("Nothing to ask.".into());
     }
-    if prompt.chars().count() > MAX_PROMPT_CHARS {
+    let limit = MAX_PROMPT_CHARS.max((num_ctx as usize).saturating_mul(3).saturating_mul(3) / 4);
+    if prompt.chars().count() > limit {
         return Err("That's too long to send.".into());
     }
     Ok(())
@@ -145,7 +157,7 @@ fn validate_model_tag(tag: &str) -> Result<(), String> {
 /// The request body. `think` is only sent when it is an explicit choice: a
 /// model without a thinking mode refuses `think: true`, so "leave it alone"
 /// has to mean the field is absent, not `null`.
-fn chat_body(model: &str, prompt: &str, think: Option<bool>) -> serde_json::Value {
+fn chat_body(model: &str, prompt: &str, think: Option<bool>, num_ctx: u32) -> serde_json::Value {
     let mut body = serde_json::json!({
         "model": model,
         "messages": [{ "role": "user", "content": prompt }],
@@ -153,7 +165,7 @@ fn chat_body(model: &str, prompt: &str, think: Option<bool>) -> serde_json::Valu
         // Ollama unloads a model after five idle minutes, and loading a big
         // one costs seconds on the next message. Keep it warm for a while.
         "keep_alive": KEEP_ALIVE,
-        "options": { "num_ctx": NUM_CTX },
+        "options": { "num_ctx": num_ctx },
     });
     if let Some(t) = think {
         body["think"] = serde_json::Value::Bool(t);
@@ -288,9 +300,10 @@ pub async fn ask_local_model_stream(
     prompt: String,
     think: Option<bool>,
     stream_id: String,
+    num_ctx: Option<u32>,
 ) -> Result<String, String> {
     crate::halt::global()
-        .race(ask_local_model_unraced(app, base_url, model, prompt, think, stream_id))
+        .race(ask_local_model_unraced(app, base_url, model, prompt, think, stream_id, num_ctx))
         .await
 }
 
@@ -301,8 +314,12 @@ async fn ask_local_model_unraced(
     prompt: String,
     think: Option<bool>,
     stream_id: String,
+    num_ctx: Option<u32>,
 ) -> Result<String, String> {
-    validate_prompt(&prompt)?;
+    // Chat uses the fixed size (Ollama reloads a model whenever it changes). A task that asked for more gets it, within
+    // what this build allows — the TypeScript side has already clamped it to what the model really supports.
+    let num_ctx = num_ctx.map(|n| n.clamp(NUM_CTX, MAX_TASK_CTX)).unwrap_or(NUM_CTX);
+    validate_prompt_for(&prompt, num_ctx)?;
     validate_model_tag(&model)?;
     let base = validate_base_url(&base_url, OLLAMA_DEFAULT_URL)?;
     let client = http_client()?;
@@ -310,7 +327,7 @@ async fn ask_local_model_unraced(
     let send = |think: Option<bool>| {
         client
             .post(format!("{base}/api/chat"))
-            .json(&chat_body(&model, &prompt, think))
+            .json(&chat_body(&model, &prompt, think, num_ctx))
             .send()
     };
     // A refused connection means Ollama isn't up: the normal state on a
@@ -459,6 +476,61 @@ pub async fn local_models_installed(base_url: String) -> Result<Vec<InstalledMod
     }
     let body = resp.text().await.map_err(|_| "offline".to_string())?;
     Ok(parse_tags(&body))
+}
+
+/// What a model can do, as its own server reports it. A read; changes nothing.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelInfo {
+    /// The most tokens the model supports at once (its own limit, not what Atlas asks for).
+    pub context_length: Option<u32>,
+    /// "9.7B", "27.8B"… as Ollama writes it, or empty.
+    pub parameter_size: String,
+    /// Billions of parameters, when the size could be read.
+    pub billions: Option<f32>,
+    pub quantization: String,
+}
+
+fn parse_model_info(body: &str) -> ModelInfo {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let context_length = v
+        .get("model_info")
+        .and_then(|m| m.as_object())
+        .and_then(|m| m.iter().find(|(k, _)| k.ends_with(".context_length")).and_then(|(_, n)| n.as_u64()))
+        .map(|n| n.min(u32::MAX as u64) as u32);
+    let details = v.get("details");
+    let text = |k: &str| details.and_then(|d| d.get(k)).and_then(|s| s.as_str()).unwrap_or("").to_string();
+    let parameter_size = text("parameter_size");
+    let billions = {
+        let s = parameter_size.trim();
+        let (num, unit) = s.split_at(s.find(|c: char| c.is_alphabetic()).unwrap_or(s.len()));
+        num.trim().parse::<f32>().ok().map(|n| match unit.trim().to_ascii_uppercase().as_str() {
+            "M" => n / 1000.0,
+            "T" => n * 1000.0,
+            _ => n,
+        })
+    };
+    ModelInfo { context_length, parameter_size, billions, quantization: text("quantization_level") }
+}
+
+/// The context window and size of one installed model (`/api/show`).
+#[tauri::command]
+pub async fn local_model_info(base_url: String, model: String) -> Result<ModelInfo, String> {
+    crate::halt::global().check()?;
+    validate_model_tag(&model)?;
+    let base = validate_base_url(&base_url, OLLAMA_DEFAULT_URL)?;
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(6)).build().map_err(|e| e.to_string())?;
+    let resp = client
+        .post(format!("{base}/api/show"))
+        .json(&serde_json::json!({ "model": model }))
+        .send()
+        .await
+        .map_err(|_| "offline".to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("The local model server returned {}.", resp.status()));
+    }
+    let body = resp.text().await.map_err(|_| "offline".to_string())?;
+    Ok(parse_model_info(&body))
 }
 
 // ---------------------------------------------------------------------------
@@ -706,7 +778,7 @@ mod tests {
     #[test]
     fn the_request_names_exactly_the_model_it_was_given() {
         for model in ["qwen3:8b", "qwen3:30b", "qwen3-coder:30b", "qwen3.5:9b"] {
-            let body = chat_body(model, "hi", None);
+            let body = chat_body(model, "hi", None, NUM_CTX);
             assert_eq!(body["model"], model);
             assert_eq!(body["stream"], true);
             assert_eq!(body["messages"][0]["role"], "user");
@@ -716,7 +788,7 @@ mod tests {
 
     #[test]
     fn the_model_gets_a_context_big_enough_for_the_planner_prompt() {
-        let body = chat_body("qwen3:8b", "x", None);
+        let body = chat_body("qwen3:8b", "x", None, NUM_CTX);
         assert_eq!(body["options"]["num_ctx"], 16_384);
         // The planner prompt was measured at ~9,400 tokens; keep real headroom over it.
         assert!(NUM_CTX >= 9_400 + 4_096, "the context must hold the planner prompt and a long reply");
@@ -726,7 +798,7 @@ mod tests {
 
     #[test]
     fn the_model_is_kept_loaded_between_messages() {
-        assert_eq!(chat_body("qwen3:8b", "x", None)["keep_alive"], "30m");
+        assert_eq!(chat_body("qwen3:8b", "x", None, NUM_CTX)["keep_alive"], "30m");
     }
 
     #[test]
@@ -739,11 +811,11 @@ mod tests {
 
     #[test]
     fn thinking_is_only_sent_when_it_was_chosen() {
-        assert_eq!(chat_body("qwen3:8b", "x", Some(false))["think"], false);
-        assert_eq!(chat_body("qwen3:8b", "x", Some(true))["think"], true);
+        assert_eq!(chat_body("qwen3:8b", "x", Some(false), NUM_CTX)["think"], false);
+        assert_eq!(chat_body("qwen3:8b", "x", Some(true), NUM_CTX)["think"], true);
         // "leave it alone" is an absent field — a model with no thinking mode
         // refuses `think: true`, and `null` is not the same as absent.
-        assert!(chat_body("qwen3-coder:30b", "x", None).get("think").is_none());
+        assert!(chat_body("qwen3-coder:30b", "x", None, NUM_CTX).get("think").is_none());
     }
 
     // ---- reading the stream -----------------------------------------------
@@ -899,5 +971,32 @@ mod tests {
         ] {
             assert!(!body.contains(forbidden), "intelligence.rs must not use {forbidden}");
         }
+    }
+
+    #[test]
+    fn model_info_is_read_from_the_servers_own_report() {
+        let body = r#"{"details":{"parameter_size":"9.7B","quantization_level":"Q4_K_M"},"model_info":{"general.architecture":"qwen35","qwen35.context_length":262144,"qwen35.embedding_length":4096}}"#;
+        let info = parse_model_info(body);
+        assert_eq!(info.context_length, Some(262_144));
+        assert_eq!(info.parameter_size, "9.7B");
+        assert!((info.billions.unwrap() - 9.7).abs() < 0.01);
+        assert_eq!(info.quantization, "Q4_K_M");
+        assert_eq!(parse_model_info(r#"{"details":{"parameter_size":"560M"}}"#).billions.map(|b| (b * 100.0).round() as i32), Some(56));
+        assert_eq!(parse_model_info("not json"), ModelInfo { context_length: None, parameter_size: String::new(), billions: None, quantization: String::new() });
+    }
+
+    #[test]
+    fn a_task_can_ask_for_more_working_memory_but_never_less_than_chat_or_more_than_the_ceiling() {
+        assert_eq!(chat_body("m", "x", None, 65_536)["options"]["num_ctx"], 65_536);
+        assert_eq!(4_000u32.clamp(NUM_CTX, MAX_TASK_CTX), NUM_CTX);
+        assert_eq!(9_000_000u32.clamp(NUM_CTX, MAX_TASK_CTX), MAX_TASK_CTX);
+    }
+
+    #[test]
+    fn the_prompt_limit_grows_with_the_working_memory_asked_for_and_not_otherwise() {
+        let long = "a".repeat(140_000);
+        assert!(validate_prompt(&long).is_err(), "chat keeps its old limit");
+        assert!(validate_prompt_for(&long, 65_536).is_ok(), "a 64K-token task can send 140k characters");
+        assert!(validate_prompt_for(&"a".repeat(600_000), 65_536).is_err(), "but not unbounded text");
     }
 }

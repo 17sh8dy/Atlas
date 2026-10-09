@@ -40,6 +40,7 @@ import type {
   CloudProviderTestResult,
   IntelligenceProvider,
   LocalModelProfile,
+  ModelCapacity,
   ProviderStreamHandlers,
 } from '@atlas/core';
 import { invoke } from '@tauri-apps/api/core';
@@ -113,6 +114,7 @@ export function createLocalModelProvider(
   options: LocalModelOptions,
 ): IntelligenceProvider {
   const baseUrl = options.baseUrl?.trim() || OLLAMA_DEFAULT_BASE_URL;
+  let capacityCache: { at: number; value: ModelCapacity | null } | undefined;
 
   return {
     id: profile.id,
@@ -122,7 +124,7 @@ export function createLocalModelProvider(
     ask(
       prompt: string,
       handlers: ProviderStreamHandlers,
-      askOptions?: { signal?: HaltSignal; deeper?: boolean },
+      askOptions?: { signal?: HaltSignal; deeper?: boolean; contextTokens?: number },
     ) {
       if (!options.enabled) {
         handlers.onError('not-configured');
@@ -134,6 +136,8 @@ export function createLocalModelProvider(
           baseUrl,
           model: profile.ollamaTag,
           prompt,
+          // Only a task asks for more than a chat's working memory; the native side clamps it.
+          numCtx: askOptions?.contextTokens ?? null,
           // "Think longer" switches thinking on for a model that had it off. A
           // model with no thinking mode is asked again without the field
           // natively, so this can never turn a chat into an error.
@@ -143,6 +147,18 @@ export function createLocalModelProvider(
         (reason) => explainLocalFailure(profile.label, profile.ollamaTag, reason),
         askOptions?.signal,
       );
+    },
+    async capacity() {
+      if (!options.enabled) return null;
+      if (!capacityCache || capacityCache.at < Date.now() - 5 * 60_000) {
+        try {
+          const info = await invoke<{ contextLength: number | null; billions: number | null }>('local_model_info', { baseUrl, model: profile.ollamaTag });
+          capacityCache = { at: Date.now(), value: info.contextLength ? { contextTokens: info.contextLength, ...(info.billions ? { billions: info.billions } : {}) } : null };
+        } catch {
+          capacityCache = { at: Date.now(), value: null };
+        }
+      }
+      return capacityCache.value;
     },
   };
 }

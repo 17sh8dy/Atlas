@@ -48,6 +48,7 @@ export { createDocsSkills } from './skills/docs-skills';
 export { ResearchContext, classifySource, extractDocs } from './web/research';
 export { scanInjection, fenceUntrusted, redactQuery, checkResearchUrl } from './web/untrusted';
 export { parseToolCall } from './agent/tool-call';
+export { scaleFor, chooseWorkingMemory, type AgentScale } from './agent/scale';
 export { deriveSpec, TaskState, renderSpec } from './devagent/spec';
 export { WorkflowLog, buildWorkflowReport, formatWorkflowReport, type WorkflowReport } from './workflow/report';
 export { createCatalogMediaSkills } from './skills/catalog-media-skills';

@@ -428,6 +428,7 @@ pub fn run() {
             web::fetch_doc_page,
             intelligence::ask_local_model_stream,
             intelligence::local_models_installed,
+            intelligence::local_model_info,
             intelligence::ask_nova_intelligence_stream,
             intelligence::nova_intelligence_reachable,
             nova_launcher::nova_intelligence_locate,

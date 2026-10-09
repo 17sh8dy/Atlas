@@ -76,6 +76,7 @@ import type { HaltSignal } from '@atlas/core';
 import { parseToolCall } from './tool-call';
 import { UNTRUSTED_RULE, fenceUntrusted, scanInjection, taintFrom, taintedBy } from '../web/untrusted';
 import { TaskState, renderSpec, type ProjectSpec } from '../devagent/spec';
+import type { AgentScale } from './scale';
 
 export interface AgentStepLog {
   skill: string;
@@ -123,6 +124,8 @@ export interface AgentDeps {
    * happened is compacted to fit; it is never assumed that every model has the same room.
    */
   contextChars?: number;
+  /** How big a job this model is given (see `scale.ts`). Absent: the standard, small size. */
+  scale?: AgentScale;
 }
 
 /**
@@ -218,6 +221,7 @@ function askProvider(
   intelligence: IntelligenceRegistry | undefined,
   prompt: string,
   signal?: HaltSignal,
+  contextTokens?: number,
 ): Promise<string | null> {
   const provider = intelligence?.active();
   if (!provider) return Promise.resolve(null);
@@ -236,7 +240,7 @@ function askProvider(
         onDone: (full) => finish(full),
         onError: () => finish(null),
       },
-      { signal },
+      { signal, ...(contextTokens ? { contextTokens } : {}) },
     );
   });
 }
@@ -293,12 +297,12 @@ interface HistoryEntry {
  * line each; if that is still too much the oldest are dropped and the gap is said out loud. The goal, the
  * rules and the acceptance criteria are never part of this block, so shortening it cannot lose them.
  */
-export function renderHistory(entries: readonly HistoryEntry[], budget: number): string {
+export function renderHistory(entries: readonly HistoryEntry[], budget: number, keepFull: number = KEEP_FULL): string {
   if (!entries.length) return 'Nothing has run yet.';
-  const lines = entries.map((e, i) => (i >= entries.length - KEEP_FULL ? e.full : e.compact));
+  const lines = entries.map((e, i) => (i >= entries.length - keepFull ? e.full : e.compact));
   let total = lines.reduce((n, l) => n + l.length + 1, 0);
   let start = 0;
-  while (total > budget && start < lines.length - KEEP_FULL) {
+  while (total > budget && start < lines.length - keepFull) {
     total -= lines[start]!.length + 1;
     start += 1;
   }
@@ -365,7 +369,8 @@ export async function runAgentTask(
   const failures = new Map<string, number>();
   const taint = new Set<string>();
   const goalLower = goal.toLowerCase();
-  const budget = Math.min(config.historyChars ?? DEFAULT_HISTORY_CHARS, deps.contextChars ? Math.max(1500, Math.floor(deps.contextChars * 0.4)) : Infinity);
+  const budget = deps.scale ? deps.scale.historyChars : Math.min(config.historyChars ?? DEFAULT_HISTORY_CHARS, deps.contextChars ? Math.max(1500, Math.floor(deps.contextChars * 0.4)) : Infinity);
+  const keepFull = deps.scale?.keepFull ?? KEEP_FULL;
   let malformedStreak = 0;
 
   for (let i = 0; i < config.maxIterations; i++) {
@@ -390,12 +395,12 @@ export async function runAgentTask(
       actionsLine,
       catalog,
       '',
-      renderHistory(history, budget),
+      renderHistory(history, budget, keepFull),
     ].join('\n');
 
     let reply: string | null;
     try {
-      reply = await untilHalted(askProvider(deps.intelligence, prompt, signal), signal);
+      reply = await untilHalted(askProvider(deps.intelligence, prompt, signal, deps.scale?.contextTokens), signal);
     } catch (err) {
       if (err instanceof HaltedError) return halted();
       throw err;

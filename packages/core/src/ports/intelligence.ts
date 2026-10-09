@@ -25,6 +25,14 @@ import type { HaltSignal } from '../models/halt';
  */
 export type ProviderId = string;
 
+/** What a model supports, from its own server. */
+export interface ModelCapacity {
+  /** The most tokens it can hold at once (its own limit). */
+  contextTokens: number;
+  /** Billions of parameters, when known. A rough guide to how much hardware is behind it. */
+  billions?: number;
+}
+
 export interface ProviderStreamHandlers {
   /** A chunk of the answer, as it arrives. */
   onDelta(chunk: string): void;
@@ -61,8 +69,20 @@ export interface IntelligenceProvider {
        * ignores this — the prompt itself already asks for a thorough answer.
        */
       deeper?: boolean;
+      /**
+       * Working memory for THIS request, in tokens — asked for by a task that reads files and build logs and
+       * needs more room than a chat does. A provider that can honour it does (clamped to what its model
+       * really supports); one that cannot ignores it.
+       */
+      contextTokens?: number;
     },
   ): void;
+  /**
+   * What the model behind this provider can really do, as its own server reports it — or null when that is
+   * not known. A task is sized from this, so a bigger model is given a bigger job and a smaller one is not
+   * pretended to be bigger than it is.
+   */
+  capacity?(): Promise<ModelCapacity | null>;
   /** Opens whatever UI configures this provider. */
   configure?(): void;
 }

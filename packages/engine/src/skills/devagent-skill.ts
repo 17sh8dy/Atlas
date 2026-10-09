@@ -21,6 +21,7 @@ import { Executor } from '../planner/executor';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { runDevTask, type DevAgentDeps } from '../devagent/loop';
 import type { ResearchContext } from '../web/research';
+import type { AgentScale } from '../agent/scale';
 
 export interface DevAgentSkillOptions {
   skills: SkillRegistry;
@@ -31,6 +32,8 @@ export interface DevAgentSkillOptions {
   research?: ResearchContext;
   /** The connected model's usable context, in characters, when known. */
   contextChars?: number;
+  /** Sizes the job for the model that is connected right now. Called once per task. */
+  getScale?: () => Promise<AgentScale | undefined> | AgentScale | undefined;
 }
 
 export function createDevAgentSkill(options: DevAgentSkillOptions): Skill {
@@ -66,7 +69,10 @@ export function createDevAgentSkill(options: DevAgentSkillOptions): Skill {
       },
     },
     async run(args, ctx) {
-      const report = await runDevTask(String(args.goal), String(args.path), deps, ctx);
+      // The job is sized for the model connected right now: a bigger model is given a longer one.
+      const scale = await Promise.resolve(options.getScale?.()).catch(() => undefined);
+      if (scale) ctx.activity?.note('Working memory', scale.basis);
+      const report = await runDevTask(String(args.goal), String(args.path), { ...deps, scale }, ctx);
       // The loop already said its own final message via `ctx.say` — echoing
       // it again here is the double-narration `spoken: true` exists to stop,
       // the same way a skill that rendered its own result list uses it.

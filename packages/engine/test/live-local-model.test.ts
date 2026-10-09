@@ -17,6 +17,7 @@ import type { IntelligenceProvider, IntelligenceRegistry, Skill, SkillContext } 
 import { SkillRegistry } from '../src/skills/registry';
 import { Executor } from '../src/planner/executor';
 import { runDevTask } from '../src/devagent/loop';
+import { scaleFor } from '../src/agent/scale';
 
 const MODEL = process.env.ATLAS_LIVE_OLLAMA;
 const live = MODEL ? describe : describe.skip;
@@ -147,3 +148,71 @@ live('the developer agent with a real local model', () => {
     expect(opened.join(' ')).not.toContain('evil.example');
   });
 });
+
+live('scale: the same long job at the standard size and at the size chosen for the model', () => {
+  async function capacity() {
+    const j = (await (await fetch('http://127.0.0.1:11434/api/show', { method: 'POST', body: JSON.stringify({ model: MODEL }) })).json()) as { model_info?: Record<string, number>; details?: { parameter_size?: string } };
+    const ctxKey = Object.keys(j.model_info ?? {}).find((k) => k.endsWith('.context_length'));
+    return { contextTokens: ctxKey ? j.model_info![ctxKey]! : 0, billions: Number.parseFloat(j.details?.parameter_size ?? '') || undefined };
+  }
+
+  const N = Number(process.env.ATLAS_LIVE_BUGS ?? 8);
+  const TYPOS = ['retrun', 'lenght', 'udefined', 'fucntion', 'consle', 'lenth', 'tru3', 'nul1'];
+
+  async function attempt(label: string, scale: ReturnType<typeof scaleFor>) {
+    // N bugs in N files; the build reports ONE at a time, so the job is find → fix → rebuild, N times over.
+    const names = Array.from({ length: N }, (_, i) => `src/m${i}.js`);
+    const files: Record<string, string> = {
+      'build.js': `const fs=require('fs');const checks=${JSON.stringify(names.map((f, i) => [f, TYPOS[i % TYPOS.length]]))};
+for(const [f,bad] of checks){const s=fs.readFileSync(f,'utf8');if(s.includes(bad)){console.log(f+"(2,3): error TS2551: '"+bad+"' is a typo");process.exit(2);}}
+console.log('build ok');
+`,
+    };
+    names.forEach((f, i) => {
+      files[f] = `function f${i}(x) {
+  return x + ${TYPOS[i % TYPOS.length]}; // ${i}
+}
+module.exports = { f${i} };
+`;
+    });
+    const { dir, cleanup } = project(files);
+    const calls: CallLog[] = [];
+    const { skills } = skillsFor(dir);
+    // Run through the scale's own request: working memory and step budget.
+    const intelligence = ollamaWithCtx(MODEL!, calls, scale.contextTokens);
+    const t0 = Date.now();
+    const report = await runDevTask(`The build in ${dir} fails (run it with build.run). Fix every typo it reports (there are several), one at a time, with the smallest edit each, and run the build again after each fix until it prints "build ok".`, dir, { skills, intelligence, executor: new Executor(skills), getExecutionMode: () => 'doIt', scale }, ctx());
+    const remaining = names.filter((f, i) => readFileSync(join(dir, f), 'utf8').includes(TYPOS[i % TYPOS.length]!)).length;
+    const out = { label, basis: scale.basis, ok: report.ok, verified: report.verified, stoppedBecause: report.stoppedBecause, typosLeft: remaining, steps: report.steps.length, modelCalls: calls.length, totalSeconds: Math.round((Date.now() - t0) / 100) / 10, maxPromptTokens: Math.max(...calls.map((c) => c.promptTokens ?? 0)), message: report.message.slice(0, 160) };
+    cleanup();
+    return out;
+  }
+
+  test('standard size vs chosen size', { timeout: 900_000 }, async () => {
+    const cap = await capacity();
+    const standard = scaleFor(null);
+    const chosen = scaleFor(cap);
+    const a = await attempt('standard', standard);
+    const b = await attempt('chosen', chosen);
+    console.log('LIVE-RESULT', JSON.stringify({ task: 'scale', model: MODEL, capacity: cap, standard: a, chosen: b }));
+    // Whatever the model did, a "verified" claim must be true.
+    for (const r of [a, b]) if (r.verified) expect(r.typosLeft).toBe(0);
+  });
+});
+
+function ollamaWithCtx(model: string, calls: CallLog[], numCtx: number): IntelligenceRegistry {
+  const provider = {
+    id: 'ollama-live', label: 'Ollama (live test)', isConfigured: () => true, isLocal: () => true,
+    ask(prompt: string, handlers: { onDone: (full: string) => void; onError?: (e: Error) => void }) {
+      const started = Date.now();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 150_000);
+      fetch('http://127.0.0.1:11434/api/chat', { method: 'POST', signal: controller.signal, body: JSON.stringify({ model, stream: false, think: false, keep_alive: '2m', options: { temperature: 0, num_ctx: numCtx, num_predict: 700 }, messages: [{ role: 'user', content: prompt }] }) })
+        .then((r) => r.json() as Promise<{ message?: { content?: string }; eval_count?: number; prompt_eval_count?: number }>)
+        .then((j) => { const text = j.message?.content ?? ''; calls.push({ ms: Date.now() - started, promptChars: prompt.length, replyChars: text.length, evalTokens: j.eval_count, promptTokens: j.prompt_eval_count }); handlers.onDone(text); })
+        .catch((e) => handlers.onError?.(e as Error))
+        .finally(() => clearTimeout(timer));
+    },
+  } as unknown as IntelligenceProvider;
+  return { register: () => {}, get: () => provider, list: () => [provider], active: () => provider, setActive: () => {} };
+}

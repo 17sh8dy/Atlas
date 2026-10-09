@@ -88,6 +88,46 @@ New suites: `web-intelligence` (76), `build-engine` (54), `docs-grammar`, plus t
 
 Per-model numbers: one model only (`qwen3.5:9b`), two tiny tasks, in row 7 and row 9. Tool-call correctness: all 9 model replies in those runs were valid single JSON actions. Nothing is known about other models or bigger tasks.
 
+
+## Scale: a bigger model is given a bigger job (added after the first local-model run)
+
+**Why.** Atlas sized every agent task for the smallest model it supports: 16,384 tokens of working memory (a fixed `NUM_CTX` in
+`intelligence.rs`), about 7,000 characters of history, twelve steps. The models it runs are much larger than that. Researched
+from primary sources on 2026-10-08:
+
+- Ollama's `qwen3.5` library page lists sizes **0.8B, 2B, 4B, 9B (the default), 27B, 35B and 122B**, all with a **256K context window**
+  and the tags *vision, tools, thinking* (<https://ollama.com/library/qwen3.5>).
+- The Qwen3.5 model card (<https://huggingface.co/Qwen/Qwen3.5-27B>) states "Context Length: **262,144 natively and extensible up to
+  1,010,000 tokens**", recommends keeping "**at least 128K** tokens to preserve thinking capabilities", warns that static YaRN
+  extension "potentially impact[s] performance on shorter texts", and recommends Qwen-Agent / vLLM `--tool-call-parser qwen3_coder`
+  for tool use. (Its sampling advice for coding in thinking mode is temperature 0.6, top_p 0.95, top_k 20.)
+- This PC's own server agrees for the installed model: `qwen3.5:9b`, 9.7B parameters, Q4_K_M, `context_length` 262144 (Ollama `/api/show`).
+- Not verified: the search engine also returned third-party summaries (Medium, Morph, a quantiser's card that contradicted itself on
+  context length); they were not relied on.
+
+**What changed.**
+- `local_model_info` (Rust, `/api/show`) reads a model's real limit and size; the local provider exposes it as `capacity()`.
+- `ask_local_model_stream` accepts `num_ctx` for a task (floor = chat's 16,384; ceiling 262,144) and the prompt-length limit grows with
+  it (about 3 characters a token, three quarters used). **Chat is unchanged** — Ollama reloads a model whenever `num_ctx` changes, so
+  only developer tasks ask for more.
+- `agent/scale.ts`: `scaleFor(capacity, pinned)` chooses the working memory from the model — unknown 16K; under 5B 24K; 5–15B 32K;
+  16–39B 64K; 40–99B 128K; 100B+ 256K; always capped at the model's own limit — and from it the step budget (12 / 24 / 36 / 48 / 64),
+  how many recent steps are shown whole (3 → 10), the history budget (35% of the window) and the research-notes room. `atlas.agent.context-tokens`
+  pins the working memory (still held to the model's limit). The activity log says which size a task ran at, and why.
+- Cloud models and unknown providers keep the standard size (they report no capacity); that is conservative, not a claim about them.
+
+**Measured (qwen3.5:9b, 2026-10-08, same task twice, eight typos in eight files, the build reporting one at a time):**
+
+| | working memory | step budget | result |
+|---|---|---|---|
+| standard | 16,384 | 12 | **ran out of steps**: 3 of 8 fixed, 5 left, not verified (26.7 s) |
+| chosen for the model | 32,768 | 24 | **all 8 fixed, build ok, verified** by Atlas (22 steps, 24 model calls, 45.3 s) |
+
+Honest reading: it was the **step budget** that mattered here. The largest prompt was 1,702 tokens, so the extra working memory was
+not used. With three typos instead of eight both sizes succeeded in ~23 s. Whether the larger *window* helps (reading many files at
+once, long build logs, large research notes) is not yet measured; the Qwen3.5 card's own advice is that more context is not
+automatically better. One model, one synthetic task, temperature 0, thinking off.
+
 ## Known limitations / not done
 
 - **No browser-level verification.** `project.check` is static (entry point, referenced files, JSON, package.json). Nothing starts a dev

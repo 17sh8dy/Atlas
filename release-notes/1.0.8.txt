@@ -4,6 +4,8 @@ New: Atlas can now work in the background. It presses buttons, types into fields
 New: "make the whole app red", "replace this word everywhere in my project", "how many lines of code", and "find the TODOs" all work with no AI model, with a preview, a backup and undo.
 New: "why does my build fail" runs the build and explains the first error, the file and line, and the code around it. "Write release notes" turns your git history into a changelog.
 New: check a downloaded file (is it really what its name says, and who signed it), read PDF and Word documents, search inside your documents, and merge text files into a new one.
+New: Atlas now sizes its coding jobs to the model you run - a bigger model gets more working memory and more steps, so longer fixes finish instead of running out.
+New: ask Atlas to "look up" something in the docs and it reads the official documentation and shows you its sources.
 New: after Atlas builds an app it checks that every piece is there before opening it, and "what did you just do" gives a plain account of any task: what finished, what changed, what is left.
 Improved: preview a bulk rename before it happens, and clearer notifications.
 Improved: short answers to "what is …" questions arrive faster, and "what's your name?" just answers.
