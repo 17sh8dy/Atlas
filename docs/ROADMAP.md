@@ -2294,6 +2294,30 @@ On branch `v1.0.8`, not pushed, not built. The 1.0.8 build and release are for t
 - **1.0.9 target:** the full builder loop — describe → build → preview → request changes → targeted edits → rebuild →
   verify. The foundation (`project.check`, `builder.status`, the remembered build) is in 1.0.8.
 
+## 1.0.9 — the builder loop, and a calmer "I can't tell what that was" (2026-10-09)
+
+On branch `v1.0.9`, not pushed, not released. Built with typecheck, lint and 1911 engine tests green; the new release exe
+was built but NOT yet driven in the real app (Brandon's installed Atlas was running and shares the WebView2 profile).
+
+- **Builder loop** (`skills/builder-skills.ts`): describe → build → check (1.0.8) → **change → verify → undo**.
+  `builder.change` (confirms) snapshots every readable text file to `.atlas-backup\change-<time>`, has the developer agent
+  make only the asked change, runs `project.check` again, then reports what changed and whether it is *verified* (agent saw a
+  build/test pass AND the check is clean — never the model's word). `builder.revert` restores the snapshot (never deletes
+  files the change added). History (last 10) lives in the `builder.last` fact and shows in `builder.status`. Grammar rule
+  `builderLoop` (order 85, just before `editProject`): "make the buttons bigger", "add a shop to the game" → change then
+  `project.play`; "undo the last change to my game"; "rebuild it"; "preview it". A bare "it" is NOT enough to claim a
+  sentence ("make it louder" stays elsewhere): it needs a UI part (button, title, shop…) or a project noun (the game, my app).
+  No model → the skill says so and lists what works alone (recolour, replace, play).
+- **Noise** (`noise.ts`): a lone letter/digit, keyboard mash (rows both ways, 4+ keys), a repeated character, six
+  consonants in a row, only punctuation, or several of those → "You just said “g” — what did you mean to type, or what do you
+  need?". Thinking sounds ("hmm", "uh") get "I'm here. What do you need?". Real words, two-letter words, y/n/k, numbers,
+  smileys and emoji are left alone. Applied only on the no-model / model-unreachable paths (provider invariance).
+- **Voice**: offline `text.pronounce` ("how do you pronounce chicken") and "how do you spell …".
+- Small: accuracy note under the chat box, Nova Legal + Discord links in About, Local Models wording not tied to Ollama.
+- **Known gaps:** a change can only be verified if the project has a build/test the agent can run (a plain HTML page gets
+  the file check only, and says "not verified"); snapshot skips files over 256 KB and says so; the change itself was only
+  tested with a stand-in agent — no run with a real local model (qwen3.5:9b, GPU-crash history).
+
 ## Deliberately not doing
 
 - **An unfenced `exec`.** Rejected in ARCHITECTURE §6.1. The one general runner is `powershell.run` above: the person
