@@ -48,6 +48,9 @@ describe('every run gets the same account', () => {
     expect(report.headline).toBe('All 2 steps finished.');
     expect(report.counts).toEqual({ done: 2, failed: 0, declined: 0, halted: 0, notRun: 0 });
     expect(report.changes).toEqual(['Zipped 3 files to D:\\Docs\\out.zip.']);
+    // Every finished step says what it did, not just "done".
+    expect(report.steps[0]!.result).toBe('Found 3 files in D:\\Docs.');
+    expect(formatWorkflowReport(report)).toContain(String.raw`✓ 1. List — done: Found 3 files in D:\Docs.`);
     expect(report.locations[0]).toBe('D:\\Docs\\out.zip');
     expect(report.remaining).toEqual([]);
     expect(report.next).toBeUndefined();
@@ -73,6 +76,14 @@ describe('every run gets the same account', () => {
     expect(text).toMatch(/✕ 2\. Two — failed: Access is denied\./);
     expect(text).toMatch(/· 3\. Three — not run/);
     expect(text).toMatch(/What changed: nothing/);
+  });
+
+  test('a small action that never asks (pressing a control) is not described as "only looked"', async () => {
+    const { report } = await runPlan([skill('uia.press', 'safe', { ok: true, message: 'Activated it in Notepad.' })], ['uia.press']);
+    const text = formatWorkflowReport(report);
+    expect(text).toContain('Press — done: Activated it in Notepad.');
+    expect(text).toContain('What changed: nothing that needed your approval.');
+    expect(text).not.toMatch(/only looked/);
   });
 
   test('declining a confirmation is its own state, not a failure', async () => {

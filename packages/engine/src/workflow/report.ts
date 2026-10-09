@@ -28,6 +28,8 @@ export interface WorkflowStep {
   state: WorkflowStepState;
   /** The failure, or why it didn't run. */
   detail?: string;
+  /** What a finished step said it did, first line only — so “done” always says what was done. */
+  result?: string;
 }
 
 export interface WorkflowReport {
@@ -86,6 +88,7 @@ export function buildWorkflowReport(outcome: PlanOutcome, opts: ReportOptions): 
     label: opts.labelFor(o.skill),
     state: stateOf(o),
     detail: o.ok ? undefined : o.error && o.error !== 'Skipped.' && o.error !== 'Cancelled.' && o.error !== 'Halted.' ? firstLine(o.error) : undefined,
+    result: o.ok && o.message ? clip(stripIcon(firstLine(o.message)), 90) || undefined : undefined,
   }));
   const counts: Record<WorkflowStepState, number> = { done: 0, failed: 0, declined: 0, halted: 0, notRun: 0 };
   for (const s of steps) counts[s.state] += 1;
@@ -130,9 +133,11 @@ const WORD: Record<WorkflowStepState, string> = { done: 'done', failed: 'failed'
 
 /** The report as plain text — one shape, whatever ran. */
 export function formatWorkflowReport(r: WorkflowReport): string {
-  const lines = [r.headline, '', ...r.steps.map((s) => `${MARK[s.state]} ${s.n}. ${s.label} — ${WORD[s.state]}${s.detail ? `: ${s.detail}` : ''}`)];
+  const lines = [r.headline, '', ...r.steps.map((s) => `${MARK[s.state]} ${s.n}. ${s.label} — ${WORD[s.state]}${s.detail ? `: ${s.detail}` : s.result ? `: ${s.result}` : ''}`)];
   if (r.changes.length) lines.push('', 'What changed:', ...r.changes.map((c) => `• ${c}`));
-  else if (r.counts.done) lines.push('', 'What changed: nothing — everything that ran only looked.');
+  // Not “nothing happened”: small actions such as pressing a control never ask for approval, and each
+  // finished step's own result is on its line above. This only says nothing needed approval.
+  else if (r.counts.done) lines.push('', 'What changed: nothing that needed your approval.');
   if (r.remaining.length) lines.push('', 'Still to do:', ...r.remaining.map((c) => `• ${c}`));
   if (r.locations.length) lines.push('', 'Where to find it:', ...r.locations.slice(0, 8).map((p) => `• ${p}`));
   if (r.next) lines.push('', r.next);

@@ -1,0 +1,10 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+New: ask "why is my PC slow" and Atlas checks your CPU, memory, graphics card, disks, drivers and recent Windows errors, then shows what it found and the numbers behind each point. It only looks; it changes nothing.
+New: Atlas can now work in the background. It presses buttons, types into fields and scrolls without moving your mouse or taking over your keyboard, and asks first if it ever needs the real ones.
+New: "make the whole app red", "replace this word everywhere in my project", "how many lines of code", and "find the TODOs" all work with no AI model, with a preview, a backup and undo.
+New: "why does my build fail" runs the build and explains the first error, the file and line, and the code around it. "Write release notes" turns your git history into a changelog.
+New: check a downloaded file (is it really what its name says, and who signed it), read PDF and Word documents, search inside your documents, and merge text files into a new one.
+New: after Atlas builds an app it checks that every piece is there before opening it, and "what did you just do" gives a plain account of any task: what finished, what changed, what is left.
+Improved: preview a bulk rename before it happens, and clearer notifications.
+Improved: short answers to "what is …" questions arrive faster, and "what's your name?" just answers.
+Fixed: typing into a field no longer quietly switches to your real keyboard — Atlas asks first.
