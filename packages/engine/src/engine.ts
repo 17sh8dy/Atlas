@@ -686,7 +686,7 @@ export class Engine {
     }
 
     if (!provider) {
-      io.say(this.offlineReply());
+      io.say(this.tooShortReply(text) ?? this.offlineReply());
       return { ok: false, mode: 'chat', error: 'not-configured' };
     }
 
@@ -701,6 +701,7 @@ export class Engine {
       '',
       deeper,
       asInstruction ? () => this.unresolvedReply(text) : undefined,
+      text,
     );
   }
 
@@ -720,6 +721,8 @@ export class Engine {
     deeper = false,
     /** What to say when no model can be reached, for a request that was really a command. */
     onOffline?: () => string,
+    /** What the person actually typed, for a reply that quotes it back. */
+    heard = '',
   ): Promise<AskOutcome> {
     io.typing?.(true);
     return new Promise<AskOutcome>((resolve, reject) => {
@@ -780,14 +783,15 @@ export class Engine {
           // error (a rejected key, a rate limit) worth showing verbatim
           // rather than flattening into one generic line — see
           // ProviderStreamHandlers.onError's own doc comment.
-          if (reason === 'not-configured') io.say(onOffline ? onOffline() : this.offlineReply());
+          if (reason === 'not-configured') io.say(onOffline ? onOffline() : (this.tooShortReply(heard) ?? this.offlineReply()));
           else if (reason === 'offline') {
             // A command never needed the model: say what Atlas can do about it. A question
             // that does need one gets told so, plainly, with what still works.
             io.say(
               onOffline
                 ? onOffline()
-                : `I couldn't reach your language model (it's set up in Settings → Intelligence), and that question needs one. ${this.offlineReply()}`,
+                : this.tooShortReply(heard) ??
+                  `I couldn't reach your language model (it's set up in Settings → Intelligence), and that question needs one. ${this.offlineReply()}`,
             );
           } else io.say(`⚠️ ${reason}`);
           resolve({ ok: false, mode: 'chat', error: reason });
@@ -813,6 +817,8 @@ export class Engine {
    * short question gets the user moving; a paragraph about providers does not.
    */
   private unresolvedReply(text: string): string {
+    const tiny = this.tooShortReply(text);
+    if (tiny) return tiny;
     if (/^\s*(?:stop|cancel|abort|enough|halt|quit)\s*[.!]*$/i.test(text)) {
       return "Nothing is running right now. (To stop something that is in progress, press the emergency-stop key, F8.)";
     }
@@ -902,6 +908,19 @@ export class Engine {
    * is left is a genuine question — so the reply names the one thing that
    * would actually answer it rather than a settings page.
    */
+  /**
+   * A message too small to be a question ("g", "asdf", "k") is not something to explain
+   * a missing model about — say what was heard and ask what was meant.
+   */
+  private tooShortReply(text: string): string | null {
+    const t = text.trim();
+    if (!t || /\s/.test(t) || t.length > 8 || !/^[\p{L}\p{N}]+$/u.test(t)) return null;
+    if (t.length <= 2 || !/[aeiouy]/i.test(t)) {
+      return `You just said “${t}” — what did you mean to type, or what do you need?`;
+    }
+    return null;
+  }
+
   private offlineReply(): string {
     const n = this.skills.available().length;
     const searchSkill = this.skills.get('research.search');

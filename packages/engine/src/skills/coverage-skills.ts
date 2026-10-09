@@ -104,6 +104,29 @@ export function createCoverageSkills(platform: Platform): Skill[] {
   });
 
   skills.push({
+    id: 'text.pronounce',
+    label: 'Pronounce a word',
+    icon: '🗣️',
+    domain: 'text',
+    description: 'Say a word aloud, slowly, then spell it — the answer to "how do you pronounce …".',
+    risk: 'safe',
+    examples: ['how do you pronounce chicken', 'how do you say quinoa'],
+    params: { text: { type: 'string', required: true, description: 'the word or short phrase' } },
+    run(args) {
+      const word = String(args.text ?? '').trim();
+      if (!word) return { ok: false, error: 'Which word?' };
+      // The voice that reads this reply IS the pronunciation: the word on its own, twice, with a
+      // pause between, then the letters. No guessed respelling — a wrong one is worse than none.
+      const letters = [...word.replace(/\s+/g, ' ')].filter((c) => c !== ' ').map((c) => c.toUpperCase()).join(', ');
+      return {
+        ok: true,
+        message: `🗣️ “${word}”. Once more, slowly: ${word}. It is spelled ${letters}.`,
+        data: word,
+      };
+    },
+  });
+
+  skills.push({
     id: 'media.playOn',
     label: 'Play something on…',
     icon: '▶️',

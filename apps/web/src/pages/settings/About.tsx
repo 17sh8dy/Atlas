@@ -24,6 +24,9 @@ import type { Platform, WindowsCompatibility } from '@atlas/core';
 import { AtlasMark, Button, Icons, Switch } from '@atlas/ui';
 import type { Updater } from '../../update/useUpdater';
 
+/** Nova Legal, where the ecosystem disclosure and every product's terms live. */
+export const NOVA_LEGAL_URL = 'https://nova-legal.shadylabs.workers.dev/';
+
 /**
  * Before 1.0, "0.85.0" reads as "0.85" here — a trailing zero patch is Cargo/semver's own
  * requirement (`Cargo.toml`'s `version` must be a full `major.minor.patch`,
@@ -136,6 +139,23 @@ export function About({
             <span className="text-foreground">whisper.cpp</span> and OpenAI's Whisper{' '}
             <span className="text-foreground">base.en</span> model. Both run on this machine.
           </p>
+        </div>
+      </section>
+
+      <section className="border-border flex items-start gap-3 rounded-xl border px-4 py-3.5">
+        <Icons.Info className="text-primary mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <h2 className="text-foreground text-sm font-medium">Legal</h2>
+          <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
+            Terms, privacy and how the Nova products fit together are on Nova Legal.
+          </p>
+          <Button
+            variant="ghost"
+            className="mt-1.5 -ml-2"
+            onClick={() => void platform.openUrl?.(NOVA_LEGAL_URL)}
+          >
+            View the full Nova Ecosystem disclosure on Legal stuff
+          </Button>
         </div>
       </section>
 

@@ -186,6 +186,10 @@ export function Conversation({
         subscribeFileDrag={subscribeFileDrag}
         onDropFiles={onDropFiles}
       />
+      <p className="text-foreground-subtle px-4 pb-2 text-center text-[11px] leading-snug select-none">
+        Atlas can make mistakes or provide inaccurate information. Verify important details before
+        relying on them.
+      </p>
     </div>
   );
 }

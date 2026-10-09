@@ -191,8 +191,17 @@ export function createCoverageGrammar(): GrammarRule[] {
     {
       name: 'tinyUtilities',
       order: -7.2,
+      questionSafe: ['pronounce', 'spell'],
       test(_lower, raw) {
         if (/^\s*(?:please\s+)?(?:a\s+)?(?:uuid|guid)\s*[?.!]*$/i.test(raw)) return plan(step('util.uuid', {}), 'uuid');
+        const say = raw.match(/^\s*(?:please\s+)?(?:(?:can|could)\s+you\s+(?:tell\s+me\s+)?)?(?:how\s+(?:do|would|should)\s+(?:you|i|we)\s+(?:pronounce|say)|how\s+to\s+(?:pronounce|say)|pronounce|(?:what(?:['’]?s|\s+is)\s+the\s+)?pronunciation\s+(?:of|for))\s*(?:the\s+word\s+)?["“']?([A-Za-z][A-Za-z' -]{0,40}?)["”']?\s*[?.!]*$/i);
+        const sayPassive = raw.match(/^\s*how\s+is\s+(?:the\s+word\s+)?["“']?([A-Za-z][A-Za-z' -]{0,40}?)["”']?\s+(?:pronounced|said)\s*[?.!]*$/i);
+        const said = (say ?? sayPassive)?.[1];
+        if (said && !/^(?:it|this|that|them)$/i.test(said.trim())) return plan(step('text.pronounce', { text: said.trim() }), 'pronounce');
+        const spellHow = raw.match(/^\s*(?:how\s+(?:do|would|should)\s+(?:you|i|we)\s+spell|how\s+to\s+spell)\s*(?:the\s+word\s+)?["“']?([A-Za-z][A-Za-z'-]{0,40}?)["”']?\s*[?.!]*$/i);
+        const spellPassive = raw.match(/^\s*how\s+is\s+(?:the\s+word\s+)?["“']?([A-Za-z][A-Za-z'-]{0,40}?)["”']?\s+spelled\s*[?.!]*$/i);
+        const spelled = (spellHow ?? spellPassive)?.[1];
+        if (spelled) return plan(step('text.spell', { text: spelled.trim() }), 'spell');
         const spell = raw.match(/^\s*(?:please\s+)?spell\s+(?:the\s+word\s+)?["“']?([A-Za-z'-]+)["”']?\s*[?.!]*$/i);
         if (spell) return plan(step('text.spell', { text: spell[1]! }), 'spell');
         const rev = raw.match(/^\s*(?:please\s+)?reverse\s+(?:the\s+(?:text|word|string)\s+)?["“']?(.+?)["”']?\s*[?.!]*$/i);
