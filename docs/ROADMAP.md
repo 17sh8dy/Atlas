@@ -2305,7 +2305,7 @@ was built but NOT yet driven in the real app (Brandon's installed Atlas was runn
   build/test pass AND the check is clean — never the model's word). `builder.revert` restores the snapshot (never deletes
   files the change added). History (last 10) lives in the `builder.last` fact and shows in `builder.status`. Grammar rule
   `builderLoop` (order 85, just before `editProject`): "make the buttons bigger", "add a shop to the game" → change then
-  `project.play`; "undo the last change to my game"; "rebuild it"; "preview it". A bare "it" is NOT enough to claim a
+  `project.play`; "undo the last change to my game"; "rebuild it"; "preview the game". A bare "it" is NOT enough to claim a
   sentence ("make it louder" stays elsewhere): it needs a UI part (button, title, shop…) or a project noun (the game, my app).
   No model → the skill says so and lists what works alone (recolour, replace, play).
 - **Noise** (`noise.ts`): a lone letter/digit, keyboard mash (rows both ways, 4+ keys), a repeated character, six

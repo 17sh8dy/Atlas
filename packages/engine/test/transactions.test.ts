@@ -7,6 +7,10 @@ import type { Plan, Skill, SkillContext, SkillResult, Storage } from '@atlas/cor
 import { SkillRegistry } from '../src/skills/registry';
 import { createTransactionSkills } from '../src/skills/transaction-skills';
 import { createAssistGrammar, parseTransaction } from '../src/planner/assist-grammar';
+import { Grammar } from '../src/planner/grammar';
+import { createCoreGrammar } from '../src/planner/core-grammar';
+import { createExtraGrammar } from '../src/planner/extra-grammar';
+import { WorkingMemory } from '../src/working-memory';
 import { splitRequest } from '../src/workflow/transaction';
 
 type Def = { risk?: 'safe' | 'confirm'; needs?: string[]; run: (args: Record<string, unknown>, n: number) => SkillResult };
@@ -53,7 +57,11 @@ function rig(defs: Record<string, Def>, opts: { answers?: boolean[]; capabilitie
   const say = (text: string, steps: Array<[string, Record<string, unknown>?]>) =>
     plans.set(text.toLowerCase(), { source: 'grammar', intent: 'x', confidence: 1, steps: steps.map(([skill, args]) => ({ skill, args: (args ?? {}) as never })) });
   const set = createTransactionSkills({ skills, storage, getExecutionMode: () => 'doIt', planFor });
-  const run = (id: string, args: Record<string, unknown> = {}) => Promise.resolve(set.find((s) => s.id === id)!.run(args, ctx));
+  // A failed step reports through `error` (that is what the app shows); read either as text here.
+  const run = async (id: string, args: Record<string, unknown> = {}) => {
+    const res = await Promise.resolve(set.find((s) => s.id === id)!.run(args, ctx));
+    return { ...res, message: res.message ?? res.error, reported: res.ok ? 'message' : 'error', error: res.error };
+  };
   return { calls, counts, asked, run, say, data, stop: () => void (aborted = true), restart: () => void (aborted = false) };
 }
 
@@ -157,6 +165,7 @@ describe('a failure part-way', () => {
     r.say('break', [['a.break']]);
     const out = await r.run('workflow.transaction', { request: 'make, then send, then break' });
     expect(out.ok).toBe(false);
+    expect(out.reported).toBe('error');
     const q = r.asked.find((x) => /Put back the 1 earlier step/.test(x));
     expect(q).toBeTruthy();
     expect(r.calls).toEqual(['a.make', 'a.send', 'a.break', 'a.unmake']);
@@ -276,4 +285,48 @@ describe('what the grammar claims', () => {
     expect(route('show my workflow history')).toMatch(/^workflow\.history/);
     expect(route('resume my music')).toBeNull();
   });
+});
+
+describe('through the whole grammar, as the app sees it', () => {
+  const g = new Grammar();
+  g.addMany(createCoreGrammar(new WorkingMemory()));
+  g.addMany(createExtraGrammar());
+  test('a sentence that starts like a question (“do these…”) still starts a workflow, even when a step sounds like another command', () => {
+    for (const t of [
+      'do these as one workflow: open the calculator, then open notepad',
+      'do these as one workflow: what time is it, then how much free space is on my C drive',
+      'all or nothing: make a folder, then open it',
+    ])
+      expect(g.parse(t)?.steps.map((s) => s.skill), t).toEqual(['workflow.transaction']);
+    expect(g.parse('resume the workflow')?.steps[0]!.skill).toBe('workflow.resume');
+    expect(g.parse('undo the last workflow')?.steps[0]!.skill).toBe('workflow.rollback');
+    expect(g.parse('make the buttons bigger')?.steps.map((s) => s.skill)).toEqual(['builder.change', 'project.play']);
+  });
+});
+
+describe('every phrasing added in 1.0.9 reaches its tool through the whole grammar', () => {
+  const g = new Grammar();
+  g.addMany(createCoreGrammar(new WorkingMemory()));
+  g.addMany(createExtraGrammar());
+  const cases: Array<[string, string]> = [
+    ['audit your tools', 'atlas.selfAudit'],
+    ['check your own tools', 'atlas.selfAudit'],
+    ['dry run: open the calculator', 'workflow.dryRun'],
+    ['what would happen if I said organize my desktop', 'workflow.dryRun'],
+    ['explain this error: ENOENT no such file', 'diagnostics.explainFailure'],
+    ['what does EADDRINUSE mean', 'diagnostics.explainFailure'],
+    ['what does my change affect', 'git.changeImpact'],
+    ['what could my changes break?', 'git.changeImpact'],
+    [String.raw`compare the config files D:\a\x.json and D:\a\y.json`, 'config.diff'],
+    [String.raw`what do my notes say about the update system in D:\Dev\Atlas\docs`, 'knowledge.citeEvidence'],
+    ['how do you pronounce chicken', 'text.pronounce'],
+    ['how do you spell necessary', 'text.spell'],
+    ['show my workflow history', 'workflow.history'],
+    ['undo the last change to my game', 'builder.revert'],
+    ['rebuild it', 'build.run'],
+    ['preview the game', 'project.play'],
+  ];
+  for (const [text, skill] of cases) {
+    test(text, () => expect(g.parse(text)?.steps[0]?.skill).toBe(skill));
+  }
 });

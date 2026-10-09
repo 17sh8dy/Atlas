@@ -100,7 +100,7 @@ export function createTransactionSkills(deps: TransactionDeps): Skill[] {
         return { ok: true, message: 'Okay — I haven’t run any of it.' };
       }
       const done = await guarded(tx, () => executeTx(tx, txDeps, ctx));
-      return { ok: done.status === 'committed', message: formatTx(done), aloud: false, data: { id: done.id, status: done.status } };
+      return done.status === 'committed' ? { ok: true, message: formatTx(done), aloud: false, data: { id: done.id, status: done.status } } : { ok: false, error: formatTx(done), data: { id: done.id, status: done.status } };
     },
   };
 
@@ -128,7 +128,7 @@ export function createTransactionSkills(deps: TransactionDeps): Skill[] {
         inflight.status = 'pending';
       }
       const done = await guarded(tx, () => executeTx(tx, txDeps, ctx));
-      return { ok: done.status === 'committed', message: formatTx(done), aloud: false, data: { id: done.id, status: done.status } };
+      return done.status === 'committed' ? { ok: true, message: formatTx(done), aloud: false, data: { id: done.id, status: done.status } } : { ok: false, error: formatTx(done), data: { id: done.id, status: done.status } };
     },
   };
 

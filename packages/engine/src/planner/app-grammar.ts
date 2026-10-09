@@ -384,7 +384,7 @@ export function parseBuilderRebuild(raw: string): boolean {
 
 /** "preview it", "show me a preview". */
 export function parseBuilderPreview(raw: string): boolean {
-  return /^\s*(?:please\s+)?(?:preview\s+(?:it|the\s+(?:game|app|site|website|project)|my\s+(?:game|app|site|website|project))|show\s+me\s+(?:a\s+)?preview(?:\s+of\s+(?:it|the\s+(?:game|app|site|website)))?)\s*[.!]*$/i.test(raw);
+  return /^\s*(?:please\s+)?(?:preview\s+(?:the\s+(?:game|app|site|website|project)|my\s+(?:game|app|site|website|project))|show\s+me\s+(?:a\s+)?preview(?:\s+of\s+(?:it|the\s+(?:game|app|site|website)))?)\s*[.!]*$/i.test(raw);
 }
 
 export function createAppGrammar(): GrammarRule[] {
@@ -491,6 +491,15 @@ export function createAppGrammar(): GrammarRule[] {
       },
     },
     {
+      // "preview the game", "show me a preview": open what was built. Ahead of the file preview
+      // (files.peek), which would otherwise take "preview the game" for a file called "the game".
+      name: 'builderPreview',
+      order: -12.6,
+      test(_lower, raw) {
+        return parseBuilderPreview(raw) ? plan(step('project.play', {}), 'builder-preview') : null;
+      },
+    },
+    {
       // The builder loop after a build: change it, undo that change, rebuild, preview. The target is
       // the remembered build; with none, the skill says so. Just before `editProject`, so a rule that
       // understands the sentence better always goes first.
@@ -499,7 +508,6 @@ export function createAppGrammar(): GrammarRule[] {
       test(_lower, raw) {
         if (parseBuilderRevert(raw)) return plan(step('builder.revert', {}), 'builder-revert');
         if (parseBuilderRebuild(raw)) return plan([step('build.run', {}), step('project.check', {})], 'builder-rebuild');
-        if (parseBuilderPreview(raw)) return plan(step('project.play', {}), 'builder-preview');
         const change = parseBuilderChange(raw);
         // Change, then open it: a change that fails or is stopped never reaches the preview.
         return change ? plan([step('builder.change', { request: change.request }), step('project.play', {})], 'builder-change') : null;

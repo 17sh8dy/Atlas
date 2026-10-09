@@ -232,23 +232,29 @@ export function createBuilderSkills(
       const verified = Boolean(ran.ok && report.verified && checked?.ok);
 
       await current?.set(root).catch(() => undefined);
+      const changed = report.changed ?? [];
+      // A try that failed before touching anything leaves nothing to undo. Its spare copy goes to the
+      // recycle bin, so a later "undo the last change" can only ever mean a change that really happened.
+      const nothingHappened = !ran.ok && changed.length === 0;
+      const discarded = nothingHappened ? Boolean(await platform.deletePath?.(snap.backup).catch(() => false)) : false;
       const base: BuilderRecord = record ?? { path: root, built: 'agent', at: Date.now() };
       await save({
         ...base,
         checked: checked ? { ok: checked.ok, at: Date.now() } : base.checked,
-        changes: [...(base.changes ?? []), { request, at: Date.now(), ok: ran.ok, verified }].slice(-MAX_HISTORY),
+        changes: nothingHappened ? base.changes : [...(base.changes ?? []), { request, at: Date.now(), ok: ran.ok, verified }].slice(-MAX_HISTORY),
       });
 
       const lines: string[] = [];
-      const changed = report.changed ?? [];
       lines.push(ran.ok ? `✏️ Done: “${request}”.` : `⚠️ I didn’t finish “${request}”.`);
       if (changed.length) lines.push(`Changed: ${changed.slice(0, 8).join('; ')}${changed.length > 8 ? '…' : ''}.`);
-      else lines.push('No file was changed.');
+      else lines.push(discarded ? 'Nothing was changed, so I threw away the spare copy.' : 'No file was changed.');
       if (checked) lines.push(checked.ok ? '✓ The project still hangs together.' : '✕ The project check found a problem — say “check the project I just built” for the list.');
       lines.push(verified ? '✓ A build/test passed after the change.' : `Not verified${report.unverified ? `: ${report.unverified}` : ran.ok ? '' : '.'}${ran.ok && !report.unverified ? ' — try it before relying on it.' : ''}`);
       if (snap.skipped) lines.push(`(${snap.skipped} file${snap.skipped === 1 ? ' was' : 's were'} too big to save a copy of, so an undo cannot bring those back.)`);
-      lines.push(`The files from before are in ${BACKUP_DIR}\\${baseName(snap.backup)} — say “undo the last change” to put them back, or tell me the next change.`);
-      return { ok: ran.ok, message: lines.join('\n'), aloud: false, data: { path: root, request, verified, backup: snap.backup, report } };
+      if (!discarded) lines.push(`The files from before are in ${BACKUP_DIR}\\${baseName(snap.backup)} — say “undo the last change” to put them back, or tell me the next change.`);
+      const data = { path: root, request, verified, backup: discarded ? null : snap.backup, report };
+      // A failure is reported as one: the app shows `error` for a step that did not work, not `message`.
+      return ran.ok ? { ok: true, message: lines.join('\n'), aloud: false, data } : { ok: false, error: lines.join('\n'), data };
     },
   };
 

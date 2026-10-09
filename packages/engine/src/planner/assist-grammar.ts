@@ -70,6 +70,8 @@ export function createAssistGrammar(): GrammarRule[] {
       name: 'workflowTransaction',
       order: -12.8,
       pathSafe: true,
+      // "do these as one workflow…" starts like a question ("do you…"), so it has to say it is not one.
+      questionSafe: ['workflow-transaction'],
       test(_lower, raw) {
         const request = parseTransaction(raw);
         return request ? plan(step('workflow.transaction', { request }), 'workflow-transaction') : null;

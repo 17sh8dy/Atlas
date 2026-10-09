@@ -485,7 +485,7 @@ itself, and never runs it.
 - `builder.change` (asks): snapshot of the project's text files to `.atlas-backup\change-<time>`, the developer agent makes only the
   asked change, `project.check` runs again; the reply says what changed and whether it is *verified* (a build/test passed AND the check is
   clean). Needs a model; says so plainly without one. `builder.revert` restores the snapshot and never deletes files the change added.
-  Phrasings: "make the buttons bigger", "add a shop to the game", "undo the last change to my game", "rebuild it", "preview it".
+  Phrasings: "make the buttons bigger", "add a shop to the game", "undo the last change to my game", "rebuild it", "preview the game".
 - `atlas.selfAudit`, `workflow.dryRun`, `diagnostics.explainFailure`, `git.changeImpact`, `config.diff`, `knowledge.citeEvidence` - read-only
   (see docs/ROADMAP.md 1.0.9 for what each does and what it cannot see). `text.pronounce` speaks a word, slowly, then spells it.
 - **Workflows** - `workflow.transaction`, `workflow.resume`, `workflow.rollback`, `workflow.history`. "Do these as one workflow: A, then B".

@@ -5,7 +5,7 @@
  * the snapshot taken first, the check after, the honest report, the history, the undo, the no-model
  * answer, and which sentences the grammar claims.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import type { Skill, SkillContext } from '@atlas/core';
@@ -21,14 +21,14 @@ afterEach(() => {
 
 const ctx = { say: () => undefined } as unknown as SkillContext;
 
-function rig(opts: { model: boolean; agentEdits?: boolean; agentOk?: boolean }) {
+function rig(opts: { model: boolean; agentEdits?: boolean; agentOk?: boolean; reportChanged?: string[] }) {
   const proj = makeTempProject({
     'index.html': '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><button id="b">Click</button><script src="app.js"></script></body></html>',
     'style.css': 'button { font-size: 12px; }',
     'app.js': 'console.log(1);',
   });
   cleanups.push(proj.cleanup);
-  const platform = diskPlatform();
+  const platform = { ...diskPlatform(), deletePath: async (p: string) => (rmSync(p, { recursive: true, force: true }), true) } as ReturnType<typeof diskPlatform>;
   const facts = new Map<string, string>();
   const memory = {
     fact: async (_k: string, s: string) => (facts.has(s) ? { value: facts.get(s)! } : undefined),
@@ -50,7 +50,7 @@ function rig(opts: { model: boolean; agentEdits?: boolean; agentOk?: boolean }) 
       goals.push(String(args.goal));
       if (opts.agentEdits !== false) writeFileSync(join(String(args.path), 'style.css'), 'button { font-size: 24px; }');
       const ok = opts.agentOk !== false;
-      return { ok, message: 'x', spoken: true, data: { verified: ok, changed: ['files.edit style.css'] } };
+      return { ok, message: 'x', spoken: true, data: { verified: ok, changed: opts.reportChanged ?? ['files.edit style.css'] } };
     },
   };
   skills.registerMany(createBuilderSkills(platform, current, memory, { skills, hasModel: () => opts.model }));
@@ -93,9 +93,22 @@ describe('builder.change', () => {
     const r = rig({ model: true, agentOk: false });
     const out = await r.run('builder.change', { request: 'add a shop' });
     expect(out.ok).toBe(false);
-    expect(out.message).toMatch(/didn’t finish “add a shop”/);
-    expect(out.message).not.toMatch(/build\/test passed/);
-    expect(out.message).toMatch(/Not verified/);
+    // A failure is reported through `error`: that is what the app shows for a step that did not work.
+    expect(out.error).toMatch(/didn’t finish “add a shop”/);
+    expect(out.error).not.toMatch(/build\/test passed/);
+    expect(out.error).toMatch(/Not verified/);
+    expect(out.message).toBeUndefined();
+  });
+
+  test('a try that failed before changing anything throws away its spare copy and leaves no history', async () => {
+    const r = rig({ model: true, agentEdits: false, agentOk: false, reportChanged: [] });
+    const out = await r.run('builder.change', { request: 'add a shop' });
+    expect(out.ok).toBe(false);
+    expect(out.error).toMatch(/Nothing was changed, so I threw away the spare copy/);
+    const left = existsSync(join(r.proj.root, '.atlas-backup')) ? readdirSync(join(r.proj.root, '.atlas-backup')) : [];
+    expect(left.filter((b) => b.startsWith('change-'))).toEqual([]);
+    expect((await r.run('builder.status', {})).message).not.toMatch(/change[s]? since/);
+    expect((await r.run('builder.revert', {})).message).toMatch(/no change to undo/);
   });
 
   test('a project the check finds broken is not called verified, whatever the agent says', async () => {
@@ -141,7 +154,8 @@ describe('what the grammar claims', () => {
     expect(parseBuilderRebuild('rebuild it')).toBe(true);
     expect(parseBuilderRebuild('build the app again')).toBe(true);
     expect(parseBuilderRebuild('build the app')).toBe(false);
-    expect(parseBuilderPreview('preview it')).toBe(true);
+    expect(parseBuilderPreview('preview the game')).toBe(true);
+    expect(parseBuilderPreview('preview it')).toBe(false); // a file preview, handled by files.peek
     expect(parseBuilderPreview('show me a preview')).toBe(true);
   });
   test('the rule plans change then preview, so a failed change never opens anything', () => {
