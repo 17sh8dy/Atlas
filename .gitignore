@@ -30,3 +30,6 @@ apps/desktop/Atlas.exe
 
 # built release artifacts (see scripts/make-update-manifest.mjs)
 /.release/
+
+# Built installers dropped into apps/ are release artifacts, not source (GitHub rejects files over 100 MB)
+/apps/*.exe
