@@ -17,6 +17,7 @@ import { createIncompleteRules } from './incomplete-grammar';
 import { createAgentGrammar } from './agent-grammar';
 import { createAppGrammar } from './app-grammar';
 import { createHealthGrammar } from './health-grammar';
+import { createAssistGrammar } from './assist-grammar';
 import { createTimeGrammar } from './time-grammar';
 import { createSystemGrammar } from './system-grammar';
 import { createFileGrammar } from './file-grammar';
@@ -68,6 +69,9 @@ export function createExtraGrammar(): GrammarRule[] {
 
     // PC health, file intelligence, build diagnosis, release notes (read-only, 1.0.8).
     ...createHealthGrammar(),
+
+    // Self-audit, dry run, explain an error, change impact, config diff, evidence from files (read-only, 1.0.9).
+    ...createAssistGrammar(),
 
     // Reminders, alarms and the stopwatch.
     ...createTimeGrammar(),

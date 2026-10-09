@@ -72,6 +72,7 @@ import {
   createFileIntelSkills,
   createWorkflowSkills,
   createBuilderSkills,
+  createAssistSkills,
   createDocsSkills,
   ResearchContext,
   scaleFor,
@@ -678,6 +679,17 @@ export function useAtlas(
     );
     // `built` is assigned below; planFor is only ever called later, by a request.
     let built: Engine | null = null;
+    // Read-only trust and debugging tools (1.0.9): audit my tools, dry run, explain an error,
+    // change impact, config diff, evidence from files.
+    skills.registerMany(
+      createAssistSkills({
+        platform,
+        skills,
+        memory,
+        current: projectContext,
+        planFor: (text) => (built ? built.planFor(text) : Promise.resolve(null)),
+      }),
+    );
     skills.registerMany(
       createWatchSkills({
         platform,

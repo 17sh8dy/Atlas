@@ -44,6 +44,7 @@ export { createPcHealthSkills } from './skills/pc-health-skills';
 export { createFileIntelSkills } from './skills/file-intel-skills';
 export { createWorkflowSkills } from './skills/workflow-skills';
 export { createBuilderSkills } from './skills/builder-skills';
+export { createAssistSkills } from './skills/assist-skills';
 export { createDocsSkills } from './skills/docs-skills';
 export { ResearchContext, classifySource, extractDocs } from './web/research';
 export { scanInjection, fenceUntrusted, redactQuery, checkResearchUrl } from './web/untrusted';
@@ -123,6 +124,7 @@ export { createExtraGrammar } from './planner/extra-grammar';
 export { createAgentGrammar } from './planner/agent-grammar';
 export { createAppGrammar } from './planner/app-grammar';
 export { createHealthGrammar } from './planner/health-grammar';
+export { createAssistGrammar } from './planner/assist-grammar';
 
 export { WatchManager, WATCHES_KEY } from './watch/manager';
 export type { WatchHost, WatchManagerOptions, NewWatch, WatchAnswer } from './watch/manager';

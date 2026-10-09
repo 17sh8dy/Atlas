@@ -2314,6 +2314,17 @@ was built but NOT yet driven in the real app (Brandon's installed Atlas was runn
   smileys and emoji are left alone. Applied only on the no-model / model-unreachable paths (provider invariance).
 - **Voice**: offline `text.pronounce` ("how do you pronounce chicken") and "how do you spell …".
 - Small: accuracy note under the chat box, Nova Legal + Discord links in About, Local Models wording not tied to Ollama.
+- **Six read-only assist tools** (`skills/assist-skills.ts`, phrasings in `planner/assist-grammar.ts`, logic in pure modules beside
+  it): `atlas.selfAudit` (how every tool is declared: ids, descriptions, param types/enums/defaults, risk, hidden-by),
+  `workflow.dryRun` (plans a request through the normal planner and lists each step: runs / asks / changes something / cannot
+  run here / unknown tool - runs nothing), `diagnostics.explainFailure` (28 known failure shapes, quotes the triggering line,
+  says "I don't recognise that" instead of guessing), `git.changeImpact` (git status + JS/TS import graph: dependents, tests,
+  untested changed code, package/lockfile/tsconfig/.env/CI changes), `config.diff` (JSON/.env/ini/TOML/simple YAML by key;
+  secrets never printed), `knowledge.citeEvidence` (exact passages with file and line from a folder's text files; says so when
+  nothing matches). Checked against existing tools first: `files.duplicates` (duplicate analysis), `uia.tree` (UI inspection),
+  `engine.selfTest` (install health) and `routine.resume` (un-pause) already cover the neighbouring ideas, so those were NOT
+  duplicated. Not built: `api.testEndpoint` (needs a new native HTTP request command with its own network guards - a separate
+  decision) and checkpointed routine resume (part of "transactional workflows", a larger feature).
 - **Known gaps:** a change can only be verified if the project has a build/test the agent can run (a plain HTML page gets
   the file check only, and says "not verified"); snapshot skips files over 256 KB and says so; the change itself was only
   tested with a stand-in agent — no run with a real local model (qwen3.5:9b, GPU-crash history).
