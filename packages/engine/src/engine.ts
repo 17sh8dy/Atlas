@@ -31,6 +31,7 @@
  * whatever it was waiting on.
  */
 
+import { classifyNoise, noiseReply } from './noise';
 import type {
   Clarification,
   ClarifyAnswer,
@@ -913,12 +914,8 @@ export class Engine {
    * a missing model about — say what was heard and ask what was meant.
    */
   private tooShortReply(text: string): string | null {
-    const t = text.trim();
-    if (!t || /\s/.test(t) || t.length > 8 || !/^[\p{L}\p{N}]+$/u.test(t)) return null;
-    if (t.length <= 2 || !/[aeiouy]/i.test(t)) {
-      return `You just said “${t}” — what did you mean to type, or what do you need?`;
-    }
-    return null;
+    const noise = classifyNoise(text);
+    return noise ? noiseReply(noise) : null;
   }
 
   private offlineReply(): string {

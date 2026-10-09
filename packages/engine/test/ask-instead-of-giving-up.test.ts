@@ -201,3 +201,21 @@ test('a real question with the model offline is told what happened and what stil
   assert.match(said, /couldn't reach your language model/);
   assert.match(said, /what can you do/);
 });
+
+test('a lone letter or keyboard mash is quoted back, with no model and with an unreachable one', async () => {
+  for (const provider of [undefined, 'offline' as const]) {
+    for (const text of ['g', 'x', 'asdfgh', 'hjkl', '???', 'g h j']) {
+      const r = rig({ provider });
+      await r.engine.ask(text, r.io);
+      const said = r.said.join(' ');
+      assert.match(said, /You just said “/, `${provider ?? 'no model'}: ${text} -> ${said}`);
+      assert.notMatch(said, /language model|Settings/, text);
+    }
+  }
+});
+
+test('a real question without a model still gets the plain explanation', async () => {
+  const r = rig({});
+  await r.engine.ask('what is a lagoon', r.io);
+  assert.notMatch(r.said.join(' '), /You just said/);
+});

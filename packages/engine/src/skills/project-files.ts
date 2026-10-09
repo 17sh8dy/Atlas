@@ -134,7 +134,7 @@ export interface Change {
   after: string;
 }
 
-async function ensureFolders(platform: Platform, base: string, relFile: string) {
+export async function ensureFolders(platform: Platform, base: string, relFile: string) {
   const parts = relFile.split('/');
   for (let i = 1; i < parts.length; i++) {
     await platform.createFolder?.(`${base}\\${parts.slice(0, i).join('\\')}`).catch(() => undefined);
@@ -221,4 +221,29 @@ export async function restoreLatestBackup(platform: Platform, root: string, labe
   }
   await platform.createFile(`${base}\\${RESTORED_MARKER}`, `Restored by Atlas at ${new Date().toISOString()}\n`).catch(() => undefined);
   return { ok: true, restored };
+}
+
+export type SnapshotOutcome = { ok: true; backup: string; files: number; skipped: number } | { ok: false; error: string };
+
+/**
+ * Copy every readable text file in the project into `.atlas-backup\<label>-<time>\` BEFORE something
+ * else (the developer agent) changes it. `restoreLatestBackup(label)` puts them back. Files too big to
+ * read are counted in `skipped`; they cannot be restored, and the caller says so.
+ */
+export async function snapshotProject(platform: Platform, root: string, label: string): Promise<SnapshotOutcome> {
+  if (!platform.createFile || !platform.createFolder) return { ok: false, error: "I can't write files on this device." };
+  const gathered = await readProjectFiles(platform, root);
+  if ('error' in gathered) return { ok: false, error: gathered.error };
+  const backup = `${root}\\${BACKUP_DIR}\\${label}-${stamp()}`;
+  try {
+    await platform.createFolder(`${root}\\${BACKUP_DIR}`).catch(() => undefined);
+    await platform.createFolder(backup);
+    for (const file of gathered.files) {
+      await ensureFolders(platform, backup, file.rel);
+      await platform.createFile(`${backup}\\${file.rel.replace(/\//g, '\\')}`, file.text);
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  return { ok: true, backup, files: gathered.files.length, skipped: gathered.skipped };
 }

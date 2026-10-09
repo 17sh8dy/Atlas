@@ -650,7 +650,7 @@ export function useAtlas(
     skills.registerMany(withCurrentProject(createCatalogGitSkills(platform), projectContext, platform, memory));
     skills.registerMany(createProjectSkills(platform, projectContext, memory));
     // describe → build → check → open: the check, and "what did you build".
-    skills.registerMany(withCurrentProject(createBuilderSkills(platform, projectContext, memory), projectContext, platform, memory));
+    skills.registerMany(withCurrentProject(createBuilderSkills(platform, projectContext, memory, { skills, hasModel: () => builtIntelligence.registry.active() !== null }), projectContext, platform, memory));
     // Starter projects written with no model (a clicker game, a desktop app, a site).
     skills.registerMany(createAppScaffoldSkills(platform, projectContext));
     // Recolour a project's whole look with no model: preview, backup, undo.

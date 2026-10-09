@@ -351,6 +351,42 @@ export function parseEditRequest(raw: string): { goal: string; path: string } | 
   return { goal: raw.trim().replace(/[.!]+$/, ''), path: named.path };
 }
 
+/**
+ * "Make the buttons bigger", "add a shop to the game", "change the title to Space Clicker": a change to
+ * the project Atlas built, with no folder named (the remembered build is the target). Claimed only when
+ * the sentence is a change verb about the build or one of its parts, and only after every more specific
+ * rule has had its turn (the rule sits just before `editProject`). No remembered build → the skill says so.
+ */
+const CHANGE_VERB =
+  /^\s*(?:(?:ok(?:ay)?|now|next|also|then|and|actually|so)[,\s]+)*(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?(?:i(?:'d|\s+would)?\s+(?:want|need|like)\s+(?:you\s+)?to\s+)?(?:change|make|add|remove|delete|replace|rename|fix|update|tweak|move|swap|turn|put|give|show|hide|increase|decrease|improve|restyle|redo|centre|center|resize|enlarge|shrink|reorder)\b/i;
+const BUILT_REF = /\b(?:the\s+(?:game|app|application|site|website|web\s?page|page|project|tool|clicker|calculator|tracker|dashboard|launcher)|my\s+(?:game|app|application|site|website|page|project|tool))\b/i;
+const BUILT_PART =
+  /\b(?:buttons?|colou?rs?|background|title|heading|header|footer|font|layout|menu|score|speed|sound|image|logo|screen|theme|animations?|shop|upgrades?|sidebar|navbar|border|icons?|counter|timer|leaderboard)\b/i;
+
+export function parseBuilderChange(raw: string): { request: string } | null {
+  if (pathIn(raw)) return null;
+  const text = raw.trim();
+  if (!text || text.length > 400 || /^(?:what|why|how|who|when|where|which|is|are|do|does|did)\b/i.test(text)) return null;
+  if (!CHANGE_VERB.test(text)) return null;
+  if (!BUILT_REF.test(text) && !BUILT_PART.test(text)) return null;
+  return { request: text.replace(/[.!]+$/, '') };
+}
+
+/** "undo the last change to my game", "revert the last change". */
+export function parseBuilderRevert(raw: string): boolean {
+  return /^\s*(?:please\s+)?(?:undo|revert|roll\s*back|take\s+back)\s+(?:the\s+)?(?:last|latest|previous)\s+(?:change|edit)s?(?:\s+(?:to|in|on)\s+(?:the\s+|my\s+)?(?:game|app|application|site|website|project|page|it))\s*[.!]*$/i.test(raw);
+}
+
+/** "rebuild it", "build the app again". */
+export function parseBuilderRebuild(raw: string): boolean {
+  return /^\s*(?:please\s+)?(?:rebuild|re-build|build)\s+(?:it|the\s+(?:game|app|application|site|website|project)|my\s+(?:game|app|application|site|website|project))(?:\s+again)?\s*[.!]*$/i.test(raw) && /\b(?:rebuild|re-build|again)\b/i.test(raw);
+}
+
+/** "preview it", "show me a preview". */
+export function parseBuilderPreview(raw: string): boolean {
+  return /^\s*(?:please\s+)?(?:preview\s+(?:it|the\s+(?:game|app|site|website|project)|my\s+(?:game|app|site|website|project))|show\s+me\s+(?:a\s+)?preview(?:\s+of\s+(?:it|the\s+(?:game|app|site|website)))?)\s*[.!]*$/i.test(raw);
+}
+
 export function createAppGrammar(): GrammarRule[] {
   return [
     {
@@ -452,6 +488,21 @@ export function createAppGrammar(): GrammarRule[] {
         // compiles, the GPU), so starting it stays the person's choice. "play it" opens it later.
         if (chosen?.group !== 'engine') steps.push(step('project.play', {}));
         return plan(steps, 'build-app');
+      },
+    },
+    {
+      // The builder loop after a build: change it, undo that change, rebuild, preview. The target is
+      // the remembered build; with none, the skill says so. Just before `editProject`, so a rule that
+      // understands the sentence better always goes first.
+      name: 'builderLoop',
+      order: 85,
+      test(_lower, raw) {
+        if (parseBuilderRevert(raw)) return plan(step('builder.revert', {}), 'builder-revert');
+        if (parseBuilderRebuild(raw)) return plan([step('build.run', {}), step('project.check', {})], 'builder-rebuild');
+        if (parseBuilderPreview(raw)) return plan(step('project.play', {}), 'builder-preview');
+        const change = parseBuilderChange(raw);
+        // Change, then open it: a change that fails or is stopped never reaches the preview.
+        return change ? plan([step('builder.change', { request: change.request }), step('project.play', {})], 'builder-change') : null;
       },
     },
     {

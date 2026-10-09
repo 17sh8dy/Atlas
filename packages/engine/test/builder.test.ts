@@ -144,7 +144,8 @@ describe('project.check and builder.status', () => {
 
   test('both are safe, and neither writes anything to the project', async () => {
     const { skills, run } = rig();
-    for (const s of skills) expect(s.risk).toBe('safe');
+    for (const s of skills.filter((x) => x.id === 'project.check' || x.id === 'builder.status')) expect(s.risk).toBe('safe');
+    expect(skills.filter((x) => x.risk !== 'safe').map((x) => x.id).sort()).toEqual(['builder.change', 'builder.revert']);
     const dir = tmp();
     writeFileSync(join(dir, 'index.html'), '<!doctype html><html></html>');
     const before = JSON.stringify(readdirSync(dir));
