@@ -425,6 +425,7 @@ pub fn run() {
             web::web_search_with,
             web::web_search_provider_ready,
             web::fetch_page,
+            web::fetch_doc_page,
             intelligence::ask_local_model_stream,
             intelligence::local_models_installed,
             intelligence::ask_nova_intelligence_stream,
