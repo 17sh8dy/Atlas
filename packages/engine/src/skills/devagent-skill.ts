@@ -20,12 +20,17 @@ import type { SkillRegistry } from './registry';
 import { Executor } from '../planner/executor';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { runDevTask, type DevAgentDeps } from '../devagent/loop';
+import type { ResearchContext } from '../web/research';
 
 export interface DevAgentSkillOptions {
   skills: SkillRegistry;
   intelligence?: IntelligenceRegistry;
   phrasing?: Phrasing;
   getExecutionMode: () => ExecutionMode;
+  /** The session's research notebook (see `docs.research`). */
+  research?: ResearchContext;
+  /** The connected model's usable context, in characters, when known. */
+  contextChars?: number;
 }
 
 export function createDevAgentSkill(options: DevAgentSkillOptions): Skill {
@@ -34,6 +39,8 @@ export function createDevAgentSkill(options: DevAgentSkillOptions): Skill {
     intelligence: options.intelligence,
     executor: new Executor(options.skills, options.phrasing ?? createPhrasing()),
     getExecutionMode: options.getExecutionMode,
+    research: options.research,
+    contextChars: options.contextChars,
   };
 
   return {

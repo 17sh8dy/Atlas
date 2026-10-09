@@ -825,9 +825,16 @@ fn extract_page(html: &str, base: &reqwest::Url, docs: bool) -> (String, String,
             }
         }
         let text: String = el.text().collect::<String>();
-        let text = text.trim();
+        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
         if !text.is_empty() {
-            parts.push(text.to_string());
+            // Documentation mode keeps the outline: a heading is marked, so a section can be told from its body.
+            match (docs, name) {
+                (true, "h1") => parts.push(format!("# {text}")),
+                (true, "h2") => parts.push(format!("## {text}")),
+                (true, "h3") => parts.push(format!("### {text}")),
+                (true, "h4") => parts.push(format!("#### {text}")),
+                _ => parts.push(text),
+            }
         }
     }
 

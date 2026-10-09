@@ -49,6 +49,15 @@
  * nothing, which is exactly never for the tasks Phase 13 already shipped and
  * exactly always for a `uia.tree` read — so this changes no existing
  * behaviour and enables the new one.
+ *
+ * ── Added in 1.0.8 ──────────────────────────────────────────────────────────
+ *  - A reply is read by `parseToolCall` (native function-call shapes, fences, string arguments, truncation).
+ *  - Every tool result is shown to the model inside an UNTRUSTED fence, scanned for instruction-like text, and the
+ *    addresses/paths/commands in flagged text are tainted: an action carrying one is refused (`web/untrusted.ts`).
+ *  - The history is compacted to a budget instead of growing; the goal, rules and acceptance criteria are outside it.
+ *  - The same failure three times ends the task with the failure shown; the second time the model is told to change tack.
+ *  - A task that changed the project is reported `verified` only if a build / test / project check passed AFTER the
+ *    last change. "Done" from the model is not enough, and the report says what changed even after a stop.
  */
 
 import type {
@@ -64,6 +73,9 @@ import type { Executor } from '../planner/executor';
 import { USE_RULES } from '../safety/use-rules';
 import { HaltedError, untilHalted } from '@atlas/core';
 import type { HaltSignal } from '@atlas/core';
+import { parseToolCall } from './tool-call';
+import { UNTRUSTED_RULE, fenceUntrusted, scanInjection, taintFrom, taintedBy } from '../web/untrusted';
+import { TaskState, renderSpec, type ProjectSpec } from '../devagent/spec';
 
 export interface AgentStepLog {
   skill: string;
@@ -87,6 +99,18 @@ export interface AgentTaskReport {
   steps: AgentStepLog[];
   iterations: number;
   stoppedBecause: AgentStopReason;
+  /**
+   * Only for tasks that change a project. `true`: a build / test / project check passed AFTER the last change and
+   * nothing is failing. `false`: the project was changed and that was not observed. Absent: nothing was changed.
+   * This is Atlas's own observation, never the model's word.
+   */
+  verified?: boolean;
+  /** Why it is not verified, in a sentence. */
+  unverified?: string;
+  /** What the steps that succeeded changed, as "skill target". Answers "what did it change?" after a stop. */
+  changed: string[];
+  /** Actions refused because their arguments came from instruction-like text in a tool's output. */
+  refused: string[];
 }
 
 export interface AgentDeps {
@@ -94,6 +118,11 @@ export interface AgentDeps {
   intelligence?: IntelligenceRegistry;
   executor: Executor;
   getExecutionMode: () => ExecutionMode;
+  /**
+   * How much of a prompt the model can really use, in characters, when known. The history of what has
+   * happened is compacted to fit; it is never assumed that every model has the same room.
+   */
+  contextChars?: number;
 }
 
 /**
@@ -133,7 +162,32 @@ export interface AgentTaskConfig {
   extraInstruction?: string;
   /** Shown when no model is connected. */
   noProviderMessage: string;
+  /** What "done" means here. Shown every step with the status of each criterion Atlas has observed. */
+  spec?: ProjectSpec;
+  /** Extra context that changes as the task goes (research notes). Already fenced by whoever builds it. */
+  dynamicContext?(): Record<string, string>;
+  /**
+   * A one-line hint to add to the history after a step, e.g. "docs.research could look this error up". Pure and
+   * deterministic; it is Atlas's own advice, shown outside the untrusted block.
+   */
+  hintFor?(skillId: string, resultText: string, ok: boolean): string | undefined;
+  /** Bounds the history block of the prompt, in characters. */
+  historyChars?: number;
 }
+
+const DEFAULT_HISTORY_CHARS = 7000;
+/** The newest entries are kept in full; older ones are squeezed to a line each. */
+const KEEP_FULL = 3;
+
+/** Skills that change the project, and the checks that vouch for it. Patterns, so a new skill is covered by its name. */
+const WRITES = /^(?:code\.(?:write|edit|replaceAll|replaceAllUndo)|files\.(?:create|createFolder|append|rename|move|copy|delete|batchRename|mergeText|unzip)|project\.(?:create|scaffold|recolor|recolorUndo)|app\.scaffold|dependency\.|git\.(?:commit|merge|checkout|discardChanges|init|stash)|powershell\.run)/;
+const CHECKS: Array<[RegExp, (args: SkillArgs) => string]> = [
+  [/^build\.run$/, (a) => (a.target === 'typecheck' || a.target === 'lint' ? String(a.target) : 'build')],
+  [/^test\.run$/, () => 'test'],
+  [/^build\.diagnose$/, (a) => (a.what === 'test' ? 'test' : a.what === 'typecheck' || a.what === 'lint' ? String(a.what) : 'build')],
+  [/^project\.check$/, () => 'project-check'],
+  [/^script\.(?:python|node)$/, () => 'script'],
+];
 
 interface ProposedAction {
   done?: boolean;
@@ -187,17 +241,6 @@ function askProvider(
   });
 }
 
-function parseAction(reply: string): ProposedAction | null {
-  try {
-    const json = reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1);
-    const parsed = JSON.parse(json) as unknown;
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    return parsed as ProposedAction;
-  } catch {
-    return null;
-  }
-}
-
 function signatureOf(skill: string, args: SkillArgs): string {
   const sorted = Object.keys(args)
     .sort()
@@ -230,6 +273,44 @@ function observationText(outcome: StepOutcome | undefined, ok: boolean): string 
   return ok ? 'done' : (outcome?.error ?? 'failed');
 }
 
+/** The same failure, whatever the line numbers, paths and counts: for noticing a loop that is going nowhere. */
+function failureKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[a-z]:\\[^\s"']+|(?:\/[\w.-]+)+/g, '<path>')
+    .replace(/\d+/g, '#')
+    .replace(/\s+/g, ' ')
+    .slice(0, 160);
+}
+
+interface HistoryEntry {
+  full: string;
+  compact: string;
+}
+
+/**
+ * What has happened, within a character budget. The newest entries are shown whole; older ones shrink to one
+ * line each; if that is still too much the oldest are dropped and the gap is said out loud. The goal, the
+ * rules and the acceptance criteria are never part of this block, so shortening it cannot lose them.
+ */
+export function renderHistory(entries: readonly HistoryEntry[], budget: number): string {
+  if (!entries.length) return 'Nothing has run yet.';
+  const lines = entries.map((e, i) => (i >= entries.length - KEEP_FULL ? e.full : e.compact));
+  let total = lines.reduce((n, l) => n + l.length + 1, 0);
+  let start = 0;
+  while (total > budget && start < lines.length - KEEP_FULL) {
+    total -= lines[start]!.length + 1;
+    start += 1;
+  }
+  const omitted = start > 0 ? [`(${start} earlier step${start === 1 ? '' : 's'} left out to save room — the project files hold their results)`] : [];
+  return `What has happened so far:\n${[...omitted, ...lines.slice(start)].join('\n')}`;
+}
+
+const describeChange = (skill: string, args: SkillArgs) => {
+  const target = args.path ?? args.file ?? args.target ?? args.name ?? args.package ?? '';
+  return `${skill}${target ? ` ${String(target)}` : ''}`;
+};
+
 export async function runAgentTask(
   goal: string,
   config: AgentTaskConfig,
@@ -237,18 +318,41 @@ export async function runAgentTask(
   ctx: SkillContext,
 ): Promise<AgentTaskReport> {
   const steps: AgentStepLog[] = [];
+  const changed: string[] = [];
+  const refused: string[] = [];
   const signal = ctx.signal;
+  const state = new TaskState(config.spec ?? { goal, kind: 'unknown', stack: [], features: [], acceptance: [], open: [], milestones: [] });
+
+  const base = (): Pick<AgentTaskReport, 'changed' | 'refused'> => ({ changed: [...changed], refused: [...refused] });
+  const verification = (): Pick<AgentTaskReport, 'verified' | 'unverified'> => {
+    if (!state.everChanged) return {};
+    if (state.failingChecks.length) return { verified: false, unverified: `${state.failingChecks.join(', ')} ${state.failingChecks.length === 1 ? 'was' : 'were'} still failing at the end` };
+    if (!state.verified) return { verified: false, unverified: 'the project was changed and no build, test or project check was run (and passed) afterwards' };
+    return { verified: true };
+  };
+
   const halted = (): AgentTaskReport => ({
     ok: false,
     message: '',
     steps,
     iterations: steps.length,
     stoppedBecause: 'halted',
+    ...verification(),
+    ...base(),
   });
 
   const finish = (ok: boolean, message: string, reason: AgentStopReason): AgentTaskReport => {
-    ctx.say(message);
-    return { ok, message, steps, iterations: steps.length, stoppedBecause: reason };
+    const v = verification();
+    // A task that changed the project and never saw it work is not reported as a success.
+    let text = message;
+    let good = ok;
+    if (reason === 'done' && v.verified === false) {
+      text = `${message}\n\n⚠ Not verified: ${v.unverified}. I can't tell you it works — run the build or tests to confirm.`;
+      if (state.failingChecks.length) good = false;
+    }
+    if (changed.length && reason !== 'done') text = `${text}\nChanged so far: ${changed.slice(0, 8).join('; ')}${changed.length > 8 ? '…' : ''}.`;
+    ctx.say(text);
+    return { ok: good, message: text, steps, iterations: steps.length, stoppedBecause: reason, ...v, ...base() };
   };
 
   if (!deps.intelligence?.active()) {
@@ -256,13 +360,20 @@ export async function runAgentTask(
   }
 
   const catalog = catalogFor(deps.skills, config.allow);
-  const history: string[] = [];
+  const history: HistoryEntry[] = [];
   const failed = new Set<string>();
+  const failures = new Map<string, number>();
+  const taint = new Set<string>();
+  const goalLower = goal.toLowerCase();
+  const budget = Math.min(config.historyChars ?? DEFAULT_HISTORY_CHARS, deps.contextChars ? Math.max(1500, Math.floor(deps.contextChars * 0.4)) : Infinity);
   let malformedStreak = 0;
 
   for (let i = 0; i < config.maxIterations; i++) {
     if (signal?.aborted) return halted();
-    const contextLines = Object.entries(config.context).map(([label, value]) => `${label}: ${value}`);
+    const contextLines = [
+      ...Object.entries(config.context),
+      ...Object.entries(config.dynamicContext?.() ?? {}),
+    ].map(([label, value]) => `${label}: ${value}`);
     const actionsLine = config.extraInstruction
       ? `You may ONLY use these actions (${config.extraInstruction}):`
       : 'You may ONLY use these actions:';
@@ -270,14 +381,16 @@ export async function runAgentTask(
       `You are Atlas's ${config.role}, working step by step toward one goal.`,
       `Goal: ${goal}`,
       USE_RULES + ' If the goal is like that, reply {"done":true,"summary":...} saying you will not do it.',
+      UNTRUSTED_RULE,
       ...contextLines,
+      ...(config.spec ? [renderSpec(config.spec, state)] : []),
       'Reply with JSON only, no prose. One of two shapes:',
-      '  {"done":true,"summary":string} — the goal is complete, or cannot be; explain which and why.',
+      '  {"done":true,"summary":string} — the goal is complete, or cannot be; explain which and why. Do not say it is complete unless a build, test or check has passed since your last change.',
       '  {"skill":string,"args":object,"say"?:string} — one next action to take.',
       actionsLine,
       catalog,
       '',
-      history.length ? `What has happened so far:\n${history.join('\n')}` : 'Nothing has run yet.',
+      renderHistory(history, budget),
     ].join('\n');
 
     let reply: string | null;
@@ -295,8 +408,8 @@ export async function runAgentTask(
       );
     }
 
-    const action = parseAction(reply);
-    if (!action || (!action.done && !action.skill)) {
+    const parsed = parseToolCall(reply);
+    if (parsed.kind === 'invalid') {
       malformedStreak += 1;
       if (malformedStreak >= 2) {
         return finish(
@@ -305,10 +418,17 @@ export async function runAgentTask(
           'malformed',
         );
       }
-      history.push("(That reply wasn't a single valid JSON action — try again.)");
+      const hint =
+        parsed.reason === 'truncated'
+          ? 'It was cut off — send ONE short JSON object.'
+          : parsed.reason === 'bad-arguments'
+            ? `${parsed.detail} — "args" must be a JSON object.`
+            : "It wasn't a single valid JSON action — try again.";
+      history.push({ full: `(Your last reply was not usable: ${hint})`, compact: '(an unusable reply)' });
       continue;
     }
     malformedStreak = 0;
+    const action: ProposedAction = parsed.action;
 
     if (action.done) {
       const summary =
@@ -319,13 +439,26 @@ export async function runAgentTask(
     const skillId = action.skill!;
     const domain = deps.skills.get(skillId)?.domain ?? '';
     if (!config.allow(skillId, domain)) {
-      history.push(`(${skillId} isn't one of the offered actions — ignored.)`);
+      history.push({ full: `(${skillId} isn't one of the offered actions — ignored.)`, compact: `(${skillId}: not offered)` });
       continue;
     }
 
     const check = deps.skills.validate(skillId, (action.args ?? {}) as SkillArgs);
     if (!check.ok) {
-      history.push(`Tried ${skillId}: rejected — ${check.error}`);
+      history.push({ full: `Tried ${skillId}: rejected — ${check.error}`, compact: `Tried ${skillId}: rejected` });
+      continue;
+    }
+
+    // Nothing that came out of outside text may steer an action: if the arguments carry an address, path or
+    // command that appeared in text which looked like instructions, the action is refused — before it ever
+    // reaches an approval card dressed in an attacker's wording.
+    const tainted = taintedBy(check.args, [...taint].filter((t) => !goalLower.includes(t)));
+    if (tainted) {
+      refused.push(`${skillId}: ${tainted}`);
+      history.push({
+        full: `(Refused ${skillId}: its arguments contain “${truncate(tainted, 80)}”, which came from text in a tool's output that looked like instructions — not from the user's goal. Pick a different step, or finish and tell the user.)`,
+        compact: `(refused ${skillId}: came from untrusted text)`,
+      });
       continue;
     }
 
@@ -362,10 +495,46 @@ export async function runAgentTask(
     const resultText = observationText(stepOutcome, ok);
     const summary = truncate(resultText, 300);
     steps.push({ skill: skillId, args: check.args, ok, summary });
-    history.push(
-      `${ok ? 'Ran' : 'Failed'} ${skillId}(${JSON.stringify(check.args)}): ${truncate(resultText)}`,
-    );
-    if (!ok) failed.add(signature);
+
+    // What changed, and what vouches for it — from the executor's result, not from the model's description.
+    if (ok && WRITES.test(skillId)) {
+      changed.push(describeChange(skillId, check.args));
+      state.changed();
+    }
+    const checkRule = CHECKS.find(([re]) => re.test(skillId));
+    if (checkRule) {
+      const data = stepOutcome?.data as { ok?: boolean; result?: { ok?: boolean } } | undefined;
+      // build.diagnose and project.check answer ok=true even when what they found is a failure; their data says which.
+      const passed = skillId === 'build.diagnose' ? Boolean(ok && data?.result?.ok) : skillId === 'project.check' ? Boolean(ok && data?.ok) : ok;
+      state.checked(checkRule[1](check.args), passed);
+    }
+
+    // Anything instruction-like in the output is remembered as data, and what it pointed at is tainted.
+    const findings = scanInjection(resultText);
+    if (findings.length) for (const t of taintFrom(resultText)) taint.add(t);
+
+    const hint = config.hintFor?.(skillId, resultText, ok);
+    let line = `${ok ? 'Ran' : 'Failed'} ${skillId}(${JSON.stringify(check.args)}): ${fenceUntrusted(skillId, resultText)}`;
+    if (hint) line += `\nAtlas's hint: ${hint}`;
+
+    // The same failure again and again, whatever the action: change approach, then stop.
+    let nudge = '';
+    if (!ok) {
+      failed.add(signature);
+      const key = failureKey(resultText);
+      const n = (failures.get(key) ?? 0) + 1;
+      failures.set(key, n);
+      if (n >= 3) {
+        history.push({ full: line, compact: `Failed ${skillId}` });
+        return finish(
+          steps.some((s) => s.ok),
+          `The same problem came back ${n} times, so more of the same won't fix it. I'm stopping here rather than loop — the last failure was:\n${truncate(resultText, 400)}`,
+          'repeated-failure',
+        );
+      }
+      if (n === 2) nudge = "\nAtlas's note: this is the same failure as before. Try a different approach (read the file involved, look the error up with a documentation search, or change a different cause) — don't repeat the same fix.";
+    }
+    history.push({ full: line + nudge, compact: `${ok ? 'Ran' : 'Failed'} ${skillId}: ${truncate(resultText.replace(/\s+/g, ' '), 100)}` });
   }
 
   return finish(

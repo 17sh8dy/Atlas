@@ -285,6 +285,7 @@ export function createTauriPlatform(): Platform {
     searchProviderReady: (provider) =>
       invoke<boolean>('web_search_provider_ready', { provider }).catch(() => false),
     fetchPage: (url) => invoke<WebPage>('fetch_page', { url }),
+    fetchDocPage: (url) => invoke<WebPage>('fetch_doc_page', { url }),
 
     notify: async (title, body) => {
       const { isPermissionGranted, requestPermission, sendNotification } =

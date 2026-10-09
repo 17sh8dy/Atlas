@@ -72,6 +72,8 @@ import {
   createFileIntelSkills,
   createWorkflowSkills,
   createBuilderSkills,
+  createDocsSkills,
+  ResearchContext,
   WorkflowLog,
   buildWorkflowReport,
   type WorkflowReport,
@@ -592,6 +594,8 @@ export function useAtlas(
 
   // What each run did, in one standard shape: feeds "what did you just do" and the steps disclosure.
   const workflowLog = useMemo(() => new WorkflowLog(), []);
+  // What documentation research has read this session: the developer agent is shown it, fenced, on every step.
+  const researchNotes = useMemo(() => new ResearchContext(), []);
 
   const engine = useMemo(() => {
     const skills = new SkillRegistry({ capabilities: () => capabilities });
@@ -627,6 +631,8 @@ export function useAtlas(
     skills.registerMany(createPcHealthSkills(platform));
     skills.registerMany(createFileIntelSkills(platform));
     skills.registerMany(createWorkflowSkills(workflowLog));
+    // Research while building: read the documentation, keep notes with their sources.
+    skills.registerMany(createDocsSkills({ platform, context: researchNotes, search: searchManager }));
     skills.registerMany(createCatalogMediaSkills(platform, memory));
     skills.registerMany(createCatalogMakeSkills(platform, memory));
     skills.registerMany(createClipboardHistorySkills({ platform, history: clipHistory, isEnabled: () => clipEnabled.current }));
@@ -716,6 +722,7 @@ export function useAtlas(
         intelligence,
         phrasing,
         getExecutionMode: () => executionModeRef.current,
+        research: researchNotes,
       }),
     );
     // Same reasoning, same shape, for the UI-driving agent — see
@@ -741,6 +748,7 @@ export function useAtlas(
     return built;
   }, [
     workflowLog,
+    researchNotes,
     clipHistory,
     storage,
     setupStore,

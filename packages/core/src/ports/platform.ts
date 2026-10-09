@@ -505,6 +505,8 @@ export interface WebPage {
   url: string;
   /** Headings/paragraphs/list items only — not a full article extractor. */
   text: string;
+  /** Documentation reads only: the page's own links, resolved, de-duplicated. */
+  links?: Array<{ text: string; url: string }>;
 }
 
 /**
@@ -1219,6 +1221,11 @@ export interface Platform {
    */
   searchWeb?(query: string): Promise<WebSearchResult[]>;
   fetchPage?(url: string): Promise<WebPage>;
+  /**
+   * Read a documentation page on Atlas's own initiative: respects robots.txt, follows redirects by hand with the
+   * same safety check at every hop, keeps code blocks (fenced) and headings (`#`), and returns the page's links.
+   */
+  fetchDocPage?(url: string): Promise<WebPage>;
   /**
    * Search through one named backend. `searchWeb` above stays as the
    * key-free default (DuckDuckGo); this is how the engine's search manager
