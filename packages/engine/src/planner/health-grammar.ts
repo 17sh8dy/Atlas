@@ -291,6 +291,53 @@ export function createHealthGrammar(): GrammarRule[] {
       },
     },
     {
+      // "look up fetch abort signals in the docs", "read the vite docs about base path": documentation research.
+      name: 'docsResearch',
+      order: -12.58,
+      questionSafe: ['docs-research'],
+      test(lower, raw) {
+        const t = raw.replace(/[?.!]+\s*$/, '').trim();
+        if (/https?:\/\//i.test(t) || /\b[a-z]:\\/i.test(t)) return null;
+        const clean = (s: string) => s.replace(/^(?:how\s+(?:do\s+i|to|can\s+i)\s+)/i, 'how to ').trim();
+        // "<look up / research / find out> X in the [LIB] docs"
+        let m = /^(?:please\s+)?(?:look\s+up|research|find\s+out|check|search)\s+(.+?)\s+(?:in|on|from|using)\s+(?:the\s+)?(?:(?:official|api)\s+)?(?:([\w.+-]+)\s+)?(?:docs|documentation|api\s+reference)$/i.exec(t);
+        if (m) {
+          const lib = m[2] && !/^(?:official|api|the|its|their)$/i.test(m[2]) ? m[2] : undefined;
+          return plan(step('docs.research', { question: clean(m[1]!), ...(lib ? { library: lib } : {}) }), 'docs-research');
+        }
+        // "read the [LIB] docs [for|about|on] X"
+        m = /^(?:please\s+)?(?:read|check|search|consult)\s+(?:the\s+)?(?:(?:official|api)\s+)?(?:([\w.+-]+)\s+)?(?:docs|documentation|api\s+reference)\s+(?:for|about|on|to\s+see)\s+(.+)$/i.exec(t);
+        if (m) {
+          const lib = m[1] && !/^(?:official|api|the|its|their)$/i.test(m[1]) ? m[1] : undefined;
+          return plan(step('docs.research', { question: clean(m[2]!), ...(lib ? { library: lib } : {}) }), 'docs-research');
+        }
+        // "what do the docs say about X"
+        m = /^what\s+(?:do|does)\s+(?:the\s+)?(?:(?:official|api)\s+)?(?:([\w.+-]+)\s+)?(?:docs|documentation)\s+say\s+(?:about|on)\s+(.+)$/i.exec(t);
+        if (m) return plan(step('docs.research', { question: clean(m[2]!), ...(m[1] && !/^(?:official|api|the)$/i.test(m[1]) ? { library: m[1] } : {}) }), 'docs-research');
+        return null;
+      },
+    },
+    {
+      // "read the docs page https://vite.dev/config/ about base": one documentation page.
+      name: 'docsRead',
+      order: -12.59,
+      questionSafe: ['docs-read'],
+      test(_lower, raw) {
+        const m = /^(?:please\s+)?(?:read|open|fetch)\s+(?:the\s+)?(?:docs?|documentation)\s+(?:page|at|from)\s+(https?:\/\/\S+?)(?:\s+(?:about|for|on)\s+(.+?))?\s*[?.!]*$/i.exec(raw.trim());
+        return m ? plan(step('docs.read', { url: m[1]!, ...(m[2] ? { focus: m[2] } : {}) }), 'docs-read') : null;
+      },
+    },
+    {
+      // "show my research notes", "what have you researched".
+      name: 'docsNotes',
+      order: -12.57,
+      questionSafe: ['docs-notes'],
+      test(lower) {
+        const s = lower.replace(/[?.!]+\s*$/, '').trim();
+        return /^(?:show|list|open)\s+(?:me\s+)?(?:my\s+|the\s+)?research\s+notes$|^what\s+(?:have\s+you|did\s+you)\s+(?:researched|look(?:ed)?\s+up|read)(?:\s+so\s+far)?$/.test(s) ? plan(step('docs.notes'), 'docs-notes') : null;
+      },
+    },
+    {
       // "why does my build fail", "why are the tests failing", "diagnose the build in D:\Dev\App".
       name: 'buildDiagnose',
       order: -12.6,

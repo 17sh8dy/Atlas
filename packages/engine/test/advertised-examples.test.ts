@@ -50,6 +50,7 @@ import { createPcHealthSkills } from '../src/skills/pc-health-skills';
 import { createFileIntelSkills } from '../src/skills/file-intel-skills';
 import { createBuilderSkills } from '../src/skills/builder-skills';
 import { createWorkflowSkills } from '../src/skills/workflow-skills';
+import { createDocsSkills } from '../src/skills/docs-skills';
 import { WorkflowLog } from '../src/workflow/report';
 import { createCatalogMediaSkills } from '../src/skills/catalog-media-skills';
 import { createCatalogMakeSkills } from '../src/skills/catalog-make-skills';
@@ -109,6 +110,7 @@ function everySkill(): Skill[] {
     ...createPcHealthSkills(NOTHING),
     ...createFileIntelSkills(NOTHING),
     ...createBuilderSkills(NOTHING),
+    ...createDocsSkills({ platform: NOTHING, search: { search: async () => ({ ok: false as const, reason: 'none-available' as const, attempts: [] }) } }),
     ...createWorkflowSkills(new WorkflowLog()),
     ...createCatalogMediaSkills(NOTHING),
     ...createCatalogMakeSkills(NOTHING),
