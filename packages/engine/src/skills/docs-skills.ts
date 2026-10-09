@@ -237,7 +237,7 @@ export function createDocsSkills(deps: DocsDeps): Skill[] {
     async run(args, ctx) {
       const focus = redactQuery(String(args.focus ?? '')).query;
       const got = await readPage(String(args.url ?? ''), ctx);
-      if (!got.ok) return { ok: false, error: `I couldn't read that page: ${got.reason}.` };
+      if (!got.ok) return { ok: false, error: `I couldn't read that page: ${got.reason}${/[.?!]$/.test(got.reason) ? '' : '.'}` };
       const { note, extract } = noteFromPage(got.page, focus);
       const lines = ['📖 ' + describe(note, extract).join('\n')];
       if (extract.links.length) lines.push('', 'Related pages that mention the topic:', ...extract.links.map((l) => `    • ${l.text} — ${l.url}`));
