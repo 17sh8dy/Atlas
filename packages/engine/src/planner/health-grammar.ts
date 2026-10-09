@@ -295,7 +295,7 @@ export function createHealthGrammar(): GrammarRule[] {
       name: 'docsResearch',
       order: -12.58,
       questionSafe: ['docs-research'],
-      test(lower, raw) {
+      test(_lower, raw) {
         const t = raw.replace(/[?.!]+\s*$/, '').trim();
         if (/https?:\/\//i.test(t) || /\b[a-z]:\\/i.test(t)) return null;
         const clean = (s: string) => s.replace(/^(?:how\s+(?:do\s+i|to|can\s+i)\s+)/i, 'how to ').trim();

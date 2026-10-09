@@ -77,7 +77,7 @@ export const CARDS: readonly HomeCard[] = [
     label: 'Search the web',
     description: 'Find information, websites, images, and more.',
     starter: 'search the web for ',
-    domains: ['web', 'research'],
+    domains: ['web', 'research', 'docs'],
   },
   {
     icon: '🚀',
