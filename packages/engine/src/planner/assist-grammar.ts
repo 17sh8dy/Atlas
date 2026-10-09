@@ -53,8 +53,40 @@ export function parseCiteEvidence(raw: string): { question: string; folder?: str
   return paths[0] ? { question, folder: paths[0] } : { question };
 }
 
+/** "do these as one workflow: A, then B", "all or nothing: A; B", "run A, then B as a transaction". */
+export function parseTransaction(raw: string): string | null {
+  const m =
+    /^\s*(?:please\s+)?(?:do|run|execute)\s+(?:these|this|the\s+following)(?:\s+steps)?\s+(?:as|in)\s+(?:one|a|an|1)\s+(?:workflow|transaction|batch)\s*[:,\-–]?\s*([\s\S]+)$/i.exec(raw) ??
+    /^\s*(?:please\s+)?(?:as\s+)?(?:an?\s+)?all[\s-]or[\s-]nothing(?:\s+(?:workflow|transaction))?\s*[:,\-–]\s*([\s\S]+)$/i.exec(raw) ??
+    /^\s*(?:please\s+)?(?:run|do)\s+(?:a\s+)?(?:workflow|transaction)\s*[:,\-–]\s*([\s\S]+)$/i.exec(raw) ??
+    /^\s*(?:please\s+)?(?:run|do)\s+([\s\S]+?)\s+as\s+(?:one|a|an)\s+(?:workflow|transaction)\s*[.!]*$/i.exec(raw);
+  const request = m?.[1] ? clean(m[1]) : '';
+  return request.length >= 5 ? request : null;
+}
+
 export function createAssistGrammar(): GrammarRule[] {
   return [
+    {
+      name: 'workflowTransaction',
+      order: -12.8,
+      pathSafe: true,
+      test(_lower, raw) {
+        const request = parseTransaction(raw);
+        return request ? plan(step('workflow.transaction', { request }), 'workflow-transaction') : null;
+      },
+    },
+    {
+      name: 'workflowControl',
+      order: -12.79,
+      questionSafe: ['workflow-history'],
+      test(lower) {
+        const t = lower.trim().replace(/[?.!]+$/, '');
+        if (/^(?:please\s+)?(?:resume|continue|pick\s+up|carry\s+on\s+with)\s+(?:the\s+|my\s+)?(?:interrupted\s+|stopped\s+|unfinished\s+|last\s+)?workflow$/.test(t)) return plan(step('workflow.resume', {}), 'workflow-resume');
+        if (/^(?:please\s+)?(?:undo|roll\s*back|revert|reverse)\s+(?:the\s+)?(?:last|latest|previous|that)\s+(?:workflow|transaction)$/.test(t)) return plan(step('workflow.rollback', {}), 'workflow-rollback');
+        if (/^(?:show|list|what\s+(?:are|were))\s+(?:me\s+)?(?:my\s+|the\s+)?(?:recent\s+|past\s+|last\s+)?(?:workflows?|transactions?)(?:\s+history)?$/.test(t) || /^workflow\s+history$/.test(t)) return plan(step('workflow.history', {}), 'workflow-history');
+        return null;
+      },
+    },
     {
       name: 'selfAudit',
       order: -12.71,

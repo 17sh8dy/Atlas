@@ -73,6 +73,7 @@ import {
   createWorkflowSkills,
   createBuilderSkills,
   createAssistSkills,
+  createTransactionSkills,
   createDocsSkills,
   ResearchContext,
   scaleFor,
@@ -687,6 +688,16 @@ export function useAtlas(
         skills,
         memory,
         current: projectContext,
+        planFor: (text) => (built ? built.planFor(text) : Promise.resolve(null)),
+      }),
+    );
+    // Several steps as one unit: validated first, checkpointed, undone where the tools allow it.
+    skills.registerMany(
+      createTransactionSkills({
+        skills,
+        storage,
+        getExecutionMode: () => executionModeRef.current,
+        phrasing,
         planFor: (text) => (built ? built.planFor(text) : Promise.resolve(null)),
       }),
     );

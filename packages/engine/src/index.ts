@@ -45,6 +45,7 @@ export { createFileIntelSkills } from './skills/file-intel-skills';
 export { createWorkflowSkills } from './skills/workflow-skills';
 export { createBuilderSkills } from './skills/builder-skills';
 export { createAssistSkills } from './skills/assist-skills';
+export { createTransactionSkills } from './skills/transaction-skills';
 export { createDocsSkills } from './skills/docs-skills';
 export { ResearchContext, classifySource, extractDocs } from './web/research';
 export { scanInjection, fenceUntrusted, redactQuery, checkResearchUrl } from './web/untrusted';
