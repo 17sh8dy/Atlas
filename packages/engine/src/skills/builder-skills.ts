@@ -245,7 +245,8 @@ export function createBuilderSkills(
       });
 
       const lines: string[] = [];
-      lines.push(ran.ok ? `✏️ Done: “${request}”.` : `⚠️ I didn’t finish “${request}”.`);
+      // The app puts its own warning mark in front of an error, so a failure does not carry one.
+      lines.push(ran.ok ? `✏️ Done: “${request}”.` : `I didn’t finish “${request}”.`);
       if (changed.length) lines.push(`Changed: ${changed.slice(0, 8).join('; ')}${changed.length > 8 ? '…' : ''}.`);
       else lines.push(discarded ? 'Nothing was changed, so I threw away the spare copy.' : 'No file was changed.');
       if (checked) lines.push(checked.ok ? '✓ The project still hangs together.' : '✕ The project check found a problem — say “check the project I just built” for the list.');
