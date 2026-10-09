@@ -377,6 +377,18 @@ describe('going in circles', () => {
     expect(r.ran).toHaveLength(1);
   });
 
+  test('the identical build call IS allowed again after a successful edit — that is how a fix is proved (found with a real local model)', async () => {
+    const r = rig({
+      'build.run': { domain: 'build', result: (_a, n) => (n === 1 ? { ok: false, error: 'src/a.js(2,3): error TS1005: retrun is not a statement' } : { ok: true, message: 'build ok' }) },
+      'code.edit': { domain: 'code', result: () => ({ ok: true, message: 'edited' }) },
+    });
+    const same = act('build.run', { path: 'C:\\proj' });
+    const { report } = await run('fix the build', r, [same, act('code.edit', { path: 'C:\\proj\\a.js' }), same, DONE('Fixed.')]);
+    expect(report.stoppedBecause).toBe('done');
+    expect(report.verified).toBe(true);
+    expect(r.ran.map((x) => x.skill)).toEqual(['build.run', 'code.edit', 'build.run']);
+  });
+
   test('a build error that cites a library gets a documentation hint — as Atlas’s own advice, outside the untrusted block', async () => {
     const r = rig({ 'build.run': { domain: 'build', result: () => ({ ok: false, error: "src/a.ts(1,1): error TS2307: Cannot find module 'zod' or its type declarations." }) } });
     const { prompts } = await run('fix the build', r, [act('build.run', { path: 'C:\\proj' }), DONE()]);

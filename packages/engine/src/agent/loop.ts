@@ -500,6 +500,9 @@ export async function runAgentTask(
     if (ok && WRITES.test(skillId)) {
       changed.push(describeChange(skillId, check.args));
       state.changed();
+      // The project is different now, so an action that failed before (the build, the tests) is worth running again —
+      // that is exactly how a fix is proved. Only an UNCHANGED project makes a repeat pointless.
+      failed.clear();
     }
     const checkRule = CHECKS.find(([re]) => re.test(skillId));
     if (checkRule) {
