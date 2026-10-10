@@ -62,6 +62,7 @@ import { buildEvidencePrompt, formatEvidenceFallback, formatEvidenceFooter } fro
 import { refusalFor, screenRequest } from './safety/content-policy';
 import { USE_RULES } from './safety/use-rules';
 import { normalizeRequest } from './text/normalize';
+import { buildSentenceFor, isBuildItRedirect, openTargetOf } from './text/build-redirect';
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
 import { reporterFor, type ActivityEvent } from './planner/executor';
@@ -202,6 +203,10 @@ export class Engine {
   private lastPlan: Plan | null = null;
   /** How to put the last reversible change back, for "undo that". Cleared by anything else. */
   private lastUndo: { skill: string; args: SkillArgs; label: string } | null = null;
+  /** What the previous request asked to open ("Nova.Play"), so "there is no app, build it" has a subject. */
+  private lastOpenTarget: string | null = null;
+  /** Nesting depth of `followUp` requests; one is allowed, so a skill can never start a loop. */
+  private followUpDepth = 0;
 
   constructor(options: EngineOptions) {
     this.skills = options.skills;
@@ -256,6 +261,27 @@ export class Engine {
     return null;
   }
 
+  /**
+   * A finished plan can hand over to a new request: its last step reports `data.followUp`, a
+   * sentence ("build me an app called X"). It is asked exactly as if it had been typed, so the same
+   * templates, questions and gates apply — a skill never gets a side door around them.
+   */
+  private followUpOf(outcome: PlanOutcome): string | null {
+    if (!outcome.ok) return null;
+    const data = outcome.outcomes[outcome.outcomes.length - 1]?.data;
+    const next = (data as { followUp?: unknown } | undefined)?.followUp;
+    return typeof next === 'string' && next.trim() && this.followUpDepth === 0 ? next.trim() : null;
+  }
+
+  private async followUp(text: string, io: EngineIO, signal: HaltSignal, options: AskOptions): Promise<AskOutcome> {
+    this.followUpDepth += 1;
+    try {
+      return await this.askWith(text, io, signal, options);
+    } finally {
+      this.followUpDepth -= 1;
+    }
+  }
+
   /** Remember what just ran, so it can be repeated or put back. */
   private remember(plan: Plan, outcome: PlanOutcome): void {
     if (plan.intent === 'undo') {
@@ -300,6 +326,19 @@ export class Engine {
   ): Promise<AskOutcome> {
     this.bus.emit('engine:ask', { text: raw });
     const ctx = this.context(io, signal);
+
+    // 0. "there is not an app, you have to build it": a correction to the request just before it,
+    //    not a new request. Without this it was read as an app NAME to look for.
+    if (isBuildItRedirect(raw)) {
+      const subject = this.lastOpenTarget;
+      this.lastOpenTarget = null;
+      if (subject && this.followUpDepth === 0) {
+        io.say(`Okay — there is no “${subject}” to open, so I'll build it.`);
+        return this.followUp(buildSentenceFor(subject), io, signal, options);
+      }
+    } else {
+      this.lastOpenTarget = openTargetOf(raw);
+    }
 
     // 1. Grammar — the fast path. Parsing is pure: it reads the text and
     //    builds a plan object, and nothing runs until the executor is handed
@@ -384,6 +423,8 @@ export class Engine {
       this.bus.emit('engine:done', { mode: 'command', plan: matched, outcome });
       if (outcome.halted) throw new HaltedError();
       this.remember(matched, outcome);
+      const next = this.followUpOf(outcome);
+      if (next) return this.followUp(next, io, signal, options);
       return { ok: outcome.ok, mode: 'command', plan: matched, outcome };
     }
 

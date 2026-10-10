@@ -58,7 +58,8 @@ for (const template of BUILT_IN_TEMPLATES) {
         assert.notMatch(f.content, /\{\{[A-Z]+\}\}/, `${f.path} still has a placeholder`);
         assert.isAbove(f.content.length, 5, `${f.path} is empty`);
       }
-      if (!template.desktop) return;
+      // A Tauri project is not Electron (no main.js, no electron.exe); tauri-launcher.test.ts checks it.
+      if (!template.desktop || template.shell === 'tauri') return;
 
       // Desktop projects: package.json valid, window loads index.html, scripts are real JavaScript.
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));

@@ -33,7 +33,28 @@ const LEAD_IN =
  * and an engine plugin's own template (group 'engine') is the only template that may match.
  */
 const OTHER_STACK =
-  /\b(?:react|vue|svelte|vite|next\.?js|angular|python|rust|tauri|c\+\+|c#|java|unity|unreal|ue4|ue5|godot|roblox|minecraft|discord|flutter|swift|kotlin)\b/i;
+  /\b(?:react|vue|svelte|vite|next\.?js|angular|python|rust|c\+\+|c#|java|unity|unreal|ue4|ue5|godot|roblox|minecraft|discord|flutter|swift|kotlin)\b/i;
+
+/** Tauri is the one stack with a template of its own (`tauri-launcher`), so it is not "another stack". */
+const TAURI = /\btauri\b/i;
+
+/**
+ * "In D:\Dev\Game, create a clicker" / "In D:\Dev\Game Create a …": the folder comes first. Rewritten
+ * to "create a … in D:\Dev\Game", the shape every rule below was written for. Anything that does not
+ * open with "in <drive path>" comes back unchanged.
+ */
+export function liftLeadingPath(raw: string): string {
+  const m = /^\s*(?:please\s+)?(?:in|at|inside|under)\s+(?:the\s+(?:folder\s+)?)?("[a-z]:[\\/][^"]+"|[a-z]:[\\/]\S*?)\s*[,:;]?\s+(?=[a-z])([\s\S]+)$/i.exec(raw);
+  if (!m) return raw;
+  const rest = m[2]!.trim().replace(/[.!]+$/, '');
+  return `${rest} in ${m[1]}`;
+}
+
+/**
+ * "Create a Src - Tauri desktop app …": a named sub-folder of the project folder, written as "a <name> -".
+ * Only the usual names for a folder inside a project, so "a Cool - game" is never a folder.
+ */
+const SUBFOLDER = /^(?:an?|the)\s+(src|source|app|code|project|game|client|desktop|ui|frontend|backend|web)\s*(?:folder\s*)?[-\u2013\u2014:]\s+/i;
 
 /** Things that are not a project at all, whatever the verb. */
 const NOT_A_PROJECT =
@@ -97,7 +118,8 @@ const HAS_SCAFFOLDER = /\b(?:react|vue|svelte|vite)\b/i;
  * every step goes through the same gates). Without a model that skill says so plainly. A request
  * with no folder is not claimed here, so the planner or the honest fallback gets it instead.
  */
-export function parseAgentBuildRequest(raw: string): { goal: string; path: string } | null {
+export function parseAgentBuildRequest(original: string): { goal: string; path: string } | null {
+  const raw = liftLeadingPath(original);
   const m = new RegExp(
     LEAD_IN +
       BUILD_VERB +
@@ -117,12 +139,13 @@ export function parseAgentBuildRequest(raw: string): { goal: string; path: strin
   // A game that big is not a job for the developer agent either: it gets the honest answer about
   // engines (the needsEngine rule below), not a toy built to look like it.
   if (BIG_GAME.test(subject)) return null;
-  return { goal: raw.trim().replace(/[.!]+$/, ''), path };
+  return { goal: original.trim().replace(/[.!]+$/, ''), path };
 }
 
 export function parseBuildRequest(
-  raw: string,
+  original: string,
 ): { template?: string; path?: string; name?: string } | null {
+  const raw = liftLeadingPath(original);
   const m = new RegExp(
     LEAD_IN +
       BUILD_VERB +
@@ -143,14 +166,45 @@ export function parseBuildRequest(
     rest = (rest.slice(0, where.index) + rest.slice(where.index + where[0].length)).trim();
   }
 
+  // "a Src - …" puts the project in a sub-folder. It is still the PARENT folder's app, so that is
+  // what it is called unless the request names it.
+  let parentName: string | undefined;
+  const sub = SUBFOLDER.exec(rest);
+  if (sub) {
+    rest = rest.slice(sub[0].length).trim();
+    if (path) {
+      parentName = path.split(/[\\/]/).filter(Boolean).pop();
+      path = `${path}\\${sub[1]![0]!.toUpperCase()}${sub[1]!.slice(1).toLowerCase()}`;
+    }
+  }
+
   let name: string | undefined;
-  const named = /\b(?:called|named)\s+["“]?([A-Za-z0-9][A-Za-z0-9 _'-]{0,40}?)["”]?(?=\s*(?:[,.;!]|\s+(?:in|at|with|and|that)\b|$))/i.exec(
+  const named = /\b(?:called|named)\s+["“]?([A-Za-z0-9][A-Za-z0-9 _.'-]{0,40}?)["”]?(?=\s*(?:[,;!]|\.(?:\s|$)|\s+(?:in|at|with|and|that)\b|$))/i.exec(
     rest,
   );
   if (named) name = named[1]!.trim();
+  // "an app called Nova.Play": the name is not part of what is being built.
+  if (named) rest = rest.replace(named[0], ' ').replace(/\s+/g, ' ').trim();
+  // "called Infinite Clicker" names the game inside a launcher, not the app that holds it.
+  if (parentName && /\btauri\b/i.test(rest)) name = parentName;
+  else name ??= parentName;
 
   const subject = subjectOf(rest);
   if (NOT_A_PROJECT.test(subject)) return null;
+
+  // A Tauri request gets the Tauri template or nothing: the longest-word match below would hand
+  // "a Tauri todo app" the Electron todo app. A Tauri app of some other kind is the model's job.
+  if (TAURI.test(subject) && !OTHER_STACK.test(subject)) {
+    const tauri = templateById('tauri-launcher');
+    const wantsLauncher = /\b(?:glass\s*box|game\s+launcher|infinite\s+clicker)\b/i.test(rest);
+    // A bare "make me a Tauri app" gets the starter. One that goes on to say what the app should DO
+    // ("start simple, then grow … upgrades and heavy math") wants code written, which is the model's job.
+    const bare =
+      isGenericRequest(subject.replace(/\btauri\b/gi, ' ')) &&
+      !/[.;]\s+\S/.test(rest) &&
+      !/\b(?:should|must|upgrades?|complex|features?|grow)\b/i.test(rest);
+    return tauri && (wantsLauncher || bare) ? { template: tauri.id, path, name } : null;
+  }
 
   const found = chooseTemplate(subject);
   if (found) {
@@ -337,8 +391,9 @@ export function parseTodoRequest(raw: string): { path?: string } | null {
  * search the web, which is what this used to get. Only claimed when a folder is NAMED: with none,
  * there is nothing to point the agent at.
  */
-export function parseEditRequest(raw: string): { goal: string; path: string } | null {
-  if (/\?\s*$/.test(raw)) return null;
+export function parseEditRequest(original: string): { goal: string; path: string } | null {
+  const raw = liftLeadingPath(original);
+  if (/\?\s*$/.test(original)) return null;
   const named = pathIn(raw);
   if (!named) return null;
   const lower = raw.toLowerCase();
@@ -348,7 +403,7 @@ export function parseEditRequest(raw: string): { goal: string; path: string } | 
   if (NOT_A_PROJECT.test(named.rest)) return null;
   // A project is a folder: a path that ends in a file extension is a file, and has its own skills.
   if (/\.[a-z0-9]{1,5}$/i.test(named.path)) return null;
-  return { goal: raw.trim().replace(/[.!]+$/, ''), path: named.path };
+  return { goal: original.trim().replace(/[.!]+$/, ''), path: named.path };
 }
 
 /**
@@ -486,7 +541,8 @@ export function createAppGrammar(): GrammarRule[] {
         steps.push(step('project.check', { built: 'template', ...(request.template ? { template: request.template } : {}), ...(request.path ? { path: request.path } : {}) }));
         // A game engine project is NOT opened for you: the editor is a heavy program (shader
         // compiles, the GPU), so starting it stays the person's choice. "play it" opens it later.
-        if (chosen?.group !== 'engine') steps.push(step('project.play', {}));
+        // A Tauri app is the same: its first run is a Rust compile of minutes, so it is left to Play.cmd.
+        if (chosen?.group !== 'engine' && chosen?.shell !== 'tauri') steps.push(step('project.play', {}));
         return plan(steps, 'build-app');
       },
     },

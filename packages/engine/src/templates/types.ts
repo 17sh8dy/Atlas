@@ -44,6 +44,8 @@ export interface AppTemplate {
   words: readonly string[];
   /** A desktop template needs `npm install` for its window; a web one runs as it is. */
   desktop: boolean;
+  /** The desktop shell, when it is not Electron. Absent means a plain web page or an Electron app. */
+  shell?: 'tauri';
   /** The file to open once it exists (relative to the project folder). */
   launch: string;
   /** For a project whose main file is named after it ("VoidClicker.uproject"); wins over `launch`. */

@@ -45,6 +45,7 @@ import { rankMatches, nearMatches, RANK } from '../text/fuzzy';
 import { resolveSite, exactSiteName } from '../text/sites';
 import { attemptGoal } from '../planner/attempts';
 import { askWhereItIs, whereInWords } from './ask-where';
+import { buildSentenceFor } from '../text/build-redirect';
 import { evaluateExpression, formatNumber } from './math';
 import { convertUnit } from './units';
 import type { SkillRegistry } from './registry';
@@ -1130,6 +1131,16 @@ export function createCoreSkills(
           return ok
             ? { ok: true, message: phrasing.opening(answer.text.split(/[\\/]/).pop() ?? answer.text) }
             : { ok: false, error: `I couldn't open ${answer.text} — check the path, and that it's inside a folder I'm allowed to use (Settings → General).` };
+        }
+        if (answer.kind === 'build') {
+          // Not an app anyone has: hand the name to the build request it really is. The engine runs
+          // `followUp` as the next request (see Engine.followUpOf), so templates, the folder question
+          // and the developer agent all apply exactly as if it had been typed.
+          return {
+            ok: true,
+            message: `Okay — there is no “${wanted}” on this PC, so I'll build it instead.`,
+            data: { followUp: buildSentenceFor(wanted) },
+          };
         }
         if (answer.kind === 'web') {
           const url = `https://www.google.com/search?q=${encodeURIComponent(wanted)}`;

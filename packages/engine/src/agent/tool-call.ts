@@ -100,6 +100,36 @@ function unwrap(value: unknown): Record<string, unknown> | null {
   return value;
 }
 
+/**
+ * The one closing `}` / `]` a reply is missing, or null if it is balanced, has stray closers, stops
+ * inside a string (genuinely cut off) or is missing more than the outermost closer.
+ */
+function missingClosers(text: string): string | null {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const c of text) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === '{') stack.push('}');
+    else if (c === '[') stack.push(']');
+    else if (c === '}' || c === ']') {
+      if (stack.pop() !== c) return null;
+    }
+  }
+  if (inString || stack.length !== 1) return null;
+  // Exactly the outermost brace is missing and the value before it is a closed object or list: the
+  // reply is complete, the model just forgot the last `}`. Anything that stops deeper, or in the
+  // middle of a value, is a cut-off reply and is reported as one.
+  if (!/[}\]]\s*$/.test(text)) return null;
+  return stack[0]!;
+}
+
 export function parseToolCall(reply: string | null | undefined): ToolCallParse {
   const text = String(reply ?? '').trim();
   if (!text) return { kind: 'invalid', reason: 'empty', detail: 'the reply was empty' };
@@ -112,10 +142,26 @@ export function parseToolCall(reply: string | null | undefined): ToolCallParse {
     notes.push('code fence removed');
   }
 
-  const found = jsonObjectsIn(body);
+  let found = jsonObjectsIn(body);
+
+  // A small model often forgets the closing brace of the OUTER object ({"skill":…,"args":{…}  — one
+  // `}` for args and none for the action). Left alone, the scan above finds only the inner `args`
+  // object and the reply is thrown away as "not an action". If the text is complete up to those
+  // missing closers (not cut off mid-string), put them back and read it as what was meant.
+  const opened = body.indexOf('{');
+  if (opened >= 0 && !found.some((f) => f.start <= opened)) {
+    const closers = missingClosers(body.slice(opened));
+    if (closers) {
+      const repaired = jsonObjectsIn(body.slice(opened) + closers);
+      if (repaired.length && repaired[0]!.start === 0) {
+        found = repaired;
+        notes.push('missing closing brace added');
+      }
+    }
+  }
+
   if (!found.length) {
     // A reply that opens an object and never closes it is a cut-off reply, not an absent one.
-    const opened = body.indexOf('{');
     return opened >= 0
       ? { kind: 'invalid', reason: 'truncated', detail: 'the reply stopped in the middle of the JSON' }
       : { kind: 'invalid', reason: 'no-json', detail: 'there was no JSON action in the reply' };

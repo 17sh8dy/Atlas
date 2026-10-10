@@ -129,6 +129,8 @@ reviewed in a diff.
 
 ## Where things stand
 
+**Version 1.0.10** (a small update): "there is not an app, you have to build it" now builds it instead of searching for an app by that name, "In D:\Dev\X create a Src - Tauri desktop app ..." (folder first) is understood and a Tauri glass-box launcher with a playable Infinite Clicker is written with no model, and building something new with a local model is more reliable: a model that forgets a closing brace is understood, Atlas checks what was written before calling it done, a build that wrote nothing is never reported as done, and a file is not written twice in a row.
+
 **Version 1.0.9**: the builder loop and tools you can trust. After Atlas builds something you can say "make the
 buttons bigger" or "add a shop to the game": it saves a copy, makes only that change, checks the project again, says whether
 the change is verified, and "undo the last change" puts it back. Several steps can run as one **workflow**: every part is

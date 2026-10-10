@@ -10,6 +10,7 @@ import { breakoutGame, memoryGame, ticTacToeGame } from './games-b';
 import { notesApp, pomodoroApp, todoApp } from './tools-a';
 import { calculatorApp, converterApp, passwordApp } from './tools-b';
 import { budgetApp, flashcardsApp, habitsApp, kanbanApp } from './tools-c';
+import { tauriPlayFiles } from './tauri-play';
 import { unrealProject } from './unreal';
 import { blenderProject, godotProject, unityProject } from './engines';
 import { allTemplates, registerTemplates } from './registry';
@@ -66,7 +67,21 @@ const website: AppTemplate = {
   files: websiteStarterFiles,
 };
 
-const BUILT_IN: readonly AppTemplate[] = [clicker, snakeGame, game2048, minesweeperGame, memoryGame, ticTacToeGame, breakoutGame, todoApp, notesApp, pomodoroApp, calculatorApp, converterApp, passwordApp, budgetApp, habitsApp, kanbanApp, flashcardsApp, unrealProject, godotProject, unityProject, blenderProject, desktop, website].map(
+const tauriLauncher: AppTemplate = {
+  id: 'tauri-launcher',
+  label: 'a Tauri desktop app',
+  summary:
+    'a Tauri 2 desktop app: a glass-box game launcher with a playable Infinite Clicker (a "Click me!" button that counts up to 1,000,000)',
+  group: 'starter',
+  words: ['tauri desktop app', 'tauri app', 'tauri game launcher', 'game launcher', 'glass box', 'tauri'],
+  desktop: true,
+  shell: 'tauri',
+  launch: 'Play.cmd',
+  tip: 'It needs Rust and the WebView2 runtime. Play.cmd runs "npm install" and then the app; the first compile takes a few minutes. "npm test" checks the game rules.',
+  files: tauriPlayFiles,
+};
+
+const BUILT_IN: readonly AppTemplate[] = [clicker, snakeGame, game2048, minesweeperGame, memoryGame, ticTacToeGame, breakoutGame, todoApp, notesApp, pomodoroApp, calculatorApp, converterApp, passwordApp, budgetApp, habitsApp, kanbanApp, flashcardsApp, unrealProject, godotProject, unityProject, blenderProject, desktop, tauriLauncher, website].map(
   (t) => ({ ...t, source: t.source ?? 'built-in' }),
 );
 

@@ -1,0 +1,5 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+Fixed: "there is not an app, you have to build it" - after "I couldn't find an app", say it (or press the new "build it for me" button) and Atlas builds it instead of searching for an app with that name.
+New: ask for a Tauri desktop app - a glass-box game launcher with a playable Infinite Clicker - and Atlas writes the whole project with no AI model. "In D:\Dev\MyApp create a Src - Tauri desktop app ..." now works, folder first.
+Improved: building something new with a local model is more reliable and honest - a model that forgets a closing brace is understood, Atlas checks what was written before saying it is done, and a build that wrote nothing is never reported as done.
+Improved: the same file is not written twice in a row, so local models finish sooner.

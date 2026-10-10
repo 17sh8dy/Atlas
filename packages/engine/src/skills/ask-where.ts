@@ -11,8 +11,10 @@
  */
 
 import type { Clarification, SkillContext } from '@atlas/core';
+import { isBuildItRedirect } from '../text/build-redirect';
 
 export type WhereAnswer =
+  | { kind: 'build' }
   | { kind: 'web' }
   | { kind: 'list' }
   | { kind: 'name'; text: string }
@@ -25,6 +27,8 @@ const PATHISH = /^(?:[a-z]:[\\/]|\\\\|~[\\/])/i;
 export function classifyTyped(text: string): WhereAnswer {
   const t = text.trim().replace(/^["'“‘]|["'”’]$/g, '').trim();
   if (!t) return { kind: 'none' };
+  // "there is not an app, you have to build it" is an instruction, not a name to look for.
+  if (isBuildItRedirect(t)) return { kind: 'build' };
   return PATHISH.test(t) ? { kind: 'path', text: t } : { kind: 'name', text: t };
 }
 
@@ -46,12 +50,14 @@ export async function askWhereItIs(
       { id: 'type', label: 'I know the exact name, or where it is', input: { placeholder: 'e.g. Notepad++ — or C:\\Program Files\\App\\app.exe' } },
       { id: 'web', label: `Search the web for “${what}”` },
       ...(options.offerList ? [{ id: 'list', label: 'Show me my installed apps' }] : []),
+      ...(noun === 'app' ? [{ id: 'build', label: 'It doesn’t exist yet — build it for me' }] : []),
       { id: 'never', label: 'Never mind' },
     ],
   };
   const answer = await ctx.clarify(question);
   if (answer.kind === 'text') return classifyTyped(answer.text);
   if (answer.kind === 'choice') {
+    if (answer.id === 'build') return { kind: 'build' };
     if (answer.id === 'web') return { kind: 'web' };
     if (answer.id === 'list') return { kind: 'list' };
   }
