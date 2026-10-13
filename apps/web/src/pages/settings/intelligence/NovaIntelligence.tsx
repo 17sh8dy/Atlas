@@ -306,6 +306,12 @@ export function NovaIntelligence({ platform, storage, localAi, activeId, onChang
               </Button>
             </div>
 
+            <p className="text-foreground-muted border-border mt-3 rounded-lg border px-3 py-2 text-xs leading-relaxed">
+              {inUse
+                ? 'In use for conversation. Expect limited results: it tends to continue your words rather than answer them, and it can ignore what you asked. Atlas’s own tools, permissions and confirmations are unaffected, and you can switch back to another model above at any time.'
+                : 'Choosing it for conversation is optional and experimental: replies may be limited, and it can continue your words rather than answer them. Your actions on the PC still go through Atlas’s own tools either way.'}
+            </p>
+
             {located && (
               <p className="text-foreground-subtle mt-3 break-all text-xs leading-relaxed">
                 Folder: {located.path}

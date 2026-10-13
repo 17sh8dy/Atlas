@@ -29,6 +29,25 @@ export interface EpisodicEvent {
 }
 
 /**
+ * What became of an action, as far as Atlas can honestly say.
+ *
+ *   done     — the action reported success.
+ *   failed   — it was attempted and reported an error.
+ *   declined — it was asked about and you said no, so it never ran.
+ *
+ * "done" is the action's own report, not an independent re-check; only
+ * something that read the result back (a Setup's checks, a verified install)
+ * may say it *confirmed* it. Events recorded before outcomes existed carry no
+ * marker and were only ever written for successes, so they read as `done`.
+ */
+export type EpisodeOutcome = 'done' | 'failed' | 'declined';
+
+export function episodeOutcome(event: Pick<EpisodicEvent, 'data'>): EpisodeOutcome {
+  const o = event.data?.outcome;
+  return o === 'failed' || o === 'declined' ? o : 'done';
+}
+
+/**
  * Something Atlas knows to be true.
  *
  * `alias` is the one that earns its keep: "my work folder is D:\Dev" turns

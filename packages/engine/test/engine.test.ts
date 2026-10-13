@@ -21,6 +21,7 @@ import type {
   WebPage,
   WebSearchResult,
 } from '@atlas/core';
+import { episodeOutcome } from '@atlas/core';
 import { Engine } from '../src/engine';
 import { readAffirmation } from '../src/text/affirmation';
 import { readSmallTalk } from '../src/text/smalltalk';
@@ -1117,10 +1118,26 @@ test('episodic: a successful command is recorded, keyed by skill id', async () =
   assert.equal(events[0].label, 'Opening Steam.');
 });
 
-test('episodic: a failed step is not recorded', async () => {
+test('episodic: a failed step is recorded as failed, never as done', async () => {
   const h = harness();
   await h.engine.ask('open nonexistent-app-xyz', io(h));
-  assert.deepEqual(await h.memory.episodes(), []);
+  const events = await h.memory.episodes();
+  assert.isAbove(events.length, 0);
+  for (const e of events) {
+    assert.equal(episodeOutcome(e), 'failed');
+    assert.match(e.type, /^failed:/);
+  }
+});
+
+test('episodic: a successful step is marked done', async () => {
+  const h = harness();
+  await h.engine.ask('open steam', io(h));
+  assert.equal(episodeOutcome((await h.memory.episodes())[0]!), 'done');
+});
+
+test('episodic: an old entry with no marker reads as done', () => {
+  assert.equal(episodeOutcome({ data: undefined }), 'done');
+  assert.equal(episodeOutcome({ data: { outcome: 'banana' } }), 'done');
 });
 
 test('episodic: a skill with no message falls back to its label', async () => {

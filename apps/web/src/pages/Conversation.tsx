@@ -33,6 +33,7 @@ import type {
   FileDragEvent,
   Memory,
 } from '@atlas/core';
+import { episodeOutcome } from '@atlas/core';
 import { AtlasMark, Modal } from '@atlas/ui';
 import { Composer } from '../components/Composer';
 import { Transcript } from '../components/Transcript';
@@ -217,7 +218,8 @@ function EmptyState({
   useEffect(() => {
     let alive = true;
     void memory.episodes().then((events) => {
-      if (alive) setEpisodes(events);
+      // Home lists what was done; the failed and declined ones live in Settings → Activity.
+      if (alive) setEpisodes(events.filter((e) => episodeOutcome(e) === 'done'));
     });
     return () => {
       alive = false;

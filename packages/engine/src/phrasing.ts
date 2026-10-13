@@ -84,6 +84,10 @@ export function createPhrasing(profile: VoiceProfile = {}): Phrasing {
   const atlasName = profile.atlasName?.trim() || 'Atlas';
   const userName = profile.userName?.trim();
   const turn = counters();
+  // The role's own wording for the few replies that are Atlas's, not a skill's.
+  // `assistant` (and no role) has none, so it says exactly what it always did.
+  const roleKey = profile.role && profile.role !== DEFAULT_ATLAS_ROLE ? profile.role : undefined;
+  const phrases = roleKey ? ATLAS_ROLE_META[roleKey]?.phrases : undefined;
 
   return {
     opening: (name) => `Opening ${name}.`,
@@ -93,9 +97,9 @@ export function createPhrasing(profile: VoiceProfile = {}): Phrasing {
     rightThen: (stepLabels) => {
       const names = [...stepLabels];
       const last = names.pop();
-      return `Right — ${names.length ? `${names.join(', ')}, then ${last}` : last}.`;
+      return `${phrases?.lead ?? 'Right'} — ${names.length ? `${names.join(', ')}, then ${last}` : last}.`;
     },
-    declined: () => 'Okay — left alone.',
+    declined: () => phrases?.declined ?? 'Okay — left alone.',
     failed: (detail) => `⚠️ ${detail}`,
 
     confirmPrompt: (why, detail) => ({
@@ -183,13 +187,14 @@ const SMALL_TALK: Record<SmallTalkKind, (c: SmallTalkContext) => readonly string
   // Honest rather than cheerful. Atlas has no feelings to report, so the
   // answer reports the thing it can actually vouch for — that it is working —
   // and gets out of the way.
-  howAreYou: () => [
-    'All good here, running away quietly on your machine. What do you need?',
-    "Working fine, thanks — nothing's on fire. What can I do?",
-    'Good. Ready when you are.',
-  ],
+  howAreYou: ({ role }) =>
+    roleLine(role, 'howAreYou') ?? [
+      'All good here, running away quietly on your machine. What do you need?',
+      "Working fine, thanks — nothing's on fire. What can I do?",
+      'Good. Ready when you are.',
+    ],
 
-  thanks: () => ['Any time.', "You're welcome.", 'No trouble at all.'],
+  thanks: ({ role }) => roleLine(role, 'thanks') ?? ['Any time.', "You're welcome.", 'No trouble at all.'],
 
   // A role's own farewell replaces the generic rotation entirely, the same
   // way `Phrasing.greeting()` replaces the opening line — `assistant` (and no
@@ -213,5 +218,15 @@ const SMALL_TALK: Record<SmallTalkKind, (c: SmallTalkContext) => readonly string
 
   joke: () => JOKES,
 
-  praise: () => ['Thanks — glad that helped.', 'Appreciated.', 'Any time.'],
+  praise: ({ role }) =>
+    roleLine(role, 'praise') ?? ['Thanks — glad that helped.', 'Appreciated.', 'Any time.'],
 };
+
+/** A role's own variations for a small-talk kind, if it has any. */
+function roleLine(
+  role: AtlasRole | undefined,
+  kind: 'thanks' | 'praise' | 'howAreYou',
+): readonly string[] | undefined {
+  if (!role || role === DEFAULT_ATLAS_ROLE) return undefined;
+  return ATLAS_ROLE_META[role]?.phrases?.[kind];
+}

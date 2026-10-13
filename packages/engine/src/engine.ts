@@ -48,7 +48,14 @@ import type {
   SkillContext,
   VoiceProfile,
 } from '@atlas/core';
-import { DEFAULT_EXECUTION_MODE, HaltController, HaltedError, untilHalted } from '@atlas/core';
+import {
+  ATLAS_ROLE_META,
+  DEFAULT_ATLAS_ROLE,
+  DEFAULT_EXECUTION_MODE,
+  HaltController,
+  HaltedError,
+  untilHalted,
+} from '@atlas/core';
 import type { HaltSignal } from '@atlas/core';
 import { Bus } from './bus';
 import { Grammar, quotedTexts, waitForOpenedApps } from './planner/grammar';
@@ -195,6 +202,12 @@ export class Engine {
    * reason `phrasing.ts` exists.
    */
   private readonly phrasing: Phrasing;
+  /**
+   * The chosen role's one-line writing style, put ahead of a conversational
+   * prompt. Undefined for the default role, so nothing is added to what it
+   * has always sent. Wording only — see `atlas-role.ts`.
+   */
+  private readonly styleNote: string | undefined;
   private readonly getExecutionMode: () => ExecutionMode;
   private readonly isPreapproved?: (skill: Skill, args: SkillArgs) => Promise<boolean>;
   /** One per run in flight. A Set because `run` (a button) can overlap `ask`. */
@@ -216,6 +229,8 @@ export class Engine {
     this.threshold = options.confidenceThreshold ?? 0.5;
     this.working = options.working ?? new WorkingMemory();
     this.phrasing = createPhrasing(options.voice);
+    const role = options.voice?.role;
+    this.styleNote = role && role !== DEFAULT_ATLAS_ROLE ? ATLAS_ROLE_META[role]?.style : undefined;
     this.executor = new Executor(this.skills, this.phrasing);
     this.getExecutionMode = options.getExecutionMode ?? (() => DEFAULT_EXECUTION_MODE);
     this.isPreapproved = options.isPreapproved;
@@ -710,7 +725,7 @@ export class Engine {
         if (provider) {
           return this.converseWithProvider(
             provider,
-            buildEvidencePrompt(research.packet),
+            this.styled(buildEvidencePrompt(research.packet)),
             io,
             signal,
             formatEvidenceFooter(research.packet),
@@ -736,7 +751,9 @@ export class Engine {
     const briefly = !asInstruction && !deeper && wantsBriefAnswer(text);
     return this.converseWithProvider(
       provider,
-      asInstruction ? `${ACTION_CONTEXT}\n\n${text}` : briefly ? `${BRIEF_ASK}\n\n${text}` : text,
+      this.styled(
+        asInstruction ? `${ACTION_CONTEXT}\n\n${text}` : briefly ? `${BRIEF_ASK}\n\n${text}` : text,
+      ),
       io,
       signal,
       '',
@@ -745,6 +762,11 @@ export class Engine {
       asInstruction ? () => this.unresolvedReply(text) : undefined,
       text,
     );
+  }
+
+  /** Puts the role's writing style ahead of a conversational prompt; a no-op for the default role. */
+  private styled(prompt: string): string {
+    return this.styleNote ? `${this.styleNote}\n\n${prompt}` : prompt;
   }
 
   private async converseWithProvider(

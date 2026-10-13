@@ -615,10 +615,23 @@ function Ready({
   );
 
   const toggleMic = useCallback(() => {
+    // "Use the microphone" is the one switch that decides whether Atlas may
+    // open it. Every entry point is hidden while it is off; this is the floor.
+    if (!prefsRef.current.enabled) {
+      listening.stop();
+      return;
+    }
     wantHints();
     if (listening.state === 'idle') void listening.start();
     else listening.stop();
   }, [listening, wantHints]);
+
+  // Switching the microphone off in Settings closes one that is already open —
+  // "while this is off Atlas never opens it" has to include one open right now.
+  const stopForSwitch = listening.stop;
+  useEffect(() => {
+    if (!listeningPrefs.enabled) stopForSwitch();
+  }, [listeningPrefs.enabled, stopForSwitch]);
 
   /**
    * Changing screens closes the microphone.

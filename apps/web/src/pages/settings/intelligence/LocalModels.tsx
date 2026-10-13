@@ -44,6 +44,8 @@ interface Props {
   localAi: LocalAiRuntime;
   /** The provider actually in use, after the saved pick is checked against what exists. */
   activeId: string | null;
+  /** What was last picked — may name a model that is not installed, in which case it is not in use. */
+  selectedId?: string | null;
   onChange(): void;
 }
 
@@ -58,7 +60,7 @@ function gb(bytes: number): string {
   return `${(bytes / 1e9).toFixed(1)} GB`;
 }
 
-export function LocalModels({ platform, storage, localAi, activeId, onChange }: Props) {
+export function LocalModels({ platform, storage, localAi, activeId, selectedId, onChange }: Props) {
   const local = localAi.local;
   const [saving, setSaving] = useState(false);
   const [probe, setProbe] = useState<Probe>(undefined);
@@ -110,6 +112,24 @@ export function LocalModels({ platform, storage, localAi, activeId, onChange }: 
 
   const select = (id: string) => void run(() => writeActiveProvider(storage, id));
 
+  // Five different facts that "it's set up" used to blur together. Each line
+  // is one of them, read from where it is actually known.
+  const labelOf = (id: string | null | undefined): string | null => {
+    if (!id) return null;
+    const profile = LOCAL_MODEL_PROFILES.find((p) => p.id === id);
+    if (profile) return profile.label;
+    const extra = extras.find((tag) => localModelIdForTag(tag) === id);
+    return extra ?? null;
+  };
+  const selectedLocal = selectedId?.startsWith('local:') ? selectedId : null;
+  const selectedLabel = labelOf(selectedLocal);
+  const selectedInstalled =
+    selectedLocal !== null &&
+    (LOCAL_MODEL_PROFILES.some((p) => p.id === selectedLocal && isInstalled(p)) ||
+      extras.some((tag) => localModelIdForTag(tag) === selectedLocal));
+  const inUseLabel = labelOf(activeId?.startsWith('local:') ? activeId : null);
+  const installedCount = LOCAL_MODEL_PROFILES.filter(isInstalled).length + extras.length;
+
   return (
     <section>
       <SectionHeader icon={<Icons.Cpu className="text-primary h-4 w-4" />} title="Local Models">
@@ -142,6 +162,45 @@ export function LocalModels({ platform, storage, localAi, activeId, onChange }: 
       </Surface>
 
       {local.enabled && (
+        <Surface className="mt-2 p-3">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs leading-relaxed">
+            <dt className="text-foreground-subtle">Configured</dt>
+            <dd className="text-foreground-muted">
+              Local models on · server {local.baseUrl.trim() || OLLAMA_DEFAULT_BASE_URL}
+            </dd>
+            <dt className="text-foreground-subtle">Connected</dt>
+            <dd className="text-foreground-muted">
+              {probe === undefined
+                ? 'Checking…'
+                : probe === null
+                  ? 'No — nothing answered at that address'
+                  : 'Yes — Ollama is running and answered'}
+            </dd>
+            <dt className="text-foreground-subtle">Installed</dt>
+            <dd className="text-foreground-muted">
+              {!running
+                ? 'Unknown until Ollama answers'
+                : installedCount === 0
+                  ? 'None yet — the models below are only suggestions'
+                  : `${installedCount} model${installedCount === 1 ? '' : 's'} on this PC`}
+            </dd>
+            <dt className="text-foreground-subtle">Selected</dt>
+            <dd className="text-foreground-muted">
+              {selectedLabel
+                ? `${selectedLabel}${running && !selectedInstalled ? ' — not installed, so it is not being used' : ''}`
+                : selectedLocal
+                  ? `${selectedLocal.slice('local:'.length)}${running ? ' — not installed, so it is not being used' : ''}`
+                  : 'None chosen'}
+            </dd>
+            <dt className="text-foreground-subtle">In use</dt>
+            <dd className="text-foreground-muted">
+              {inUseLabel ?? 'No local model — Atlas answers and acts without one'}
+            </dd>
+          </dl>
+        </Surface>
+      )}
+
+      {local.enabled && (
         <div className="mt-2 flex flex-col gap-2">
           {LOCAL_MODEL_PROFILES.map((p) => {
             const inUse = activeId === p.id;
@@ -158,6 +217,7 @@ export function LocalModels({ platform, storage, localAi, activeId, onChange }: 
                     {p.id === DEFAULT_LOCAL_MODEL_ID && <Tag tone="on">Default</Tag>}
                     {running &&
                       (installed ? <Tag>Installed</Tag> : <Tag tone="warn">Not installed</Tag>)}
+                    {selectedId === p.id && !inUse && <Tag>Selected</Tag>}
                   </div>
                   <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">{p.blurb}</p>
                   {missing && (

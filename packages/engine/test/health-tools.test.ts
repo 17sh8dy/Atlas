@@ -216,12 +216,23 @@ describe('the PC report: evidence or silence', () => {
     expect(groupErrors([...err('A', 1, 3), ...err('B', 2, 1)])[0]).toMatchObject({ source: 'A', count: 3 });
   });
 
-  test('drivers: unsigned are flagged; old ones are only information', () => {
+  test('drivers: unsigned are flagged; an old date alone is not a finding', () => {
     const d = (over: Partial<DriverRow>): DriverRow => ({ device: 'X', class: 'Display', manufacturer: 'Acme', version: '1', date: '2025-01-01', signed: true, ...over });
     const r = analyzePc(base({ drivers: [d({ signed: false, device: 'Odd driver' }), d({ date: '2019-03-03', device: 'Old GPU' })] }));
     expect(r.findings.find((f) => f.title.includes('not signed'))!.severity).toBe('warn');
-    expect(r.findings.find((f) => f.title.includes('four years'))!.severity).toBe('info');
+    // An old package date is not evidence of a problem, so it does not appear by itself.
+    expect(r.findings.find((f) => f.title.includes('four years'))).toBeUndefined();
+    expect(analyzePc(base({ drivers: [d({ date: '2019-03-03' })] })).findings).toEqual([]);
     expect(analyzePc(base({ drivers: [d({ date: '2019-03-03', manufacturer: 'Microsoft' })] })).findings).toEqual([]);
+  });
+
+  test('drivers: an old date is mentioned only next to real errors, and says it is not a fault', () => {
+    const d: DriverRow = { device: 'Old GPU', class: 'Display', manufacturer: 'Acme', version: '1', date: '2019-03-03', signed: true };
+    const err = (n: number) => Array.from({ length: n }, (_, i) => ({ source: 'Application Hang', id: 1002, level: 'Error', time: `2026-10-08T10:0${i}:00`, message: 'hang' }));
+    const r = analyzePc(base({ drivers: [d], errors: err(6) }));
+    const f = r.findings.find((x) => x.area === 'drivers')!;
+    expect(f.severity).toBe('info');
+    expect(f.suggestion).toMatch(/not a fault/);
   });
 
   test('startup, gpu, uptime and network have their own thresholds', () => {
@@ -779,9 +790,12 @@ describe('found in the real app on 2026-10-08', () => {
   test("Windows' own 2006-dated drivers are not reported as old; a maker's old one still is", () => {
     const d = (over: Partial<DriverRow>): DriverRow => ({ device: 'X', class: 'System', manufacturer: '(Standard system devices)', version: '10', date: '2006-06-20', signed: true, ...over });
     const e: PcEvidence = { metrics: null, gpu: null, errors: null, errorHours: 24, drivers: [d({}), d({ class: 'HDC', device: 'Standard SATA AHCI Controller' }), d({ class: 'Net', manufacturer: 'Realtek', device: 'Realtek GbE', date: '2019-01-01' })], startup: null, software: null, network: null, unavailable: [], now: Date.parse('2026-10-08') };
-    const r = analyzePc(e);
-    const old = r.findings.find((f) => f.title.includes('four years'))!;
-    expect(old.title).toBe('1 driver is over four years old');
+    // No errors in the logs, so nothing is wrong and an old date is not worth raising.
+    expect(analyzePc(e).findings.find((f) => f.area === 'drivers')).toBeUndefined();
+    // With a repeating error present it is mentioned, still without Windows' own 2006 ones.
+    const errors = Array.from({ length: 6 }, (_, i) => ({ source: 'Application Hang', id: 1002, level: 'Error', time: `2026-10-08T10:0${i}:00`, message: 'hang' }));
+    const old = analyzePc({ ...e, errors }).findings.find((f) => f.area === 'drivers')!;
+    expect(old.title).toMatch(/1 driver has a package dated/);
     expect(old.evidence).toContain('Realtek GbE');
     expect(old.evidence).not.toContain('Standard');
   });

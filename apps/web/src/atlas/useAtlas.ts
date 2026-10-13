@@ -517,7 +517,11 @@ export function useAtlas(
       if (!clipEnabled.current || !platform.readClipboard) return;
       platform
         .readClipboard()
-        .then((text) => clipHistory.capture(text))
+        // Re-checked on arrival: a read already in flight when the setting was
+        // switched off must not put its text back into a history just cleared.
+        .then((text) => {
+          if (clipEnabled.current) clipHistory.capture(text);
+        })
         .catch(() => {});
     }, 1500);
     return () => {

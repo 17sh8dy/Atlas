@@ -85,6 +85,12 @@ describe('versions', () => {
     expect(compareVersions('0.85.0', '0.85.0')).toBe(0);
     expect(compareVersions('0.9.0', '0.10.0')).toBe(-1);
     expect(compareVersions('1.0.0-beta', '1.0.0')).toBe(-1);
+    // Prerelease numbers are numbers: rc.10 is later than rc.9, and 1.0.10 is later than 1.0.9.
+    expect(compareVersions('2.0.0-rc.10', '2.0.0-rc.9')).toBe(1);
+    expect(compareVersions('2.0.0-alpha', '2.0.0-alpha.1')).toBe(-1);
+    expect(compareVersions('2.0.0-rc.1', '2.0.0')).toBe(-1);
+    expect(compareVersions('1.0.10', '1.0.9')).toBe(1);
+    expect(compareVersions('2.0.0', '1.0.10')).toBe(1);
     expect(compareVersions('nope', '1.0.0')).toBeNull();
   });
 });

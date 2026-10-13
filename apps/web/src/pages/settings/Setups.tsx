@@ -161,6 +161,9 @@ function SetupCard({
           <li key={`${i}-${JSON.stringify(item)}`} className="flex items-center gap-3 px-4 py-2">
             <span className="bg-foreground-subtle/50 h-1.5 w-1.5 shrink-0 rounded-full" />
             <span className="text-foreground min-w-0 flex-1 truncate">{describeItem(item)}</span>
+            {item.kind === 'close' && (
+              <span className="text-warning shrink-0 text-[11px]">asks first</span>
+            )}
             <button
               type="button"
               onClick={() => save(setup.items.filter((_, j) => j !== i))}
@@ -173,6 +176,14 @@ function SetupCard({
           </li>
         ))}
       </ul>
+
+      {setup.items.length > 0 && (
+        <p className="border-border text-foreground-subtle border-t px-4 py-2.5 text-xs leading-relaxed">
+          When you run it, Atlas shows what it will close, open, arrange and check — in that order —
+          and anything that closes an app waits for your approval. Afterwards it reports only what
+          it actually confirmed.
+        </p>
+      )}
 
       <div className="border-border border-t px-4 py-3">
         <form

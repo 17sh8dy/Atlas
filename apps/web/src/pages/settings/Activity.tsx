@@ -16,18 +16,43 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import type { EpisodicEvent, Memory } from '@atlas/core';
-import { Button, Icons, Modal } from '@atlas/ui';
+import type { EpisodicEvent, EpisodeOutcome, Memory } from '@atlas/core';
+import { episodeOutcome } from '@atlas/core';
+import { Button, Icons, Modal, cn } from '@atlas/ui';
 import { timeAgo } from '../../lib/timeAgo';
 
 interface Props {
   memory: Memory;
 }
 
+/** A label longer than this, or on more than one line, folds behind "Details". */
+const SUMMARY_CHARS = 110;
+
+/**
+ * One line to read, and the rest on request. Diagnostic reports and installed-
+ * program lists were being dumped into a single truncated row; the first line
+ * is the summary and the whole text is one click away.
+ */
+export function summarizeLabel(label: string): { summary: string; full: string | null } {
+  const lines = label.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const first = lines[0] ?? label.trim();
+  const long = first.length > SUMMARY_CHARS;
+  const summary = long ? `${first.slice(0, SUMMARY_CHARS - 1).trimEnd()}…` : first;
+  const more = lines.length > 1 || long;
+  return { summary, full: more ? label.trim() : null };
+}
+
+const OUTCOME: Record<EpisodeOutcome, { word: string; tone: string }> = {
+  done: { word: 'Done', tone: 'text-foreground-subtle' },
+  failed: { word: 'Failed', tone: 'text-danger' },
+  declined: { word: 'Declined', tone: 'text-warning' },
+};
+
 export function Activity({ memory }: Props) {
   const [episodes, setEpisodes] = useState<EpisodicEvent[] | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<number | null>(null);
 
   const reload = useCallback(() => {
     void memory.episodes().then((events) => setEpisodes([...events].reverse()));
@@ -65,8 +90,16 @@ export function Activity({ memory }: Props) {
         <div>
           <h2 className="text-foreground mb-1 text-sm font-medium">Recent activity</h2>
           <p className="text-foreground-muted text-xs leading-relaxed">
-            What Atlas has actually done — the same list Home's Recent Activity shows a few of. Kept
-            on this machine only, the same as everything else Atlas remembers.
+            What Atlas has done, tried and been told no about. Home's Recent Activity shows a few of
+            the completed ones. Kept on this machine only, the same as everything else Atlas
+            remembers.
+          </p>
+          <p className="text-foreground-subtle mt-1.5 text-xs leading-relaxed">
+            <span className="text-foreground-muted">Done</span> means the action reported success —
+            Atlas only says it <em>confirmed</em> something when it actually checked.{' '}
+            <span className="text-foreground-muted">Failed</span> and{' '}
+            <span className="text-foreground-muted">Declined</span> entries are kept too, so the
+            history doesn&apos;t only show the good news.
           </p>
         </div>
         <Button
@@ -89,28 +122,55 @@ export function Activity({ memory }: Props) {
         </p>
       ) : (
         <ul className="border-border divide-border divide-y overflow-hidden rounded-xl border text-sm">
-          {episodes.map((event) => (
-            <li key={event.at} className="flex items-center gap-3 px-4 py-2.5">
-              <span className="bg-foreground-subtle/50 h-1.5 w-1.5 shrink-0 rounded-full" />
-              <span className="text-foreground min-w-0 flex-1 truncate">
-                {event.label}
-                {event.count && event.count > 1 && (
-                  <span className="text-foreground-subtle"> · ×{event.count}</span>
+          {episodes.map((event) => {
+            const { summary, full } = summarizeLabel(event.label);
+            const outcome = OUTCOME[episodeOutcome(event)];
+            const expanded = open === event.at;
+            return (
+              <li key={event.at} className="px-4 py-2.5">
+                <div className="flex items-center gap-3">
+                  <span className="bg-foreground-subtle/50 h-1.5 w-1.5 shrink-0 rounded-full" />
+                  <span className="text-foreground min-w-0 flex-1 truncate">
+                    {summary}
+                    {event.count && event.count > 1 && (
+                      <span className="text-foreground-subtle"> · ×{event.count}</span>
+                    )}
+                  </span>
+                  <span className={cn('shrink-0 text-[11px] font-medium', outcome.tone)}>
+                    {outcome.word}
+                  </span>
+                  <span className="text-foreground-subtle shrink-0 text-xs">
+                    {timeAgo(event.at)}
+                  </span>
+                  {full && (
+                    <button
+                      type="button"
+                      onClick={() => setOpen(expanded ? null : event.at)}
+                      aria-expanded={expanded}
+                      className="text-foreground-subtle hover:text-foreground shrink-0 text-xs"
+                    >
+                      {expanded ? 'Hide' : 'Details'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => remove(event.at)}
+                    disabled={busy}
+                    className="text-foreground-subtle hover:text-foreground shrink-0 disabled:opacity-30"
+                    aria-label={`Remove "${summary}" from activity`}
+                    title="Remove"
+                  >
+                    <Icons.Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {full && expanded && (
+                  <pre className="text-foreground-muted bg-surface/60 mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg p-3 text-[11px] leading-relaxed">
+                    {full}
+                  </pre>
                 )}
-              </span>
-              <span className="text-foreground-subtle shrink-0 text-xs">{timeAgo(event.at)}</span>
-              <button
-                type="button"
-                onClick={() => remove(event.at)}
-                disabled={busy}
-                className="text-foreground-subtle hover:text-foreground shrink-0 disabled:opacity-30"
-                aria-label={`Remove "${event.label}" from activity`}
-                title="Remove"
-              >
-                <Icons.Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
 

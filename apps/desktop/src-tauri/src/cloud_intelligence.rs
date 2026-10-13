@@ -75,6 +75,11 @@ pub enum CloudProviderKind {
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        // Never follow a redirect. The key travels in a request header
+        // (`x-api-key`, `x-goog-api-key`, `Authorization`), and the HTTP client
+        // only strips the standard ones when a redirect leaves the host; a
+        // provider that redirects is a provider whose address should be fixed.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())
 }
@@ -110,6 +115,7 @@ fn resolve_base_url(kind: CloudProviderKind, base_url: &str) -> Result<String, S
     // `https://host/v1` would otherwise become `/v1/v1/...` and 404.
     let trimmed = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
     if !trimmed.is_empty() {
+        check_transport(trimmed)?;
         return Ok(trimmed.to_string());
     }
     match kind {
@@ -118,6 +124,22 @@ fn resolve_base_url(kind: CloudProviderKind, base_url: &str) -> Result<String, S
         }
         CloudProviderKind::Anthropic => Ok(DEFAULT_ANTHROPIC_BASE.to_string()),
         CloudProviderKind::Gemini => Ok(DEFAULT_GEMINI_BASE.to_string()),
+    }
+}
+
+/// The key is sent to this address, so it has to be somewhere a key may go:
+/// https, or plain http only to this machine (a self-hosted proxy). A pasted
+/// `http://api.example.com` would otherwise send the key across the network in
+/// the clear.
+fn check_transport(base: &str) -> Result<(), String> {
+    let url = reqwest::Url::parse(base).map_err(|_| "That doesn't look like a URL.".to_string())?;
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" => match url.host_str() {
+            Some("127.0.0.1") | Some("localhost") | Some("[::1]") | Some("::1") => Ok(()),
+            _ => Err("That address has to start with https:// — a key is never sent over plain http to another machine.".to_string()),
+        },
+        _ => Err("That address has to start with https://.".to_string()),
     }
 }
 
@@ -403,6 +425,18 @@ mod tests {
             resolve_base_url(CloudProviderKind::OpenaiCompatible, "https://api.moonshot.ai/").unwrap(),
             "https://api.moonshot.ai"
         );
+    }
+
+    #[test]
+    fn a_key_is_never_sent_over_plain_http_to_another_machine() {
+        let k = CloudProviderKind::OpenaiCompatible;
+        assert!(resolve_base_url(k, "http://api.example.com").is_err());
+        assert!(resolve_base_url(k, "ftp://api.example.com").is_err());
+        assert!(resolve_base_url(k, "not a url").is_err());
+        assert!(resolve_base_url(k, "https://api.example.com").is_ok());
+        // A proxy on this machine is fine over http.
+        assert!(resolve_base_url(k, "http://localhost:4000").is_ok());
+        assert!(resolve_base_url(k, "http://127.0.0.1:4000/v1").is_ok());
     }
 
     #[test]

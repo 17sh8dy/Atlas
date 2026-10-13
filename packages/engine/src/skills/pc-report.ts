@@ -165,8 +165,19 @@ export function analyzePc(e: PcEvidence): PcReport {
     // Windows' own in-box drivers ("(Standard system devices)", Microsoft) are dated 2006 by design.
     const core = new Set(['display', 'net', 'bluetooth', 'media']);
     const old = e.drivers.filter((d) => core.has(d.class.toLowerCase()) && d.date && now - Date.parse(d.date) > 4 * 365 * 86400000 && !/microsoft|^\(standard/i.test(d.manufacturer));
-    if (old.length) {
-      add({ severity: 'info', area: 'drivers', title: `${old.length} driver${old.length === 1 ? ' is' : 's are'} over four years old`, evidence: old.slice(0, 4).map((d) => `${d.device} (${d.date})`).join('; ') + (old.length > 4 ? ` …and ${old.length - 4} more` : ''), suggestion: 'An old driver is only a problem if something is misbehaving; the maker\'s site has newer ones.' });
+    // A driver's date is when its package was built, and Windows routinely keeps a
+    // current, working driver under an old date. On its own that is not evidence of
+    // anything, so it is only worth a mention when something else is already wrong:
+    // an error finding at warn level or above. (`system.drivers` still lists every date.)
+    const somethingIsWrong = findings.some((f) => f.area === 'errors' && f.severity !== 'info');
+    if (old.length && somethingIsWrong) {
+      add({
+        severity: 'info',
+        area: 'drivers',
+        title: `${old.length} driver${old.length === 1 ? ' has a package dated' : 's have packages dated'} over four years ago`,
+        evidence: old.slice(0, 4).map((d) => `${d.device} (${d.date})`).join('; ') + (old.length > 4 ? ` …and ${old.length - 4} more` : ''),
+        suggestion: "The date alone is not a fault — it is when the package was built. Mentioned only because the logs above show errors; if one of these is the device involved, the maker's site may have a newer one.",
+      });
     }
   }
 

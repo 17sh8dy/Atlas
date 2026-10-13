@@ -75,8 +75,9 @@ export function EmergencyStop({ platform }: { platform: Platform }) {
       <p className="text-foreground-muted mb-3 text-xs leading-relaxed">
         One key that halts Atlas immediately, from any app, in every execution mode: it stops typing
         and mouse control, cancels the running task and anything queued behind it, ends running
-        builds and tests, and cuts off a reply mid-sentence. Nothing runs again until you send
-        something new.
+        builds and tests, cuts off a reply and any speech mid-sentence, and pauses your Watches
+        (paused, not cancelled — resume them in Settings → Watches). Nothing runs again until you
+        send something new.
       </p>
 
       {!native ? (

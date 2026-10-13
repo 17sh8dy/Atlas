@@ -81,6 +81,7 @@ export function Intelligence({
         storage={storage}
         localAi={localAi}
         activeId={activeId}
+        selectedId={activeProviderId}
         onChange={onProviderChange}
       />
 

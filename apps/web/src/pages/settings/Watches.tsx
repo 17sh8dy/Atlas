@@ -59,8 +59,13 @@ export function Watches({ watches }: Props) {
           Things Atlas is keeping an eye on — “let me know when this download finishes”, “when the
           build finishes, run the tests”. Follow-up steps run only as you approved them. Watches are
           kept on this PC and carry on after Atlas restarts; if Atlas can’t tell whether a step
-          already happened, it stops and asks here instead of repeating it. The emergency stop
-          pauses every watch.
+          already happened, it stops and asks here instead of repeating it.
+        </p>
+        <p className="text-foreground-muted mt-2 text-xs leading-relaxed">
+          <span className="text-foreground">Pause</span> keeps a watch and stops it checking until
+          you resume it. <span className="text-foreground">Cancel</span> ends it for good. The
+          emergency stop (F8 by default) <em>pauses</em> every live watch — it never cancels one —
+          so they wait here, and nothing is lost, until you press Resume.
         </p>
       </section>
 
@@ -158,6 +163,24 @@ function WatchRow({
                 ` · expires ${new Date(w.expiresAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`}
             </span>
           </button>
+          {!finished && (
+            <dl className="text-foreground-subtle mt-1.5 space-y-0.5 text-xs">
+              <div className="flex gap-1.5">
+                <dt className="shrink-0">Waiting for:</dt>
+                <dd className="text-foreground-muted min-w-0 truncate">{w.describe}</dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="shrink-0">Then:</dt>
+                <dd className="text-foreground-muted min-w-0 truncate">
+                  {w.stepLabels.length > 0 ? w.stepLabels.join(', ') : 'just let you know'}
+                </dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="shrink-0">Last checked:</dt>
+                <dd className="text-foreground-muted">{lastChecked(w)}</dd>
+              </div>
+            </dl>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {(w.status === 'active' || w.status === 'running') && (
@@ -281,6 +304,17 @@ function IconButton({
       {children}
     </button>
   );
+}
+
+/** When the condition was last read — honest about a watch that is not checking. */
+function lastChecked(w: Watch): string {
+  if (w.status === 'paused') {
+    return w.lastCheckedAt ? `${timeAgo(w.lastCheckedAt)} (paused, not checking)` : 'paused, not checking';
+  }
+  if (w.status === 'awaiting-approval' || w.status === 'running') {
+    return w.lastCheckedAt ? timeAgo(w.lastCheckedAt) : 'condition already met';
+  }
+  return w.lastCheckedAt ? timeAgo(w.lastCheckedAt) : 'not yet';
 }
 
 function capitalize(s: string): string {

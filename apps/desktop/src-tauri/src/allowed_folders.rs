@@ -89,10 +89,16 @@ pub fn init(saved: Option<Vec<String>>) -> Vec<String> {
 /// symlink from resolving to somewhere outside every allowed root while
 /// still spelling a prefix that looks like it's inside one.
 pub fn is_permitted(path: &Path) -> bool {
+    let Ok(roots) = lock().read() else { return false };
+    is_within(path, &roots)
+}
+
+/// The check itself, separate from the global list so it can be tested against
+/// real links without racing the other tests over shared state.
+fn is_within(path: &Path, roots: &[PathBuf]) -> bool {
     let Ok(canonical) = path.canonicalize() else {
         return false;
     };
-    let Ok(roots) = lock().read() else { return false };
     roots.iter().any(|root| canonical.starts_with(root))
 }
 
@@ -236,6 +242,77 @@ mod tests {
     #[test]
     fn surrounding_whitespace_is_trimmed_on_either_side_of_the_quotes() {
         assert_eq!(unquoted("  \"D:\\Dev\\Atlas\"  "), "D:\\Dev\\Atlas");
+    }
+
+    /// A scratch folder under the system temp dir, removed when dropped.
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("atlas-allowed-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            // `remove_dir_all` would follow nothing here: junctions are removed as links.
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_path_inside_a_root_is_allowed_and_a_sibling_with_the_same_prefix_is_not() {
+        let s = Scratch::new("prefix");
+        let root = s.0.join("Allowed");
+        let sibling = s.0.join("AllowedEvil");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&sibling).unwrap();
+        let roots = vec![root.canonicalize().unwrap()];
+        assert!(is_within(&root, &roots));
+        assert!(!is_within(&sibling, &roots), "a name that merely starts the same is outside");
+    }
+
+    #[test]
+    fn dot_dot_cannot_climb_out_of_a_root() {
+        let s = Scratch::new("dotdot");
+        let root = s.0.join("Allowed");
+        let outside = s.0.join("Outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let roots = vec![root.canonicalize().unwrap()];
+        assert!(!is_within(&root.join("..").join("Outside"), &roots));
+    }
+
+    #[test]
+    fn a_junction_inside_a_root_pointing_outside_is_refused() {
+        let s = Scratch::new("junction");
+        let root = s.0.join("Allowed");
+        let outside = s.0.join("Outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "x").unwrap();
+        let link = root.join("escape");
+        // A junction needs no privilege, unlike a symlink — the case that matters on a stock PC.
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "mklink /J failed: {made:?}");
+        let roots = vec![root.canonicalize().unwrap()];
+        assert!(!is_within(&link, &roots), "the junction itself resolves outside");
+        assert!(!is_within(&link.join("secret.txt"), &roots), "and so does a file through it");
+        // Removing the junction first keeps the cleanup from touching `Outside`.
+        let _ = std::fs::remove_dir(&link);
+    }
+
+    #[test]
+    fn a_missing_path_is_never_allowed() {
+        let s = Scratch::new("missing");
+        let roots = vec![s.0.canonicalize().unwrap()];
+        assert!(!is_within(&s.0.join("nope"), &roots));
     }
 
     #[test]

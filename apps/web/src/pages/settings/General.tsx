@@ -141,7 +141,7 @@ export function General({
         <p className="text-foreground-muted mb-3 text-xs leading-relaxed">
           How much Atlas asks before it acts. This never changes which actions are safe and which
           aren&apos;t — only when the question about a consequential one gets put to you. The same
-          three modes are also reachable from the composer (Shift+Tab cycles them).
+          four modes are also reachable from the composer (Shift+Tab cycles them).
         </p>
         <SegmentedControl
           options={EXECUTION_MODES.map((mode) => ({

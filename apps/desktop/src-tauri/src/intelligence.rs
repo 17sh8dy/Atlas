@@ -82,6 +82,9 @@ pub const NOVA_DEFAULT_URL: &str = "http://127.0.0.1:8766";
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        // The address was checked to be this machine; a redirect would be a way
+        // to be sent somewhere that was not. A model server has no reason to redirect.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())
 }

@@ -266,7 +266,12 @@ export function createSetupSkills(deps: SetupSkillDeps): Skill[] {
       const plan = planSetup(setup, await readState(platform));
       const fingerprint = planFingerprint(setup, plan);
       drafts.set(fingerprint, { setup, isNew });
-      if (!isNew && !plan.toClose.length) return { kind: 'proceed', fingerprint };
+      if (!isNew && !plan.toClose.length) {
+        // Nothing here closes anything, so there is nothing to approve — but it
+        // still says what it is about to do before it does it.
+        ctx.say(planCard(setup, plan, false));
+        return { kind: 'proceed', fingerprint };
+      }
       return {
         kind: 'ask',
         question: isNew ? `Save and run your ${name} setup?` : `Get ready for ${name}?`,

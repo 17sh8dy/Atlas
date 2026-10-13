@@ -84,11 +84,11 @@ export function Personalization({ storage, voiceProfile, onVoiceProfileChange }:
 /**
  * Atlas Role — how Atlas works alongside you, not what it can do.
  *
- * Every role reaches the same 137 actions; picking one only changes the
- * opening line (`AtlasRoleMeta.greeting`, in `@atlas/core`'s `atlas-role.ts`)
- * — the sentence Atlas opens with before anything has been asked of it, where
- * a relationship reads differently from a straight question. The preview line
- * below the grid renders that exact function, so nobody has to open Home and
+ * Every role reaches the same actions; picking one changes wording only —
+ * the opening line, the replies Atlas gives without a model, and the style
+ * note sent ahead of a conversational prompt (all in `@atlas/core`'s
+ * `atlas-role.ts`). The preview lines below the grid render those exact
+ * values, so nobody has to open Home and
  * clear the transcript just to hear what a choice sounds like — and it goes
  * stale the instant `userName` or `atlasName` changes elsewhere on this
  * screen, which is why it is read from the live `voiceProfile` prop rather
@@ -118,7 +118,10 @@ function RoleSection({
     <section>
       <h2 className="text-foreground mb-1 text-sm font-medium">Atlas Role</h2>
       <p className="text-foreground-subtle mb-3 text-xs leading-relaxed">
-        How Atlas works alongside you. The skills never change — only the opening line does.
+        How Atlas talks to you. A role sets the opening line, the tone and length of Atlas&apos;s own
+        replies, and the style your language model is asked to answer in. It never changes what Atlas
+        can do, what it asks before doing it, or its safety limits — every role has the same skills,
+        permissions and boundaries.
       </p>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -161,12 +164,20 @@ function RoleSection({
         })}
       </div>
 
+      <p className="text-foreground-subtle mt-3 text-xs leading-relaxed">
+        Says “thanks” back like:{' '}
+        <span className="text-foreground">“{ATLAS_ROLE_META[role].phrases?.thanks?.[0] ?? 'Any time.'}”</span>
+        {' · '}
+        Sets up steps like:{' '}
+        <span className="text-foreground">“{ATLAS_ROLE_META[role].phrases?.lead ?? 'Right'} — …”</span>
+      </p>
+
       {!voiceProfile.greeting?.trim() ? (
-        <p className="text-foreground-subtle mt-3 text-xs leading-relaxed">
+        <p className="text-foreground-subtle mt-1.5 text-xs leading-relaxed">
           Opens with: <span className="text-foreground">“{ATLAS_ROLE_META[role].greeting(atlasName, userName)}”</span>
         </p>
       ) : (
-        <p className="text-foreground-subtle mt-3 text-xs leading-relaxed">
+        <p className="text-foreground-subtle mt-1.5 text-xs leading-relaxed">
           Your custom greeting above is in use, so this role's opening line won't be heard until it's
           cleared.
         </p>

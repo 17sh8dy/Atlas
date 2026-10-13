@@ -120,25 +120,45 @@ export function About({
         <div>
           <h2 className="text-foreground text-sm font-medium">Everything stays here</h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
-            No account needed, no API key, nothing uploaded. Atlas speaks and listens on this
-            machine, and what it remembers sits in a file on this disk. It reaches the network
-            when you ask it to — a web search, opening a link, or signing in to the optional Nova
-            Account — and to check for updates, which you can switch off below. Signing in uploads
-            nothing; see Account.
+            No account needed, no API key, nothing uploaded by default. Atlas speaks, listens and
+            works out what you mean on this machine, and what it remembers sits in a file on this
+            disk. Some things do use the network, and only when you use them:
           </p>
+          <ul className="text-foreground-subtle mt-1.5 list-disc space-y-0.5 pl-4 text-xs leading-relaxed">
+            <li>
+              <span className="text-foreground-muted">Optional cloud AI</span> — if you add a cloud
+              provider and choose it, what you send to the assistant goes to that provider.
+            </li>
+            <li>
+              <span className="text-foreground-muted">Web searches</span> — a search you ask for
+              sends that query to the search service.
+            </li>
+            <li>
+              <span className="text-foreground-muted">Nova Account</span> — optional; signing in
+              uploads no local memory or assistant data (see Account).
+            </li>
+            <li>
+              <span className="text-foreground-muted">Updates</span> — a check, described below.
+            </li>
+          </ul>
         </div>
       </section>
 
       {/* CC BY 4.0 requires attribution wherever the work is distributed — this is that notice,
-          not decoration. Piper and whisper.cpp are MIT and need no credit here. */}
+          not decoration. Piper, whisper.cpp and Kokoro (Apache 2.0) need no credit here. */}
       <section className="border-border flex items-start gap-3 rounded-xl border px-4 py-3.5">
         <Icons.Mic className="text-primary mt-0.5 h-4 w-4 shrink-0" />
         <div>
           <h2 className="text-foreground text-sm font-medium">Voice</h2>
           <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
-            Speaking uses the <span className="text-foreground">en_GB-vctk-medium</span> voice
-            (Piper), trained on the University of Edinburgh Centre for Speech Technology Research's
-            VCTK Corpus, licensed <span className="text-foreground">CC BY 4.0</span>. Listening uses{' '}
+            Atlas has twelve voices, all speaking on this machine. The four{' '}
+            <span className="text-foreground">Refined</span> voices use{' '}
+            <span className="text-foreground">Kokoro</span> (82M model, Apache 2.0). The eight{' '}
+            <span className="text-foreground">British</span> voices are speakers of Piper's{' '}
+            <span className="text-foreground">en_GB-vctk-medium</span> model, trained on the
+            University of Edinburgh Centre for Speech Technology Research's VCTK Corpus, licensed{' '}
+            <span className="text-foreground">CC BY 4.0</span>; if a Refined voice can't load,
+            Atlas speaks with the default British voice instead. Listening uses{' '}
             <span className="text-foreground">whisper.cpp</span> and OpenAI's Whisper{' '}
             <span className="text-foreground">base.en</span> model. Both run on this machine.
           </p>
@@ -196,8 +216,10 @@ export function About({
               />
             </div>
             <p className="text-foreground-subtle mt-1.5 text-xs leading-relaxed">
-              A check asks GitHub for one small file that lists the newest version. Nothing about
-              you is sent, and nothing is downloaded until you press Update.
+              A check asks GitHub for one small file that lists the newest version. Atlas doesn't
+              include your memory, files or account details in it. Like any web request, GitHub
+              can see your IP address and that this is Atlas, and nothing is downloaded until you
+              press Update.
             </p>
           </div>
         </section>

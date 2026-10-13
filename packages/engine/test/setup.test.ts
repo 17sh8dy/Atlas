@@ -300,6 +300,9 @@ describe('get my PC ready for recording', () => {
     await engine.ask('get ready to record', t.io);
     expect(t.cards).toEqual([]);
     expect(t.questions).toEqual([]);
+    // No card, but it still says what it is about to do before it does it.
+    expect(t.said[0]).toMatch(/Open: OBS/);
+    expect(t.said[0]).toMatch(/Then I’ll check each one actually worked/);
     expect(t.said.join('\n')).toMatch(
       /Recording setup complete\n.*\n✅ OBS is running\n✅ Shure MV7\+ is your microphone\n✅ 347 GB free on D:$/,
     );
