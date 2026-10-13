@@ -19,6 +19,7 @@ import type {
 } from '@atlas/core';
 import { InputBlockedError } from '@atlas/core';
 import { refusalFor, screenSkillCall } from '../safety/content-policy';
+import { scoreSkills } from './router';
 
 export interface RegistryOptions {
   /**
@@ -204,9 +205,10 @@ export class SkillRegistry {
     // The size is a constant, never a property of the connected model: whichever model is in use
     // sees the same tools for the same request, and a small context window can no longer silently
     // cut the list off partway through (which is what an unsized prompt does).
-    const words = significantWords(request);
-    const ranked = this.available()
-      .map((skill, order) => ({ skill, order, score: relevance(skill, words) }))
+    const available = this.available();
+    const scores = scoreSkills(available, request);
+    const ranked = available
+      .map((skill, order) => ({ skill, order, score: scores[order]! }))
       .sort((a, b) => b.score - a.score || a.order - b.order);
 
     const keep = new Set<string>();
@@ -243,35 +245,6 @@ function catalogLine(s: Skill): string {
     .map(([n, p]) => `${n}${p.required ? '' : '?'}:${p.type}`)
     .join(', ');
   return `${s.id}(${params}) — ${s.description}`;
-}
-
-const STOP_WORDS = new Set([
-  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'into', 'onto', 'please', 'can', 'you',
-  'my', 'me', 'to', 'of', 'in', 'on', 'it', 'a', 'an', 'is', 'are', 'all', 'some', 'then',
-]);
-
-function significantWords(text: string): string[] {
-  return [
-    ...new Set(
-      text
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((w) => w.length > 2 && !STOP_WORDS.has(w)),
-    ),
-  ];
-}
-
-/** How well a skill matches the words of a request. Same weighting as `engine.searchSkills`. */
-function relevance(skill: Skill, words: readonly string[]): number {
-  const label = skill.label.toLowerCase();
-  const hay = `${skill.id} ${label} ${skill.description} ${(skill.examples ?? []).join(' ')}`.toLowerCase();
-  let score = 0;
-  for (const w of words) {
-    // A plural or a "-ing" form still counts: "zipping files" should find "zip".
-    const stem = w.length > 4 ? w.replace(/(?:ing|ed|es|s)$/, '') : w;
-    if (hay.includes(w) || hay.includes(stem)) score += label.includes(stem) ? 3 : 1;
-  }
-  return score;
 }
 
 function coerce(

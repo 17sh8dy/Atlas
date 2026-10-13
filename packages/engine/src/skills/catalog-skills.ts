@@ -9,6 +9,7 @@
 
 import type { Platform, Skill } from '@atlas/core';
 import type { SkillRegistry } from './registry';
+import { rankSkills } from './router';
 
 /** Sites with a search page of their own. Key is what a person says. */
 export const SEARCH_SITES: Record<string, { name: string; url: (q: string) => string }> = {
@@ -85,20 +86,10 @@ export function createCatalogSkills(platform: Platform, registry?: SkillRegistry
       run(args, ctx) {
         const q = String(args.query ?? '').trim().toLowerCase();
         if (!q) return { ok: false, error: 'About what?' };
-        const words = q.split(/\s+/).filter((w) => w.length > 1);
-        const scored = registry
-          .available()
-          .map((s) => {
-            const hay = `${s.id} ${s.label} ${s.description} ${(s.examples ?? []).join(' ')}`.toLowerCase();
-            const score = words.reduce((n, w) => n + (hay.includes(w) ? (s.label.toLowerCase().includes(w) ? 3 : 1) : 0), 0);
-            return { s, score };
-          })
-          .filter((x) => x.score > 0)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 12);
+        const scored = rankSkills(registry.available(), q, { limit: 12 });
         if (!scored.length) return { ok: true, message: `Nothing I can do matches “${q}”. If it’s something you’d like, say what you were hoping for.` };
         ctx.showResults?.(
-          scored.map(({ s }) => ({ title: s.label, subtitle: s.examples?.[0] ? `Try: “${s.examples[0]}”` : s.description, icon: s.icon ?? '✨', group: s.domain })),
+          scored.map(({ skill: s }) => ({ title: s.label, subtitle: s.examples?.[0] ? `Try: “${s.examples[0]}”` : s.description, icon: s.icon ?? '✨', group: s.domain })),
           { title: `What I can do about “${q}”`, subtitle: `${scored.length} match${scored.length === 1 ? '' : 'es'}` },
         );
         return { ok: true, spoken: true, message: '' };
