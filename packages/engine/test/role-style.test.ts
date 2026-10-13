@@ -110,3 +110,14 @@ describe('role wording in Atlas’s own replies', () => {
     }
   });
 });
+
+describe('what Atlas says about itself', () => {
+  test('"who are you" does not promise that nothing is ever sent anywhere', () => {
+    for (const role of ATLAS_ROLES) {
+      const text = createPhrasing({ role }).smallTalk('identity', 100);
+      expect(text, role).not.toMatch(/nothing sent anywhere|entirely on this machine/i);
+      expect(text, role).toMatch(/cloud model|web search|update/i);
+    }
+    expect(createPhrasing({}).smallTalk('name', 1)).not.toMatch(/entirely/i);
+  });
+});

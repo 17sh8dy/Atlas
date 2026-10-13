@@ -22,8 +22,8 @@
  *
  * Not sync. Atlas's memory is the most personal thing in the ecosystem and syncing it is a
  * decision to take deliberately, with a design in front of it — not something to switch on
- * because the plumbing happens to exist. The scope is requested (Atlas is registered for it,
- * so a later feature needs no server change) and nothing reads or writes a sync document.
+ * because the plumbing happens to exist. The `sync` scope is therefore not requested, so no
+ * token Atlas holds can read or write a sync document.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE CSP NAMES ONE HOST.
@@ -105,9 +105,12 @@ export function initNovaAccount(storage: Storage): NovaAccountClient {
 
   client = createNovaAccountClient({
     product: 'atlas',
-    /* `support` so a ticket can be filed as you. `sync` is REQUESTED but UNUSED — see the
-       header: the plumbing existing is not a reason to sync somebody's assistant memory. */
-    scopes: ['support', 'sync'],
+    /* The least this needs: `support` so a ticket can be filed as you. `identity` (who you
+       are) is granted to every token by the server and need not be asked for. `sync` is NOT
+       requested — nothing here reads or writes a sync document, so a token that could is a
+       permission with no use. A future sync feature asks for it at that point, with its own
+       screen. */
+    scopes: ['support'],
     origin: NOVA_ORIGIN,
     storage: backing,
   });

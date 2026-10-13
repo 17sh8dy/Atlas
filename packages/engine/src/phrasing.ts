@@ -206,15 +206,18 @@ const SMALL_TALK: Record<SmallTalkKind, (c: SmallTalkContext) => readonly string
   },
 
   identity: ({ atlasName, actionCount }) => [
-    `I'm ${atlasName} — an assistant that runs entirely on this machine. I can ` +
+    `I'm ${atlasName} — an assistant that runs on this machine. I can ` +
       `do ${actionCount} things here: open apps and files, search the web, check ` +
-      `what the system's doing, handle notes and maths. No account, no API key, ` +
-      `nothing sent anywhere. Ask "what can you do?" to see the lot.`,
+      `what the system's doing, handle notes and maths. No account or API key is ` +
+      `needed, and what I remember stays on this PC. Something only leaves it when ` +
+      `you use a feature that needs the internet — a web search, a cloud model or ` +
+      `Nova Account you've turned on, or an update check. Ask "what can you do?" ` +
+      `to see the lot.`,
   ],
 
   // Just the name and the one fact that matters. The full pitch is `identity`'s,
   // for "who are you" -- asking a name should not get a capability brochure.
-  name: ({ atlasName }) => [`I'm ${atlasName} — an assistant that runs entirely on this machine.`],
+  name: ({ atlasName }) => [`I'm ${atlasName} — an assistant that runs on this machine.`],
 
   joke: () => JOKES,
 
