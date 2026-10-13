@@ -42,6 +42,15 @@ export interface EpisodicEvent {
  */
 export type EpisodeOutcome = 'done' | 'failed' | 'declined';
 
+/**
+ * Whether Atlas read the effect back afterwards. Only a `done` entry can be `confirmed`; an
+ * entry with no marker was never read back, which is "reported done", not "unconfirmed".
+ */
+export function episodeVerification(event: Pick<EpisodicEvent, 'data'>): 'confirmed' | 'unconfirmed' | null {
+  const v = event.data?.verified;
+  return v === 'confirmed' || v === 'unconfirmed' ? v : null;
+}
+
 export function episodeOutcome(event: Pick<EpisodicEvent, 'data'>): EpisodeOutcome {
   const o = event.data?.outcome;
   return o === 'failed' || o === 'declined' ? o : 'done';

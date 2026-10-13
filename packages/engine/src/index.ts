@@ -17,6 +17,9 @@ export type { GrammarRule } from './planner/grammar';
 
 export { Executor } from './planner/executor';
 export type { ExecutorOptions, ActivityEvent } from './planner/executor';
+export { createProbeRunner } from './verify/probes';
+export type { ProbeRunner, ProbeRunnerOptions } from './verify/probes';
+export { VERIFY_DECLARATIONS } from './verify/declarations';
 
 export { Engine } from './engine';
 export type { EngineIO, EngineOptions, AskOutcome } from './engine';

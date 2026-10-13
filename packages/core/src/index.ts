@@ -43,6 +43,7 @@ export * from './models/local-model';
 export * from './models/clarify';
 export * from './models/halt';
 export * from './models/failure';
+export * from './models/verify';
 export * from './models/watch';
 export * from './ports/platform';
 export * from './ports/intelligence';

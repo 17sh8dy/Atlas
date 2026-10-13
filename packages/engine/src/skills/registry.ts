@@ -20,6 +20,7 @@ import type {
 import { InputBlockedError } from '@atlas/core';
 import { refusalFor, screenSkillCall } from '../safety/content-policy';
 import { scoreSkills } from './router';
+import { VERIFY_DECLARATIONS } from '../verify/declarations';
 
 export interface RegistryOptions {
   /**
@@ -40,6 +41,11 @@ export class SkillRegistry {
   register(skill: Skill): void {
     if (!skill?.id || typeof skill.run !== 'function') {
       throw new Error(`Malformed skill: ${String(skill?.id ?? '(no id)')}`);
+    }
+    // A read-back declared in the one table (`verify/declarations.ts`) attaches here, unless the
+    // skill brought its own. Registering is the single point every skill passes through.
+    if (!skill.verify && Object.prototype.hasOwnProperty.call(VERIFY_DECLARATIONS, skill.id)) {
+      skill.verify = VERIFY_DECLARATIONS[skill.id];
     }
     this.skills.set(skill.id, skill);
   }

@@ -11,6 +11,7 @@
 
 import type { SkillArgs } from './skill';
 import type { FailureKind } from './failure';
+import type { Verification } from './verify';
 
 /**
  * Where a plan came from. Kept on the plan because it changes how much it
@@ -52,6 +53,13 @@ export interface StepOutcome {
   skipped?: boolean;
   /** Why it failed, as a closed set (see `failure.ts`). Present only when `ok` is false. */
   failure?: FailureKind;
+  /**
+   * Whether the machine was read back afterwards (`verify.ts`). Absent when the skill
+   * declares nothing to check, which is most of them. `unconfirmed` is not a failure.
+   */
+  verified?: Verification;
+  /** What the read-back actually observed. Present with `verified`. */
+  evidence?: string;
   /** From `SkillResult.undo`: the step that would put this back. */
   undo?: { skill: string; args: SkillArgs; label: string };
   /**

@@ -60,6 +60,7 @@ import type { HaltSignal } from '@atlas/core';
 import { Bus } from './bus';
 import { Grammar, quotedTexts, waitForOpenedApps } from './planner/grammar';
 import { Executor } from './planner/executor';
+import type { ProbeRunner } from './verify/probes';
 import { SkillRegistry } from './skills/registry';
 import { createPhrasing, type Phrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
@@ -186,6 +187,11 @@ export interface EngineOptions {
   getExecutionMode?: () => ExecutionMode;
   /** Forwarded to the executor unchanged — see `ExecutorOptions.isPreapproved`'s doc comment. */
   isPreapproved?(skill: Skill, args: SkillArgs): Promise<boolean>;
+  /**
+   * Reads the machine back after a skill that declares how (`Skill.verify`). Forwarded to the
+   * executor; omit it and Atlas reports actions as done, never as confirmed.
+   */
+  probes?: ProbeRunner;
 }
 
 export class Engine {
@@ -208,6 +214,7 @@ export class Engine {
    * has always sent. Wording only — see `atlas-role.ts`.
    */
   private readonly styleNote: string | undefined;
+  private readonly probes: ProbeRunner | undefined;
   private readonly getExecutionMode: () => ExecutionMode;
   private readonly isPreapproved?: (skill: Skill, args: SkillArgs) => Promise<boolean>;
   /** One per run in flight. A Set because `run` (a button) can overlap `ask`. */
@@ -234,6 +241,7 @@ export class Engine {
     this.executor = new Executor(this.skills, this.phrasing);
     this.getExecutionMode = options.getExecutionMode ?? (() => DEFAULT_EXECUTION_MODE);
     this.isPreapproved = options.isPreapproved;
+    this.probes = options.probes;
   }
 
   /** The one thing every `executor.run(...)` call site below shares. */
@@ -241,6 +249,7 @@ export class Engine {
     return {
       mode: this.getExecutionMode(),
       isPreapproved: this.isPreapproved,
+      verify: this.probes,
       signal,
       // Straight onto the bus: the executor reports, the engine publishes,
       // and whatever is watching decides what a step looks like. Nothing here

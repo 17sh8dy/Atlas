@@ -84,6 +84,7 @@ import {
   createCatalogMakeSkills,
   createSelfTestSkills,
   createClipboardHistorySkills,
+  createProbeRunner,
   ClipboardHistory,
   ReminderScheduler,
   createNetworkSkills,
@@ -778,6 +779,7 @@ export function useAtlas(
       intelligence,
       getExecutionMode: () => executionModeRef.current,
       isPreapproved,
+      probes: createProbeRunner(platform),
     });
     return built;
   }, [

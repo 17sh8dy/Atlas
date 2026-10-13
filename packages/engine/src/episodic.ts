@@ -54,7 +54,11 @@ export function recordEpisodes(bus: Bus, memory: Memory, skills: SkillRegistry):
         skill?.aloud === false
           ? skill.label
           : stepOutcome.message?.trim() || skill?.label || stepOutcome.skill;
-      void memory.record(stepOutcome.skill, label, { skill: stepOutcome.skill, outcome: 'done' });
+      void memory.record(stepOutcome.skill, label, {
+        skill: stepOutcome.skill,
+        outcome: 'done',
+        ...(stepOutcome.verified ? { verified: stepOutcome.verified, evidence: stepOutcome.evidence } : {}),
+      });
     }
   });
 }

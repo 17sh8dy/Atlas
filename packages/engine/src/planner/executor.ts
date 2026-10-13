@@ -98,7 +98,14 @@ import type {
   SkillRisk,
   StepOutcome,
 } from '@atlas/core';
-import { DEFAULT_EXECUTION_MODE, HaltedError, classifyFailure, untilHalted } from '@atlas/core';
+import {
+  DEFAULT_EXECUTION_MODE,
+  HaltedError,
+  classifyFailure,
+  summarizeProbes,
+  untilHalted,
+} from '@atlas/core';
+import type { ProbeRunner } from '../verify/probes';
 import type { HaltSignal } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import { createPhrasing, type Phrasing } from '../phrasing';
@@ -142,6 +149,11 @@ export interface ExecutorOptions {
    * machine at the moment it runs, which an earlier approval cannot have seen.
    */
   approvedStep?(step: PlanStep): boolean;
+  /**
+   * Reads the machine back after a step that declares `Skill.verify` succeeds. Absent means
+   * nothing is read and nothing is ever reported as confirmed. Read-only by construction.
+   */
+  verify?: ProbeRunner;
   /** The emergency stop. Defaults to `ctx.signal`. */
   signal?: HaltSignal;
 }
@@ -673,6 +685,25 @@ export class Executor {
           result = await wait(invokeStep());
         }
       }
+      // Read the machine back where the skill declared how. `ok` stays what the skill said;
+      // this only adds whether Atlas could *see* the effect. A miss on an immediate fact (a
+      // file that was just created) is said out loud; a slow one is only recorded.
+      let verified: StepOutcome['verified'];
+      let evidence: string | undefined;
+      if (result.ok && skill.verify && options.verify) {
+        const specs = skill.verify(step.args, result);
+        if (specs.length) {
+          const probed = await wait(options.verify(specs, signal));
+          const summary = summarizeProbes(probed);
+          if (summary) {
+            verified = summary.verified;
+            evidence = summary.evidence;
+          }
+          const missed = probed.find((r) => r.state === 'contradicted' && r.probe.announce);
+          if (missed) ctx.say(`⚠️ “${skill.label}” reported success, but ${missed.evidence}.`);
+        }
+      }
+
       report(result.ok ? 'done' : 'failed', result.ok ? result.message : result.error);
       outcomes.push({
         skill: step.skill,
@@ -681,6 +712,7 @@ export class Executor {
         error: result.error,
         data: result.data,
         undo: result.undo,
+        ...(verified ? { verified, evidence } : {}),
       });
 
       if (result.ok) {

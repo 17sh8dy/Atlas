@@ -12,6 +12,7 @@
 import type { HaltSignal } from './halt';
 import type { ActivityReporter } from './activity';
 import type { Clarification, ClarifyAnswer, ClarifyNeed } from './clarify';
+import type { ProbeSpec } from './verify';
 
 /**
  * How much damage a skill could do if invoked wrongly.
@@ -273,6 +274,14 @@ export interface Skill<T = unknown> {
    * would be a second, invisible execution path.
    */
   riskFor?(args: SkillArgs): SkillRisk | undefined;
+  /**
+   * What to read back after this skill reports success, as data (`Probe`). Pure and
+   * synchronous; the engine's probe runner does the reading with read-only platform calls.
+   * Absent means "nothing to check", and Atlas then reports the action as done, never as
+   * confirmed. Most skills should leave it unset; declare it where a cheap read-back gives
+   * real evidence (a path that must now exist, a program that must now be running).
+   */
+  verify?(args: SkillArgs, result: SkillResult): readonly ProbeSpec[];
   /**
    * What to say after "Atlas wants to" on a confirmation card — one short
    * phrase that names the action and its target ("hide notes.txt", "put the PC

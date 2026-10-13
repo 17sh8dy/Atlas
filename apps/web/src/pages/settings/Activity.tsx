@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { EpisodicEvent, EpisodeOutcome, Memory } from '@atlas/core';
-import { episodeOutcome } from '@atlas/core';
+import { episodeOutcome, episodeVerification } from '@atlas/core';
 import { Button, Icons, Modal, cn } from '@atlas/ui';
 import { timeAgo } from '../../lib/timeAgo';
 
@@ -42,8 +42,10 @@ export function summarizeLabel(label: string): { summary: string; full: string |
   return { summary, full: more ? label.trim() : null };
 }
 
-const OUTCOME: Record<EpisodeOutcome, { word: string; tone: string }> = {
+const OUTCOME: Record<EpisodeOutcome | 'confirmed' | 'unconfirmed', { word: string; tone: string }> = {
   done: { word: 'Done', tone: 'text-foreground-subtle' },
+  confirmed: { word: 'Confirmed', tone: 'text-primary' },
+  unconfirmed: { word: 'Not confirmed', tone: 'text-warning' },
   failed: { word: 'Failed', tone: 'text-danger' },
   declined: { word: 'Declined', tone: 'text-warning' },
 };
@@ -124,7 +126,10 @@ export function Activity({ memory }: Props) {
         <ul className="border-border divide-border divide-y overflow-hidden rounded-xl border text-sm">
           {episodes.map((event) => {
             const { summary, full } = summarizeLabel(event.label);
-            const outcome = OUTCOME[episodeOutcome(event)];
+            // Confirmed only when the machine was read back and agreed; otherwise the entry says
+            // what it can honestly say: the action reported success, or its effect was not seen.
+            const result = episodeOutcome(event);
+            const outcome = OUTCOME[result === 'done' ? (episodeVerification(event) ?? 'done') : result];
             const expanded = open === event.at;
             return (
               <li key={event.at} className="px-4 py-2.5">
