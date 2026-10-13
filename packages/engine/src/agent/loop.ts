@@ -71,7 +71,7 @@ import type {
 import type { SkillRegistry } from '../skills/registry';
 import type { Executor } from '../planner/executor';
 import { USE_RULES } from '../safety/use-rules';
-import { HaltedError, untilHalted } from '@atlas/core';
+import { HaltedError, classifyFailure, recoveryFor, untilHalted } from '@atlas/core';
 import type { HaltSignal } from '@atlas/core';
 import { parseToolCall } from './tool-call';
 import { UNTRUSTED_RULE, fenceUntrusted, scanInjection, taintFrom, taintedBy } from '../web/untrusted';
@@ -574,6 +574,12 @@ export async function runAgentTask(
     const hint = config.hintFor?.(skillId, resultText, ok);
     let line = `${ok ? 'Ran' : 'Failed'} ${skillId}(${JSON.stringify(check.args)}): ${fenceUntrusted(skillId, resultText)}`;
     if (hint) line += `\nAtlas's hint: ${hint}`;
+    // What kind of failure this is decides what kind of recovery fits (`failure.ts`); an
+    // unclassified one gets no advice rather than a guess.
+    if (!ok) {
+      const kind = classifyFailure(resultText);
+      if (kind !== 'unknown') line += `\nAtlas's recovery note (${kind}): ${recoveryFor(kind).hint}`;
+    }
 
     // The same failure again and again, whatever the action: change approach, then stop.
     let nudge = '';

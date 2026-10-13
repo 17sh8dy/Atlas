@@ -98,7 +98,7 @@ import type {
   SkillRisk,
   StepOutcome,
 } from '@atlas/core';
-import { DEFAULT_EXECUTION_MODE, HaltedError, untilHalted } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE, HaltedError, classifyFailure, untilHalted } from '@atlas/core';
 import type { HaltSignal } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import { createPhrasing, type Phrasing } from '../phrasing';
@@ -334,10 +334,10 @@ export class Executor {
     const signal = options.signal ?? ctx.signal;
     const outcomes: StepOutcome[] = [];
     try {
-      return await this.runSteps(plan, { ...ctx, signal }, options, signal, outcomes);
+      return withFailureKinds(await this.runSteps(plan, { ...ctx, signal }, options, signal, outcomes));
     } catch (err) {
       if (!(err instanceof HaltedError)) throw err;
-      return {
+      return withFailureKinds({
         ok: false,
         ran: outcomes.filter((o) => o.ok).length,
         outcomes: [
@@ -348,7 +348,7 @@ export class Executor {
         ],
         aborted: true,
         halted: true,
-      };
+      });
     }
   }
 
@@ -727,4 +727,19 @@ export class Executor {
       aborted,
     };
   }
+}
+
+/**
+ * Every failed step carries *why* it failed as a closed `FailureKind`, so whatever reads an
+ * outcome next — a report, a retry, an agent loop — decides from the kind instead of
+ * re-parsing a sentence. The sentence itself is untouched.
+ */
+function withFailureKinds(outcome: PlanOutcome): PlanOutcome {
+  for (const step of outcome.outcomes) {
+    if (step.ok || step.failure) continue;
+    step.failure = outcome.halted && /^Halted\.?$/.test(step.error ?? '')
+      ? 'halted'
+      : classifyFailure(step.error, { skipped: step.skipped });
+  }
+  return outcome;
 }

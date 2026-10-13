@@ -39,7 +39,7 @@ export function recordEpisodes(bus: Bus, memory: Memory, skills: SkillRegistry):
           void memory.record(
             `failed:${stepOutcome.skill}`,
             reason ? `Couldn’t ${lowerFirst(name)} — ${reason}` : `Couldn’t ${lowerFirst(name)}`,
-            { skill: stepOutcome.skill, outcome: 'failed' },
+            { skill: stepOutcome.skill, outcome: 'failed', failure: stepOutcome.failure },
           );
         }
         continue;

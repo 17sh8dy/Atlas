@@ -10,6 +10,7 @@
  */
 
 import type { SkillArgs } from './skill';
+import type { FailureKind } from './failure';
 
 /**
  * Where a plan came from. Kept on the plan because it changes how much it
@@ -49,6 +50,8 @@ export interface StepOutcome {
   error?: string;
   /** True when the user declined a confirmation. */
   skipped?: boolean;
+  /** Why it failed, as a closed set (see `failure.ts`). Present only when `ok` is false. */
+  failure?: FailureKind;
   /** From `SkillResult.undo`: the step that would put this back. */
   undo?: { skill: string; args: SkillArgs; label: string };
   /**

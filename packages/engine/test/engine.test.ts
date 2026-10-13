@@ -5141,3 +5141,14 @@ test('AI planner: the prompt tells the model to copy arguments exactly and not i
   assert.match(prompt, /exactly as written/);
   assert.match(prompt, /Never invent an argument/);
 });
+
+test('failures: a failed step carries a kind, and a declined one is declined', async () => {
+  const h = harness();
+  await h.engine.ask('open nonexistent-app-xyz', io(h));
+  const events = await h.memory.episodes();
+  assert.isAbove(events.length, 0);
+  for (const e of events) {
+    assert.equal(episodeOutcome(e), 'failed');
+    assert.isString(e.data?.failure);
+  }
+});
