@@ -53,7 +53,8 @@ export function canonicalPayload(m) {
 
 export function signManifest(manifest, privateKeyPem) {
   const key = createPrivateKey(privateKeyPem);
-  const { signature: _drop, ...body } = manifest;
+  const body = { ...manifest };
+  delete body.signature;
   const value = cryptoSign(null, Buffer.from(canonicalPayload(body), 'utf8'), key).toString('base64');
   return { ...body, signature: { algorithm: 'ed25519', keyId: KEY_ID, value } };
 }
