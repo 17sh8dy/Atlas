@@ -718,6 +718,31 @@ mod tests {
     }
 
     #[test]
+    fn unusual_spellings_of_an_address_are_classified_by_what_they_are() {
+        // Decimal, hex and octal spellings of 127.0.0.1 are still this machine, not "a name".
+        for raw in ["http://2130706433:8888", "http://0x7f000001:8888", "http://017700000001:8888", "http://0177.0.0.1:8888", "http://127.1:8888"] {
+            let ep = parse_endpoint(raw, false).unwrap_or_else(|e| panic!("{raw}: {e:?}"));
+            assert_eq!(ep.reach, Reach::ThisMachine, "{raw}");
+            assert!(ep.ip_literal.is_some(), "{raw} is an IP literal and needs no lookup");
+        }
+        // And the same tricks cannot dress up the metadata address or a LAN address as a name.
+        assert!(parse_endpoint("http://2852039166", true).is_err(), "169.254.169.254 in decimal");
+        assert!(parse_endpoint("http://0xa9fea9fe", true).is_err(), "169.254.169.254 in hex");
+        assert!(matches!(parse_endpoint("http://3232235777", false), Err(EndpointError::NeedsPrivate(_))), "192.168.1.1 in decimal");
+    }
+
+    #[test]
+    fn a_backslash_or_encoded_host_cannot_change_which_machine_is_meant() {
+        // "http://evil.example\@127.0.0.1" is evil.example once the URL parser has had its say.
+        let raw = "http://evil.example\\@127.0.0.1:8888";
+        match parse_endpoint(raw, false) {
+            Ok(ep) => assert_ne!(ep.reach, Reach::ThisMachine, "must not be read as loopback: {ep:?}"),
+            Err(_) => {}
+        }
+        assert!(parse_endpoint("http://%31%32%37.0.0.1:8888", false).map(|e| e.reach == Reach::ThisMachine).unwrap_or(true));
+    }
+
+    #[test]
     fn ip_classes() {
         let c = |s: &str| classify_ip(s.parse().unwrap());
         assert_eq!(c("127.0.0.1"), IpClass::Loopback);
