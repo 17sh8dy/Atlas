@@ -490,6 +490,16 @@ mod tests {
         assert!(is_open());
     }
 
+    #[test]
+    fn the_stop_key_counts_an_open_question_as_something_to_stop() {
+        let _t = turn();
+        let halt = crate::halt::Halt::new();
+        assert!(!halt.is_working(), "idle: nothing to stop");
+        OPEN.store(true, Ordering::SeqCst);
+        assert!(halt.is_working(), "a question is open: the stop key must act on it");
+        OPEN.store(false, Ordering::SeqCst);
+    }
+
     /// Needs a desktop: raises a real message box and closes it the way a halt does. Run on
     /// purpose with `cargo test -- --ignored consent`.
     #[test]

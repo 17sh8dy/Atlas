@@ -1,4 +1,4 @@
-# Native authorization — design (not implemented)
+# Native authorization — design (tier A implemented; see SECURITY-HARDENING-2.0.md)
 
 Status: **design for review**, written 2026-10-14 on `atlas-2.0`. Nothing here is built. It answers
 one question: *how should Atlas make persistent, sensitive changes need a decision that a

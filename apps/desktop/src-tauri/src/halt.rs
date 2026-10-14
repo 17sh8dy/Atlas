@@ -157,6 +157,11 @@ impl Halt {
         if self.surface_working.load(Ordering::SeqCst) {
             return true;
         }
+        // A native consent question is something to stop: the stop key must deny it, whether or
+        // not the renderer says it is busy (it usually is not: it is waiting on the person).
+        if crate::consent::is_open() {
+            return true;
+        }
         self.processes.lock().map(|p| !p.is_empty()).unwrap_or(true)
     }
 

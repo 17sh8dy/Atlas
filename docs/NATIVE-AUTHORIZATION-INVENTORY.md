@@ -1,5 +1,9 @@
 # Native authorization — inventory and TRUST_KEYS sweep
 
+> **Update 2026-10-14:** the findings below were acted on in five stages; see
+> `SECURITY-HARDENING-2.0.md` for what was built, how it was verified in the real app, and the
+> residual risks that remain. The findings text here is kept as the record of what was found.
+
 Status: **complete, 2026-10-13, `atlas-2.0`.** Preparation for `docs/NATIVE-AUTHORIZATION.md`
 phase 1. **No behaviour changed**: no dialog, no migration, no permission change. The only code
 added is a test-only module, `apps/desktop/src-tauri/src/authz_inventory.rs`, which is not
