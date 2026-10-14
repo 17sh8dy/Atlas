@@ -46,6 +46,8 @@ interface Props {
   activeId: string | null;
   /** What was last picked — may name a model that is not installed, in which case it is not in use. */
   selectedId?: string | null;
+  /** Name of the saved pick when it is a cloud or Nova model rather than a local one. */
+  selectedElsewhere?: string | null;
   onChange(): void;
 }
 
@@ -60,7 +62,15 @@ function gb(bytes: number): string {
   return `${(bytes / 1e9).toFixed(1)} GB`;
 }
 
-export function LocalModels({ platform, storage, localAi, activeId, selectedId, onChange }: Props) {
+export function LocalModels({
+  platform,
+  storage,
+  localAi,
+  activeId,
+  selectedId,
+  selectedElsewhere,
+  onChange,
+}: Props) {
   const local = localAi.local;
   const [saving, setSaving] = useState(false);
   const [probe, setProbe] = useState<Probe>(undefined);
@@ -190,11 +200,16 @@ export function LocalModels({ platform, storage, localAi, activeId, selectedId, 
                 ? `${selectedLabel}${running && !selectedInstalled ? ' — not installed, so it is not being used' : ''}`
                 : selectedLocal
                   ? `${selectedLocal.slice('local:'.length)}${running ? ' — not installed, so it is not being used' : ''}`
-                  : 'None chosen'}
+                  : selectedElsewhere
+                    ? `${selectedElsewhere} — not a local model (see below)`
+                    : 'None chosen'}
             </dd>
-            <dt className="text-foreground-subtle">In use</dt>
+            <dt className="text-foreground-subtle">In use here</dt>
             <dd className="text-foreground-muted">
-              {inUseLabel ?? 'No local model — Atlas answers and acts without one'}
+              {inUseLabel ??
+                (activeId
+                  ? 'Not a local model — your selection is below'
+                  : 'No local model — Atlas answers and acts without one')}
             </dd>
           </dl>
         </Surface>

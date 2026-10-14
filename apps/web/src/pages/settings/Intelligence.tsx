@@ -67,6 +67,12 @@ export function Intelligence({
         ? localAi.local.enabled
         : Boolean(cloudProviders.find((c) => c.id === id)?.enabled);
   const activeId = chosen && switchedOn(chosen) ? chosen : null;
+  // The saved pick when it is not a local model, by name: the Local Models panel has to be able
+  // to say "your selection is somewhere else" instead of "none chosen".
+  const selectedElsewhere =
+    activeProviderId === NOVA_INTELLIGENCE_PROVIDER_ID
+      ? 'Nova Intelligence'
+      : (cloudProviders.find((c) => c.id === activeProviderId)?.label ?? null);
 
   return (
     <div className="flex flex-col gap-6">
@@ -82,6 +88,7 @@ export function Intelligence({
         localAi={localAi}
         activeId={activeId}
         selectedId={activeProviderId}
+        selectedElsewhere={selectedElsewhere}
         onChange={onProviderChange}
       />
 
