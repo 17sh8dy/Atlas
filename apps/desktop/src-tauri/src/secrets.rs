@@ -199,6 +199,25 @@ fn delete_target(target: &str) -> Result<(), String> {
 const SESSION_TARGET: &str = "Atlas:account:session";
 const MAX_SESSION_CHARS: usize = 2000;
 
+/// The key the session used to sit under in `storage.json`.
+const LEGACY_SESSION_KEY: &str = "atlas.nova.account";
+
+/// At startup: a session left in `storage.json` by an earlier version moves into Credential
+/// Manager and is removed from the file. A copy still in the file is the newer one (this version
+/// never writes it there), so it wins over what is already held.
+pub(crate) fn adopt_legacy_session(app: &tauri::AppHandle) {
+    let Some(serde_json::Value::String(session)) = crate::storage::get_trusted(app, LEGACY_SESSION_KEY) else {
+        return;
+    };
+    if session.is_empty() || session.chars().count() > MAX_SESSION_CHARS {
+        return;
+    }
+    // Removed from the file only once it is safely in Credential Manager.
+    if write_target(SESSION_TARGET, session).is_ok() {
+        let _ = crate::storage::remove_trusted(app, LEGACY_SESSION_KEY);
+    }
+}
+
 #[tauri::command]
 pub fn account_session_get() -> Result<Option<String>, String> {
     read_target(SESSION_TARGET)

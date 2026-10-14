@@ -570,6 +570,9 @@ pub fn run() {
             // Where each cloud provider's key may be sent, and the provider list itself. Providers
             // set up before this existed are migrated once, with a backup and a check.
             provider_bindings::init(&handle);
+            // A sign-in session left in storage.json by an earlier version moves to Credential
+            // Manager now, not whenever the account page is first opened.
+            secrets::adopt_legacy_session(&handle);
             // Counting starts here: local file, no network, no account (stats.rs).
             stats::init(&handle);
 
