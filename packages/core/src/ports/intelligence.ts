@@ -14,6 +14,7 @@
  */
 
 import type { HaltSignal } from '../models/halt';
+import type { ModelCapabilities } from '../models/provider-capabilities';
 
 /**
  * The providers Atlas knows about.
@@ -83,6 +84,19 @@ export interface IntelligenceProvider {
    * pretended to be bigger than it is.
    */
   capacity?(): Promise<ModelCapacity | null>;
+  /**
+   * What this provider's model is known to be able to do (`provider-capabilities.ts`), as best
+   * Atlas knows right now. Synchronous and never blocks on the network: it returns what is
+   * declared or was last reported. A provider that has not said gets the all-unknown
+   * descriptor, and unknown is treated as "not supported" wherever a feature would change
+   * what is sent. A descriptor only describes — it never grants anything.
+   */
+  capabilities?(): ModelCapabilities;
+  /**
+   * Ask the model's own server what it supports and remember the answer for `capabilities()`.
+   * Cached; safe to call often. Resolves to the same descriptor `capabilities()` now returns.
+   */
+  refreshCapabilities?(): Promise<ModelCapabilities>;
   /** Opens whatever UI configures this provider. */
   configure?(): void;
 }

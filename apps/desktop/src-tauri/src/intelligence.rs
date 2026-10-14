@@ -492,6 +492,9 @@ pub struct ModelInfo {
     /// Billions of parameters, when the size could be read.
     pub billions: Option<f32>,
     pub quantization: String,
+    /// What the server says the model can do ("completion", "tools", "vision", "thinking", …).
+    /// Empty when the server does not say (an older Ollama), which Atlas reads as "unknown".
+    pub capabilities: Vec<String>,
 }
 
 fn parse_model_info(body: &str) -> ModelInfo {
@@ -513,7 +516,12 @@ fn parse_model_info(body: &str) -> ModelInfo {
             _ => n,
         })
     };
-    ModelInfo { context_length, parameter_size, billions, quantization: text("quantization_level") }
+    let capabilities = v
+        .get("capabilities")
+        .and_then(|c| c.as_array())
+        .map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| s.to_ascii_lowercase()).collect())
+        .unwrap_or_default();
+    ModelInfo { context_length, parameter_size, billions, quantization: text("quantization_level"), capabilities }
 }
 
 /// The context window and size of one installed model (`/api/show`).
@@ -985,7 +993,16 @@ mod tests {
         assert!((info.billions.unwrap() - 9.7).abs() < 0.01);
         assert_eq!(info.quantization, "Q4_K_M");
         assert_eq!(parse_model_info(r#"{"details":{"parameter_size":"560M"}}"#).billions.map(|b| (b * 100.0).round() as i32), Some(56));
-        assert_eq!(parse_model_info("not json"), ModelInfo { context_length: None, parameter_size: String::new(), billions: None, quantization: String::new() });
+        assert_eq!(parse_model_info("not json"), ModelInfo { context_length: None, parameter_size: String::new(), billions: None, quantization: String::new(), capabilities: vec![] });
+    }
+
+    #[test]
+    fn what_the_server_says_the_model_can_do_is_read_and_absence_is_empty() {
+        let with = parse_model_info(r#"{"capabilities":["completion","Tools","vision"],"details":{}}"#);
+        assert_eq!(with.capabilities, vec!["completion", "tools", "vision"]);
+        // An older server sends no list: that is "not said", never "can do nothing".
+        assert!(parse_model_info(r#"{"details":{"parameter_size":"8B"}}"#).capabilities.is_empty());
+        assert!(parse_model_info(r#"{"capabilities":"tools"}"#).capabilities.is_empty());
     }
 
     #[test]

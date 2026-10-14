@@ -40,8 +40,14 @@ import type {
   CloudProviderTestResult,
   IntelligenceProvider,
   LocalModelProfile,
+  ModelCapabilities,
   ModelCapacity,
   ProviderStreamHandlers,
+} from '@atlas/core';
+import {
+  CLOUD_DECLARED_CAPABILITIES,
+  NOVA_INTELLIGENCE_CAPABILITIES,
+  capabilitiesFromOllama,
 } from '@atlas/core';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -115,6 +121,36 @@ export function createLocalModelProvider(
 ): IntelligenceProvider {
   const baseUrl = options.baseUrl?.trim() || OLLAMA_DEFAULT_BASE_URL;
   let capacityCache: { at: number; value: ModelCapacity | null } | undefined;
+  // A model in Atlas's own list is a chat model: that, and nothing else, is declared up front.
+  // Everything more comes from what the server reports, and until then stays unknown.
+  let known: ModelCapabilities = capabilitiesFromOllama(null, { conversation: 'yes', source: 'declared' });
+  let capsAt = 0;
+
+  /** One `/api/show` fills both the capacity and the capability caches. */
+  async function readInfo(): Promise<void> {
+    if (capacityCache && Date.now() - capacityCache.at < 5 * 60_000 && capsAt) return;
+    try {
+      const info = await invoke<{
+        contextLength: number | null;
+        billions: number | null;
+        capabilities?: string[];
+      }>('local_model_info', { baseUrl, model: profile.ollamaTag });
+      capacityCache = {
+        at: Date.now(),
+        value: info.contextLength
+          ? { contextTokens: info.contextLength, ...(info.billions ? { billions: info.billions } : {}) }
+          : null,
+      };
+      known = capabilitiesFromOllama(
+        { capabilities: info.capabilities ?? null, contextTokens: info.contextLength },
+        { conversation: 'yes', source: 'declared' },
+      );
+    } catch {
+      // Unreachable or refused: keep what was known, and ask again next time.
+      capacityCache = { at: Date.now(), value: capacityCache?.value ?? null };
+    }
+    capsAt = Date.now();
+  }
 
   return {
     id: profile.id,
@@ -150,15 +186,13 @@ export function createLocalModelProvider(
     },
     async capacity() {
       if (!options.enabled) return null;
-      if (!capacityCache || capacityCache.at < Date.now() - 5 * 60_000) {
-        try {
-          const info = await invoke<{ contextLength: number | null; billions: number | null }>('local_model_info', { baseUrl, model: profile.ollamaTag });
-          capacityCache = { at: Date.now(), value: info.contextLength ? { contextTokens: info.contextLength, ...(info.billions ? { billions: info.billions } : {}) } : null };
-        } catch {
-          capacityCache = { at: Date.now(), value: null };
-        }
-      }
-      return capacityCache.value;
+      await readInfo();
+      return capacityCache?.value ?? null;
+    },
+    capabilities: () => known,
+    async refreshCapabilities() {
+      if (options.enabled) await readInfo();
+      return known;
     },
   };
 }
@@ -198,6 +232,9 @@ export function createNovaIntelligenceProvider(options: LocalModelOptions): Inte
     label: 'Nova Intelligence',
     isConfigured: () => options.enabled,
     isLocal: () => true,
+    // Documented as unable to converse or follow instructions: it is never handed greetings or
+    // small talk, whatever else is added around it.
+    capabilities: () => NOVA_INTELLIGENCE_CAPABILITIES,
     ask(prompt: string, handlers: ProviderStreamHandlers, askOptions?: { signal?: HaltSignal }) {
       if (!options.enabled) {
         handlers.onError('not-configured');
@@ -359,6 +396,8 @@ export function createCloudProvider(config: CloudProviderConfig): IntelligencePr
     label: config.label,
     isConfigured: () => config.enabled,
     isLocal: () => false,
+    // A chat endpoint converses; what the typed-in model supports beyond that is not known.
+    capabilities: () => CLOUD_DECLARED_CAPABILITIES,
     ask(prompt: string, handlers: ProviderStreamHandlers) {
       if (!config.enabled) {
         handlers.onError('not-configured');
