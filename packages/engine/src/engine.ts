@@ -52,6 +52,7 @@ import {
   ATLAS_ROLE_META,
   DEFAULT_ATLAS_ROLE,
   DEFAULT_EXECUTION_MODE,
+  canConverse,
   HaltController,
   HaltedError,
   untilHalted,
@@ -95,6 +96,13 @@ const ACTION_CONTEXT =
   'exact wording, and suggest a precise phrasing with a full folder path, for example: ' +
   'create a folder called Notes in D:\\Dev. Keep it to a sentence or two. ' +
   USE_RULES;
+
+/**
+ * A message that is about the assistant itself ("what can you do", "are you able to...", "your
+ * name"). Those get Atlas's identity facts so the model answers as Atlas, accurately; anything
+ * else is passed through untouched.
+ */
+const SELF_REFERENCE = /\b(?:you|your|yours|yourself|atlas)\b/i;
 
 /** How the engine talks back. Supplied by whatever surface is driving it. */
 export interface EngineIO {
@@ -214,6 +222,8 @@ export class Engine {
    * has always sent. Wording only — see `atlas-role.ts`.
    */
   private readonly styleNote: string | undefined;
+  private readonly atlasName: string;
+  private readonly userName: string | undefined;
   private readonly probes: ProbeRunner | undefined;
   private readonly getExecutionMode: () => ExecutionMode;
   private readonly isPreapproved?: (skill: Skill, args: SkillArgs) => Promise<boolean>;
@@ -236,6 +246,8 @@ export class Engine {
     this.threshold = options.confidenceThreshold ?? 0.5;
     this.working = options.working ?? new WorkingMemory();
     this.phrasing = createPhrasing(options.voice);
+    this.atlasName = options.voice?.atlasName?.trim() || 'Atlas';
+    this.userName = options.voice?.userName?.trim() || undefined;
     const role = options.voice?.role;
     this.styleNote = role && role !== DEFAULT_ATLAS_ROLE ? ATLAS_ROLE_META[role]?.style : undefined;
     this.executor = new Executor(this.skills, this.phrasing);
@@ -490,7 +502,16 @@ export class Engine {
     //     `normalizeRequest` would quite reasonably treat as filler to remove.
     const social = readSmallTalk(raw);
     if (social) {
-      const reply = this.phrasing.smallTalk(social, this.skills.available().length);
+      const fallback = () => this.phrasing.smallTalk(social, this.skills.available().length);
+      const provider = this.intelligence?.active();
+      // A connected model that can hold a conversation answers ordinary conversation — greetings,
+      // thanks, jokes, "who are you" — because it does that better than a fixed list. The list is
+      // what Atlas says when there is no such model, or when the one that is connected fails.
+      // Nothing here touches what Atlas may DO: this branch only chooses who writes a reply.
+      if (provider && canConverse(provider.capabilities?.())) {
+        return this.converse(raw, io, ctx, signal, false, false, { fallback });
+      }
+      const reply = fallback();
       io.say(reply);
       return { ok: true, mode: 'chat', text: reply };
     }
@@ -678,13 +699,19 @@ export class Engine {
      */
     asInstruction = false,
     deeper = false,
+    /**
+     * Set when this is ordinary social conversation handed to the model. `fallback` is Atlas's own
+     * deterministic reply, used if the model is unreachable or fails — never shown alongside the
+     * model's answer.
+     */
+    social?: { fallback(): string },
   ): Promise<AskOutcome> {
     const provider = this.intelligence?.active();
     const searchSkill = this.skills.get('research.search');
     const canSearch = searchSkill ? this.skills.isAvailable(searchSkill) : false;
 
     const decision = routeQuestion(text);
-    if (canSearch && decision.search) {
+    if (!social && canSearch && decision.search) {
       // Only render the raw result rows when there's no model to turn them
       // into an actual answer — with a provider, the synthesized reply plus
       // its sources footer *is* the answer, and showing both would be noise.
@@ -757,12 +784,22 @@ export class Engine {
     }
 
     // A short definition question gets a short, ambiguity-aware answer (see `BRIEF_ASK`).
-    const briefly = !asInstruction && !deeper && wantsBriefAnswer(text);
+    const briefly = !asInstruction && !deeper && !social && wantsBriefAnswer(text);
+    // A conversational prompt carries who Atlas is, so the model answers as Atlas and not as
+    // itself. (An unresolved instruction already says so, in `ACTION_CONTEXT`.)
+    // Only when the message is about Atlas (or is ordinary social talk): a question about the
+    // capital of Peru is still sent exactly as written, neither slowed nor steered.
+    const aboutAtlas = Boolean(social) || SELF_REFERENCE.test(text);
+    const body = asInstruction
+      ? `${ACTION_CONTEXT}\n\n${text}`
+      : briefly
+        ? `${BRIEF_ASK}\n\n${text}`
+        : aboutAtlas
+          ? `${this.identityFacts(provider)}\n\n${text}`
+          : text;
     return this.converseWithProvider(
       provider,
-      this.styled(
-        asInstruction ? `${ACTION_CONTEXT}\n\n${text}` : briefly ? `${BRIEF_ASK}\n\n${text}` : text,
-      ),
+      this.styled(body),
       io,
       signal,
       '',
@@ -770,6 +807,28 @@ export class Engine {
       deeper,
       asInstruction ? () => this.unresolvedReply(text) : undefined,
       text,
+      social?.fallback,
+    );
+  }
+
+  /**
+   * Who Atlas is, for a model about to speak as Atlas — generated from the real state each time so
+   * it cannot go stale (the number of capabilities is the number there are right now).
+   *
+   * Deliberately small and deliberately free of anything private: no memory, no file names, no
+   * system readings, and no history. The person's name is added only for a model that runs on
+   * this machine; a cloud model is not told it. Nothing here claims the PC sends nothing, because
+   * a connected cloud model is itself something that sends.
+   */
+  private identityFacts(provider: IntelligenceProvider): string {
+    const name = this.atlasName;
+    const count = this.skills.available().length;
+    const you = provider.isLocal() && this.userName ? ` The person you are talking to is called ${this.userName}.` : '';
+    return (
+      `You are ${name}, a desktop assistant for Windows. ${name} itself carries out actions on this PC ` +
+      `with its own tools (about ${count} of them); you only write the reply, so never claim to have ` +
+      `done something yourself. What ${name} remembers is kept on this PC. Be honest about what you ` +
+      `can and cannot do, and keep replies short and natural.${you}`
     );
   }
 
@@ -796,6 +855,11 @@ export class Engine {
     onOffline?: () => string,
     /** What the person actually typed, for a reply that quotes it back. */
     heard = '',
+    /**
+     * Atlas's own reply for ordinary conversation, said instead of any error if the model cannot
+     * answer — whatever the reason (not set up, unreachable, a provider error).
+     */
+    replyOnFailure?: () => string,
   ): Promise<AskOutcome> {
     io.typing?.(true);
     return new Promise<AskOutcome>((resolve, reject) => {
@@ -846,6 +910,12 @@ export class Engine {
           if (over) return;
           settle();
           io.typing?.(false);
+          if (replyOnFailure) {
+            const reply = replyOnFailure();
+            io.say(reply);
+            resolve({ ok: true, mode: 'chat', text: reply });
+            return;
+          }
           if (fallback) {
             io.say(fallback);
             resolve({ ok: true, mode: 'chat', text: fallback });

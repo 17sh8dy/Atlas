@@ -5063,10 +5063,15 @@ test('escalation: the model is asked only for what the local tiers cannot do', a
 
   // Each of these is handled by a tier that sits above the provider.
   await h.engine.ask('open steam', io(h)); // grammar
-  await h.engine.ask('hi', io(h)); // small talk
   await h.engine.ask('what can you do?', io(h)); // grammar -> engine.help
   await h.engine.ask('what is 12 * 7', io(h)); // grammar -> calculator
   assert.deepEqual(provider.prompts, [], 'nothing above should have reached the model');
+
+  // Ordinary conversation is the model's to answer when one is connected (see
+  // conversation-routing.test.ts); the fixed small-talk table is only the fallback.
+  await h.engine.ask('hi', io(h));
+  assert.lengthOf(provider.prompts, 1);
+  provider.prompts.length = 0;
 
   // This one genuinely needs a model.
   await h.engine.ask('why is the sky blue?', io(h));
