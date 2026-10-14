@@ -260,6 +260,7 @@ dependencies = [
 name = "atlas-desktop"
 version = "1.0.10"
 dependencies = [
+ "base64 0.22.1",
  "futures-util",
  "image",
  "libloading 0.8.9",
@@ -268,6 +269,7 @@ dependencies = [
  "ort",
  "percent-encoding",
  "reqwest 0.12.28",
+ "ring",
  "scraper",
  "serde",
  "serde_json",

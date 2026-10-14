@@ -396,9 +396,12 @@ fn install_exe_name() -> String {
 
 #[tauri::command]
 pub async fn updater_fetch_manifest(url: String) -> Result<String, String> {
-    if !host_allowed(&url) {
-        return Err("The update address is not an allowed, secure (https) host.".into());
+    // One address, not "any github.com": see update_signature.rs.
+    if !crate::update_signature::manifest_url_allowed(&url) || !host_allowed(&url) {
+        return Err("The update address is not Atlas's own release address.".into());
     }
+    // Nothing from a previous check may authorise this one.
+    crate::update_signature::forget();
     let response = client()?
         .get(&url)
         .timeout(Duration::from_secs(20))
@@ -417,13 +420,23 @@ pub async fn updater_fetch_manifest(url: String) -> Result<String, String> {
             return Err("The update information was unexpectedly large.".into());
         }
     }
-    String::from_utf8(body).map_err(|_| "The update information was not text.".into())
+    let text = String::from_utf8(body).map_err(|_| "The update information was not text.".to_string())?;
+    // A manifest that does not carry a signature this build can check is not an update. The
+    // verified record stays here, in the program; the page only gets the text to display.
+    crate::update_signature::verify_and_store(&text)?;
+    Ok(text)
 }
 
 #[tauri::command]
 pub async fn updater_download(app: AppHandle, url: String) -> Result<DownloadedPackage, String> {
     if !host_allowed(&url) {
         return Err("The download address is not an allowed, secure (https) host.".into());
+    }
+    // Only the installer the verified manifest names, and only from Atlas's own releases.
+    let verified = crate::update_signature::current()
+        .ok_or("There is no verified update to download. Check for updates first.")?;
+    if url != verified.download_url || !crate::update_signature::download_url_allowed(&url) {
+        return Err("That is not the installer the verified update names, so it was not downloaded.".into());
     }
     CANCEL.store(false, Ordering::SeqCst);
 
@@ -536,6 +549,15 @@ fn install(
     // The check that matters is the one made right before running: whatever
     // happened between "verified" and now, this is what would execute.
     let report = measure(&installer)?;
+    // The decision is the program's: the measured file against the *signed* record. The hash and
+    // version the caller passed are only cross-checked below.
+    crate::update_signature::authorize_install(
+        crate::update_signature::current().as_ref(),
+        &report.sha256,
+        report.version.as_deref(),
+        version,
+        env!("CARGO_PKG_VERSION"),
+    )?;
     if !report.sha256.eq_ignore_ascii_case(sha256) {
         return Err("The downloaded installer changed after it was verified. Not installing.".into());
     }

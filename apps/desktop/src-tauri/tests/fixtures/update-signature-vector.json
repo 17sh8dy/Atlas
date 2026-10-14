@@ -1,0 +1,23 @@
+{
+  "note": "A throwaway key. Proves update-signing.mjs and update_signature.rs sign the same text. Not a release key.",
+  "publicKeyHex": "283a865aa2ef037eed8ecd1b393cba611a4db1828ab0de3733ad8a235f9764fc",
+  "manifest": {
+    "product": "atlas",
+    "version": "2.0.0",
+    "downloadUrl": "https://github.com/17sh8dy/Atlas/releases/download/v2.0.0/Atlas_2.0.0_x64-setup.exe",
+    "sha256": "a3f1c2d4e5b60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    "sizeBytes": 123456789,
+    "releaseNotes": [
+      "Native confirmation for trust changes",
+      "Signed updates — with “quotes” and ünïcode"
+    ],
+    "mandatory": false,
+    "minimumVersion": "1.0.0",
+    "publishedAt": "2026-10-14T00:00:00.000Z",
+    "signature": {
+      "algorithm": "ed25519",
+      "keyId": "atlas-release-1",
+      "value": "uq5OZ0wlzePuNHYuv6dn3tU1gov1Fta5TbslGY8It4pAZZFC4NfY1G+djQ8mh3hTAvaF1xHi91juKyTbejj4DA=="
+    }
+  }
+}

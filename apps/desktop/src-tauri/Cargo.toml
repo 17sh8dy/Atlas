@@ -70,6 +70,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 percent-encoding = "2"
 # updater.rs: SHA-256 of a downloaded installer. Already in the tree via Tauri; this only names it.
 sha2 = "0.10"
+# update_signature.rs: Ed25519 verification of the release manifest. Already in the tree through
+# rustls, so this adds no new code to the program; base64 decodes the signature.
+ring = "0.17"
+base64 = "0.22"
 # Kokoro (kokoro.rs) — the refined voice, run in this process rather than
 # shelled out to.
 #

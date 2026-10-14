@@ -119,6 +119,21 @@ if (skipChecks) {
   run('pnpm', ['test']);
 }
 
+// 4b. The signing key must be in place *before* anything is published: a build that cannot verify
+// updates, or a manifest it would refuse, is not a release.
+step('Checking the update-signing key');
+const signingSource = readFileSync(
+  join(root, 'apps/desktop/src-tauri/src/update_signature.rs'),
+  'utf8',
+);
+if (!/PUBLIC_KEY_HEX: &str = "[0-9a-f]{64}"/.test(signingSource)) {
+  fail('update_signature.rs has no PUBLIC_KEY_HEX. Run `node scripts/update-signing.mjs keygen --out <file outside the repo>` and paste the public key in, then rebuild.');
+}
+if (!process.env.ATLAS_UPDATE_SIGNING_KEY || !existsSync(process.env.ATLAS_UPDATE_SIGNING_KEY)) {
+  fail('Set ATLAS_UPDATE_SIGNING_KEY to the private key file so the manifest can be signed.');
+}
+console.log('  public key compiled in; private key found');
+
 // 4. Build.
 step('Building the installer (a few minutes)');
 run('pnpm', ['bundle'], join(root, 'apps/desktop'));
@@ -140,6 +155,8 @@ run('node', [
   `"${installer}"`,
   ...notes.flatMap((n) => ['--note', JSON.stringify(n)]),
   ...(args.includes('--mandatory') ? ['--mandatory'] : []),
+  // Never publish a manifest installed copies cannot verify.
+  '--require-signature',
   '--out',
   `"${manifest}"`,
 ]);

@@ -95,6 +95,7 @@ mod web;
 mod window;
 #[cfg(windows)]
 pub mod updater;
+mod update_signature;
 
 use tauri::{
     menu::{Menu, MenuItem},
