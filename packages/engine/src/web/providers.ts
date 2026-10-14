@@ -7,7 +7,7 @@
 import type { Platform, SearchFailureKind, SearchProviderId, WebSearchResult } from '@atlas/core';
 import { SearchError, SearchManager, type SearchProvider } from './search-manager';
 
-const TAGGED = /^(quota|auth|rate|blocked|offline|error):\s*([\s\S]*)$/i;
+const TAGGED = /^(quota|auth|rate|blocked|offline|misconfigured|error):\s*([\s\S]*)$/i;
 
 /**
  * Turn whatever a platform call rejected with into a `SearchError`.
@@ -56,6 +56,18 @@ function viaPlatform(
       }
     },
   };
+}
+
+/**
+ * A SearXNG server the person set up. Unavailable (and silent) until they have: there is no
+ * default instance, so nothing is ever sent to one they did not name. The address itself lives
+ * natively and is not part of any search call.
+ */
+export function searxngProvider(platform: Platform): SearchProvider {
+  return viaPlatform(platform, 'searxng', 'SearXNG', async () => {
+    if (!platform.searchWebWith || !platform.searchProviderReady) return false;
+    return platform.searchProviderReady('searxng').catch(() => false);
+  });
 }
 
 /** Needs a key saved on this machine. Absent key = unavailable, which is silent. */
@@ -114,15 +126,17 @@ export function wikipediaProvider(platform: Platform): SearchProvider {
 }
 
 /**
- * Tavily first when a key exists; DuckDuckGo when it does not or cannot
- * answer; Wikipedia when neither can. Nothing above the manager knows this
- * order.
+ * The person's own SearXNG first, when they have set one up; then Tavily when a key
+ * exists; DuckDuckGo when neither can answer; Wikipedia when none can. A backend that
+ * is not set up is skipped silently, so with SearXNG unconfigured this is exactly the
+ * order it always was. Nothing above the manager knows this order.
  */
 export function createSearchManager(
   platform: Platform,
   extra: SearchProvider[] = [],
 ): SearchManager {
   return new SearchManager([
+    searxngProvider(platform),
     tavilyProvider(platform),
     duckDuckGoProvider(platform),
     wikipediaProvider(platform),

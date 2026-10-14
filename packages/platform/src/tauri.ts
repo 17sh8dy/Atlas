@@ -284,6 +284,9 @@ export function createTauriPlatform(): Platform {
       }),
     searchProviderReady: (provider) =>
       invoke<boolean>('web_search_provider_ready', { provider }).catch(() => false),
+    searxngConfig: () => invoke('searxng_config'),
+    searxngConfigure: (url, allowPrivate) => invoke('searxng_configure', { url, allowPrivate }),
+    searxngTest: () => invoke('searxng_test'),
     fetchPage: (url) => invoke<WebPage>('fetch_page', { url }),
     fetchDocPage: (url) => invoke<WebPage>('fetch_doc_page', { url }),
 

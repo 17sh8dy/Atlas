@@ -191,7 +191,8 @@ describe('createSearchManager — the real wiring against a fake platform', () =
   test('Tavily is tried first when a key is saved, and DuckDuckGo is the fallback', async () => {
     const asked: string[] = [];
     const platform = platformOf({
-      searchProviderReady: async () => true,
+      // SearXNG is not set up: there is no default server.
+      searchProviderReady: async (p) => p !== 'searxng',
       searchWebWith: async (provider) => {
         asked.push(provider);
         if (provider === 'tavily') throw new Error('quota: used up');
@@ -232,8 +233,9 @@ describe('Wikipedia, the keyless knowledge backup', () => {
   const platformOf = (over: Partial<Platform>): Platform =>
     ({ id: 'test', capabilities: async () => ({}), ...over }) as Platform;
 
-  test('it is last in line: Tavily, then DuckDuckGo, then Wikipedia', () => {
+  test('it is last in line: SearXNG (when set up), Tavily, then DuckDuckGo, then Wikipedia', () => {
     expect(createSearchManager(platformOf({})).order()).toEqual([
+      'searxng',
       'tavily',
       'duckduckgo',
       'wikipedia',

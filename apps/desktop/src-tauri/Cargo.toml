@@ -50,7 +50,9 @@ futures-util = "0.3"
 # halt.rs: `watch` wakes every in-flight request the instant a halt lands, and
 # `select!` drops the losing future — which is what actually closes a model's
 # connection mid-answer. Already in the tree via Tauri; this only names it.
-tokio = { version = "1", features = ["sync", "macros"] }
+# `net`: name resolution for the SearXNG backend (searxng.rs), which checks every address a name gives
+# before connecting. Already enabled in the tree by reqwest; this only names it.
+tokio = { version = "1", features = ["sync", "macros", "net"] }
 scraper = "0.20"
 # shell_tools.rs: the startup-apps list and its enabled/disabled flags.
 winreg = "0.52"
@@ -171,7 +173,7 @@ windows = { version = "0.58", features = [
 ] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }
 
 [profile.release]
 # The premium bar for this app is "feels instant". These are the cheap wins:

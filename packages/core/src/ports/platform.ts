@@ -470,6 +470,8 @@ export interface WebSearchResult {
   provider?: string;
   /** As the source reported it, when it did. Providers differ; never assume it is present or parseable. */
   publishedDate?: string;
+  /** Which search engines a metasearch backend (SearXNG) says it came from. Attribution, not ranking. */
+  engines?: string[];
 }
 
 /**
@@ -479,7 +481,7 @@ export interface WebSearchResult {
  * a crawler of our own) is one new arm natively and one new provider in the
  * engine — nothing above the search manager changes.
  */
-export type SearchProviderId = 'tavily' | 'duckduckgo' | 'wikipedia';
+export type SearchProviderId = 'searxng' | 'tavily' | 'duckduckgo' | 'wikipedia';
 
 /** What kind of results a query wants; a hint, and every provider may ignore it. */
 export interface WebSearchOptions {
@@ -497,7 +499,36 @@ export type SearchFailureKind =
   | 'rate' // too many requests right now: brief back-off
   | 'blocked' // the engine wants a human (a CAPTCHA): back off longer
   | 'offline' // could not reach it at all
+  | 'misconfigured' // it answered, but not as Atlas asked (JSON output off, a redirect): fix the setting
   | 'error'; // anything else
+
+/** Where a SearXNG address points, as the native side classified it. */
+export type SearxngReach = 'this-machine' | 'private-network' | 'internet';
+
+/** The SearXNG server Atlas is set up to use, if any. The address is validated natively. */
+export interface SearxngSetup {
+  configured: boolean;
+  url: string;
+  /** The person confirmed a private-network server is their own. */
+  allowPrivate: boolean;
+  reach: SearxngReach | null;
+}
+
+/** What one real test search against the configured server found, in words. */
+export interface SearxngTestReport {
+  ok: boolean;
+  status:
+    | 'ok'
+    | 'not-set-up'
+    | 'unreachable'
+    | 'json-off-or-misconfigured'
+    | 'rate-limited'
+    | 'blocked'
+    | 'login-required'
+    | 'invalid';
+  message: string;
+  resultCount: number;
+}
 
 /** A page's readable text, for when a search snippet alone isn't enough. */
 export interface WebPage {
@@ -1241,6 +1272,19 @@ export interface Platform {
   ): Promise<WebSearchResult[]>;
   /** Is this backend usable right now (for a keyed one: is a key saved)? Never returns the key. */
   searchProviderReady?(provider: SearchProviderId): Promise<boolean>;
+  /**
+   * The SearXNG backend's setting. The address is held and re-checked natively; a search never
+   * carries one. There is no default server, and none is ever chosen for the person.
+   */
+  searxngConfig?(): Promise<SearxngSetup>;
+  /**
+   * Save (or, with an empty address, clear) the server. Rejects with a sentence saying what to
+   * change; a message starting `private-network:` means the address is on the local network and
+   * needs `allowPrivate`.
+   */
+  searxngConfigure?(url: string, allowPrivate: boolean): Promise<SearxngSetup>;
+  /** One real search against the configured server, reported in words. Never rejects. */
+  searxngTest?(): Promise<SearxngTestReport>;
 
   /**
    * The emergency stop, when this build has a native one — see

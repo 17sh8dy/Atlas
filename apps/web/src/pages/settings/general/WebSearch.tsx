@@ -21,6 +21,7 @@ import type { Platform } from '@atlas/core';
 import { Button, Input, Surface } from '@atlas/ui';
 import { deleteProviderSecret, hasProviderSecret, saveProviderSecret } from '@atlas/platform';
 import { describeKeyCheck, readPastedKey, type KeyCheck } from './tavily-key';
+import { SearxngSetting } from './SearxngSetting';
 
 /** Where `secrets.rs` files this key: `Atlas:cloudProvider:search-tavily`. */
 const TAVILY_SECRET_ID = 'search-tavily';
@@ -200,6 +201,8 @@ export function WebSearch({ platform }: { platform: Platform }) {
           Credential Manager, never in Atlas's settings file, and is never shown again once saved.
           Searches you make are sent to whichever engine is in use.
         </p>
+
+        <SearxngSetting platform={platform} onChanged={changed} />
       </Surface>
     </section>
   );

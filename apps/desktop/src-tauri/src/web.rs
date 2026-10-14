@@ -22,15 +22,15 @@ use serde::Serialize;
 
 const REQUEST_TIMEOUT_SECS: u64 = 10;
 const MAX_QUERY_CHARS: usize = 400;
-const MAX_RESULTS: usize = 8;
+pub(crate) const MAX_RESULTS: usize = 8;
 const MAX_PAGE_BYTES: usize = 2_000_000;
 const MAX_EXTRACT_CHARS: usize = 6_000;
 /// Documentation pages are read further than a search snippet's worth, but still bounded.
 const MAX_DOC_CHARS: usize = 16_000;
 const MAX_LINKS: usize = 80;
-const USER_AGENT: &str = "Mozilla/5.0 (compatible; AtlasAssistant/1.0; local desktop app)";
+pub(crate) const USER_AGENT: &str = "Mozilla/5.0 (compatible; AtlasAssistant/1.0; local desktop app)";
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct WebSearchResultDto {
     pub title: String,
     pub url: String,
@@ -38,6 +38,9 @@ pub struct WebSearchResultDto {
     /// As the source reported it; only some backends supply one.
     #[serde(rename = "publishedDate", skip_serializing_if = "Option::is_none")]
     pub published_date: Option<String>,
+    /// Which search engines a metasearch backend got this result from, when it says.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub engines: Vec<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -84,13 +87,14 @@ fn is_anomaly_challenge(html: &str) -> bool {
 /// the whole contract: the manager decides how long to leave a backend alone
 /// from it, so a spent quota and a CAPTCHA are told apart here, natively,
 /// where the HTTP status is known, instead of by matching English later.
-struct SearchErr {
-    kind: &'static str,
-    msg: String,
+#[derive(Debug)]
+pub(crate) struct SearchErr {
+    pub(crate) kind: &'static str,
+    pub(crate) msg: String,
 }
 
 impl SearchErr {
-    fn new(kind: &'static str, msg: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: &'static str, msg: impl Into<String>) -> Self {
         Self { kind, msg: msg.into() }
     }
     fn tagged(&self) -> String {
@@ -117,6 +121,8 @@ pub async fn web_search_with(
         "duckduckgo" => ddg_search(&query).await,
         "tavily" => tavily_search(&query, topic.as_deref()).await,
         "wikipedia" => wikipedia_search(&query).await,
+        // The address comes from Atlas's own saved setting, never from this call.
+        "searxng" => crate::searxng::search(&query, topic.as_deref()).await,
         _ => Err(SearchErr::new("error", "That isn't a search provider Atlas knows.")),
     };
     out.map_err(|e| e.tagged())
@@ -128,12 +134,13 @@ pub async fn web_search_with(
 pub fn web_search_provider_ready(provider: String) -> Result<bool, String> {
     match provider.as_str() {
         "duckduckgo" | "wikipedia" => Ok(true),
+        "searxng" => Ok(crate::searxng::is_configured()),
         "tavily" => Ok(crate::secrets::read_secret(TAVILY_SECRET_ID)?.is_some()),
         _ => Ok(false),
     }
 }
 
-fn check_query(query: &str) -> Result<&str, SearchErr> {
+pub(crate) fn check_query(query: &str) -> Result<&str, SearchErr> {
     let query = query.trim();
     if query.is_empty() {
         return Err(SearchErr::new("error", "Give me something to search for."));
@@ -179,7 +186,7 @@ async fn ddg_search(query: &str) -> Result<Vec<WebSearchResultDto>, SearchErr> {
 /// across the IPC boundary.
 const TAVILY_SECRET_ID: &str = "search-tavily";
 const TAVILY_URL: &str = "https://api.tavily.com/search";
-const MAX_SNIPPET_CHARS: usize = 600;
+pub(crate) const MAX_SNIPPET_CHARS: usize = 600;
 
 /// Tavily's documented statuses → the manager's categories. 432 is a plan or
 /// key limit and 433 a pay-as-you-go spending cap: both mean "stop asking for
@@ -220,6 +227,7 @@ fn parse_tavily_response(body: &str) -> Vec<WebSearchResultDto> {
             url: url.to_string(),
             snippet: truncate_chars(content, MAX_SNIPPET_CHARS),
             published_date: published,
+            engines: Vec::new(),
         });
         if out.len() >= MAX_RESULTS {
             break;
@@ -324,6 +332,7 @@ fn parse_wikipedia_response(body: &str) -> Vec<WebSearchResultDto> {
             url: wikipedia_url(title),
             snippet: truncate_chars(extract, MAX_SNIPPET_CHARS),
             published_date: None,
+            engines: Vec::new(),
         });
         if out.len() >= MAX_RESULTS {
             break;
@@ -405,7 +414,7 @@ fn parse_search_results(html: &str) -> Vec<WebSearchResultDto> {
             .map(|s| s.text().collect::<String>().trim().to_string())
             .unwrap_or_default();
 
-        out.push(WebSearchResultDto { title, url: target, snippet, published_date: None });
+        out.push(WebSearchResultDto { title, url: target, snippet, published_date: None, engines: Vec::new() });
         if out.len() >= MAX_RESULTS {
             break;
         }
@@ -886,7 +895,7 @@ fn extract_page(html: &str, base: &reqwest::Url, docs: bool) -> (String, String,
     (title, parts.join("\n"), links)
 }
 
-fn truncate_chars(s: &str, max: usize) -> String {
+pub(crate) fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }

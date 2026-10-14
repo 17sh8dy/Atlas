@@ -59,7 +59,8 @@ function rig(config: {
   const platform: Platform = {
     id: 'test',
     capabilities: async () => ['network'],
-    searchProviderReady: async (p) => (p === 'tavily' ? config.keySaved !== false : true),
+    // SearXNG is not set up unless a test says so: there is no default server.
+    searchProviderReady: async (p) => (p === 'searxng' ? false : p === 'tavily' ? config.keySaved !== false : true),
     searchWebWith: async (provider, query) => {
       asked.push({ provider, query });
       const fn = config.providers[provider];

@@ -84,6 +84,7 @@ mod kokoro;
 mod speech;
 mod storage;
 #[cfg(windows)]
+mod searxng;
 mod web;
 #[cfg(windows)]
 mod window;
@@ -424,6 +425,9 @@ pub fn run() {
             web::web_search,
             web::web_search_with,
             web::web_search_provider_ready,
+            searxng::searxng_config,
+            searxng::searxng_configure,
+            searxng::searxng_test,
             web::fetch_page,
             web::fetch_doc_page,
             intelligence::ask_local_model_stream,
@@ -544,6 +548,18 @@ pub fn run() {
             .flatten()
             .and_then(|v| v.as_str().map(str::to_string));
             halt::start(handle.clone(), saved_stop_key);
+
+            // The SearXNG address, if one was saved. Held in memory from here on; a search
+            // never takes an address from the renderer.
+            searxng::init(
+                storage::storage_get(
+                    handle.clone(),
+                    handle.state::<StorageState>(),
+                    searxng::STORAGE_KEY.to_string(),
+                )
+                .ok()
+                .flatten(),
+            );
 
             let dropped = allowed_folders::init(saved);
             if !dropped.is_empty() {

@@ -969,7 +969,7 @@ mod tests {
             "game_engines", "plugin_manifests", "allowed_folders", "windows_compatibility", "detect_project", "dir_tree",
             "read_diagnostics", "folder_size", "largest_files", "list_environment_variables",
             "local_models_installed", "nova_intelligence_reachable", "web_search_with",
-            "web_search_provider_ready", "kokoro_status", "kokoro_voices", "transcribe_speech",
+            "web_search_provider_ready", "searxng_config", "searxng_test", "kokoro_status", "kokoro_voices", "transcribe_speech",
             "network_adapters", "wifi_status", "wifi_networks", "network_reachable",
             "search_files", "system_info", "running_processes", "list_apps", "read_text_file",
             "path_info", "list_dir", "known_folder", "capture_window", "capture_screen",
@@ -1008,6 +1008,9 @@ mod tests {
             // out of their own preferences — least of all the folder list and
             // the keys that bound what Atlas can do in the first place.
             "add_allowed_folder", "remove_allowed_folder", "save_secret", "delete_secret",
+            // The SearXNG address, saved from Settings by the person. It only chooses where
+            // Atlas's own search is sent; every address is checked again on each search.
+            "searxng_configure",
             "test_cloud_provider", "log_diagnostic",
             // The stop itself, and the store it persists through. These have
             // to work *while* halted; gating them would make the latch

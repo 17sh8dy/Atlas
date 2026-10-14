@@ -72,6 +72,7 @@ export const COOLDOWN_MS: Record<SearchFailureKind, number> = {
   auth: 5 * 60_000, // long enough to stop hammering, short enough that a corrected key is picked up soon
   rate: 60_000,
   blocked: 5 * 60_000, // a CAPTCHA does not clear by asking again
+  misconfigured: 5 * 60_000, // a setting is wrong (JSON off, a redirect); asking again will not fix it
   offline: 0, // the network coming back is not something to wait out
   error: 0,
 };

@@ -332,6 +332,20 @@ different backend (a paid API, a self-hosted SearxNG instance) without
 touching anything above it; see §8 for why that may become necessary sooner
 than later.
 
+**SearXNG (`searxng.rs`, Atlas 2.0) is an optional first backend the person sets up.** There
+is no default instance and Atlas never picks a public one: with nothing configured the provider
+is silently unavailable and the order is exactly Tavily, DuckDuckGo, Wikipedia. The address is
+saved from Settings, validated and held in Rust, and re-checked on every search; a search call
+carries only the provider name, the query and the topic. Rules: this machine (localhost, 127.x,
+::1) is accepted as it is, a private-network address needs the person's confirmation, anything
+on the internet must be https, and link-local, unspecified and multicast addresses (the
+cloud-metadata range included) are never used. Names are resolved here, every resolved address is
+checked, and the connection is pinned to the checked address so a rebinding name cannot change
+its answer between the check and the connect. Redirects are never followed, replies are size- and
+time-capped, and an address may not carry a login, query or fragment. A server with JSON output
+off (the default) is reported as exactly that, with the fix, under the `misconfigured` failure
+kind. No Docker, WSL or service is installed or started by Atlas.
+
 `fetch_page`'s target is untrusted in a way `web_search`'s query isn't — it
 can come from a search result Atlas didn't choose — so it gets an extra guard
 `web_search` doesn't need: `is_safe_fetch_target` blocks loopback, private,
