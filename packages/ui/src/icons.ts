@@ -36,6 +36,7 @@ export {
   Globe,
   Clipboard,
   // the machine
+  ListChecks,
   Cpu,
   HardDrive,
   MemoryStick,

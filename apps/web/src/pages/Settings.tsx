@@ -38,6 +38,7 @@ import { Voice } from './settings/Voice';
 import { Personalization } from './settings/Personalization';
 import { Activity } from './settings/Activity';
 import { Watches } from './settings/Watches';
+import { Tasks, type TasksHandle } from './settings/Tasks';
 import { Setups } from './settings/Setups';
 import { Notifications } from './settings/Notifications';
 import { Intelligence } from './settings/Intelligence';
@@ -71,6 +72,9 @@ interface Props {
   onListeningChange(next: Partial<ListeningPreferences>): void;
   updater: Updater;
   watches: WatchManager;
+  tasks: TasksHandle;
+  /** Hand a stopped task's questions to the conversation. */
+  onTaskResume(): void;
   setups: SetupStore;
   /** Open on this section instead of General — the title bar's watch indicator lands on Watches. */
   initialSection?: string;
@@ -94,6 +98,7 @@ export const SECTIONS: readonly SettingsSection[] = [
   { id: 'personalization', label: 'Personalization', icon: Icons.UserCircle },
   { id: 'activity', label: 'Activity', icon: Icons.Activity },
   { id: 'watches', label: 'Watches', icon: Icons.Eye },
+  { id: 'tasks', label: 'Tasks', icon: Icons.ListChecks },
   { id: 'setups', label: 'Setups', icon: Icons.Clapperboard },
   { id: 'notifications', label: 'Notifications', icon: Icons.Bell },
   { id: 'intelligence', label: 'Intelligence', icon: Icons.Brain },
@@ -128,6 +133,8 @@ export function Settings({
   onListeningChange,
   updater,
   watches,
+  tasks,
+  onTaskResume,
   setups,
   initialSection,
 }: Props) {
@@ -189,6 +196,9 @@ export function Settings({
             </TabsContent>
             <TabsContent value="activity">
               <Activity memory={memory} />
+            </TabsContent>
+            <TabsContent value="tasks">
+              <Tasks tasks={tasks} onResume={onTaskResume} />
             </TabsContent>
             <TabsContent value="watches">
               <Watches watches={watches} />

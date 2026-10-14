@@ -985,6 +985,12 @@ function Ready({
             onListeningChange={onListeningChange}
             updater={updater}
             watches={atlas.watches}
+            tasks={atlas.tasks}
+            onTaskResume={() => {
+              // The questions about a stopped task are asked in the conversation, as cards.
+              setScreen('conversation');
+              void atlas.ask('resume the task');
+            }}
             setups={atlas.setups}
           />
         )}

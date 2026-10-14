@@ -8,8 +8,18 @@ import type { Storage, Task } from '@atlas/core';
 export const TASK_STORAGE_KEY = 'atlas.tasks';
 const KEEP = 30;
 
+type Listener = () => void;
+
 export class TaskStore {
+  private readonly listeners = new Set<Listener>();
+
   constructor(private readonly storage: Storage) {}
+
+  /** Called after every save, so a surface showing tasks can refresh. Returns the unsubscribe. */
+  subscribe(fn: Listener): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
 
   async list(): Promise<Task[]> {
     const raw = await this.storage.get<Task[]>(TASK_STORAGE_KEY).catch(() => undefined);
@@ -22,5 +32,6 @@ export class TaskStore {
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(-KEEP);
     await this.storage.set(TASK_STORAGE_KEY, next);
+    for (const fn of this.listeners) fn();
   }
 }

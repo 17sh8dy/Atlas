@@ -468,6 +468,17 @@ export function useAtlas(
    * the *current* engine through a ref, and says things through one too.
    */
   const engineRef = useRef<Engine | null>(null);
+  // Tasks: the books are shared across engine rebuilds (the store), and the kernel currently
+  // running work is reachable for Cancel through a ref, like the engine itself.
+  const taskStore = useMemo(() => new TaskStore(storage), [storage]);
+  const taskKernelRef = useRef<TaskKernel | null>(null);
+  const taskHandle = useMemo(
+    () => ({
+      store: taskStore,
+      cancel: (id: string) => taskKernelRef.current?.cancel(id) ?? false,
+    }),
+    [taskStore],
+  );
   const announceRef = useRef<(text: string) => void>(() => {});
   const needsYouRef = useRef<(watch: Watch) => void>(() => {});
   const watchManager = useMemo(
@@ -646,7 +657,7 @@ export function useAtlas(
     // executor. The kernel itself acts on nothing — it sequences, saves progress and recovers.
     const taskKernel = new TaskKernel({
       skills,
-      store: new TaskStore(storage),
+      store: taskStore,
       host: {
         run: (plan, runIo, extra) =>
           engineRef.current
@@ -662,6 +673,7 @@ export function useAtlas(
       },
     });
     skills.registerMany(createTaskSkills(taskKernel));
+    taskKernelRef.current = taskKernel;
     // Research while building: read the documentation, keep notes with their sources.
     skills.registerMany(createDocsSkills({ platform, context: researchNotes, search: searchManager }));
     skills.registerMany(createCatalogMediaSkills(platform, memory));
@@ -824,6 +836,7 @@ export function useAtlas(
     voiceProfile,
     working,
     isPreapproved,
+    taskStore,
   ]);
 
   // Episodic memory doesn't touch the ask/io path at all — it just listens.
@@ -1356,6 +1369,8 @@ export function useAtlas(
     skills: engine.skills,
     /** Atlas Watch — for Settings → Watches. */
     watches: watchManager,
+    /** The task books and Cancel — for Settings → Tasks. */
+    tasks: taskHandle,
     /** Saved setups — for Settings → Setups. */
     setups: setupStore,
     greeting: phrasing.greeting(),

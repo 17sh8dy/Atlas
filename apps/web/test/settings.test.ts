@@ -60,8 +60,9 @@ test('the placeholder tabs are gone and have not come back', () => {
       gone,
     );
   }
-  // 11 since 1.0.3: Watches and Setups are real pages with real controls, not placeholders.
-  assert.lengthOf(SECTIONS, 11);
+  // 11 since 1.0.3 (Watches and Setups are real pages with real controls, not placeholders);
+  // 12 with Tasks, which is the same kind of page.
+  assert.lengthOf(SECTIONS, 12);
 });
 
 test('the Account tab is optional in the way it claims to be', () => {
