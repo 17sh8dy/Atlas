@@ -1,0 +1,54 @@
+# Atlas 2.0 - what is left before it can be published
+
+Written 2026-10-14. Branch `atlas-2.0`, local commits only. Nothing is pushed, tagged or released,
+and nothing may be until Brandon says so.
+
+## A. Blocks publishing (must be done)
+
+1. **Provision the update signing key.** `PUBLIC_KEY_HEX` in `update_signature.rs` is empty, so no
+   update verifies and `release.mjs` refuses to publish.
+   - Run `node scripts/update-signing.mjs keygen --out <folder outside the repo>`.
+   - Paste the public half into `update_signature.rs`, keep the private half safe and backed up,
+     and set `ATLAS_UPDATE_SIGNING_KEY` for the release.
+2. **The first 2.0 install is manual.** 1.0.x updaters do not check signatures, so existing users
+   install 2.0 by hand once. Decide how the site and release notes say this.
+3. **Windows Security Notice / code signing.** There is no Authenticode certificate. Decide: buy one,
+   or keep the existing notice in the site footer.
+4. **Version bump and release notes.** `package.json`, `tauri.conf.json`, `Cargo.toml`, the site
+   (Atlas-Site) and the changelog. 2.0 is a compatibility step (signed updates, session now in
+   Credential Manager, provider list now native): say so.
+5. **Full suites on a clean machine state**, then a final real-app pass on the release build.
+   `pnpm release` runs everything and publishes, so run the suites separately first.
+
+## B. Decide / ask first (public or irreversible)
+
+- NovaHelp's deployed registry still lists the `sync` scope for atlas. Trimming it is a public deploy.
+- NovaLegal `atlas-terms` and privacy text: needs to mention local Stats, cloud limits, and the
+  signed-update check. Pushed + deployed text, so ask first.
+- Site copy for 2.0 (Atlas-Site). Not pushed until approved.
+
+## C. Not yet verified in the real app
+
+- Settings pages not all visually checked (Tasks, Stats layout at narrow width, Intelligence card
+  at the limit-paused state with other themes).
+- Updater end to end against a real signed release (needs the key from A1).
+- Gemini function calling stays text-only until a model is measured.
+- Per-model capability override in Settings (descriptor is declared or reported, never inferred).
+
+## D. Known residual risks (documented in SECURITY-HARDENING-2.0.md)
+
+`run_powershell`, devtools, input synthesis and the network commands are still gated by the
+renderer only. Do not claim Tier A protects against a fully compromised renderer.
+
+## E. Optional / later
+
+- Phase E retrieval: **not authorized**, not started.
+- Workflow-executor unification (plan only: docs/WORKFLOW-UNIFICATION.md).
+
+## F. Brandon's extra ideas for 2.0
+
+_To be added: Brandon said he has a couple more ideas to include before publishing. Write them here
+verbatim when given, then scope each (size, risk, which phase) before building._
+
+1.
+2.
