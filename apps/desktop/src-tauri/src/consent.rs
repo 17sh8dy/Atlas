@@ -60,6 +60,9 @@ pub enum Request {
     ProviderAdd { kind: String, host: String },
     ProviderBind { kind: String, host: String, was: Option<String> },
     StopKey { label: String },
+    ResumeProvider { kind: String, host: String },
+    RaiseCap { host: String },
+    ResetStats,
 }
 
 /// Strip what could be used to forge or hide text in a dialog, and bound the length.
@@ -129,6 +132,18 @@ impl Request {
                     clean(kind),
                     clean(host)
                 )
+            }
+            Request::ResumeProvider { kind, host } => format!(
+                "Atlas is asking to start sending requests to a {} provider again:\n\n{}\n\nIt was paused because it said it had reached its limit. Resuming can spend money again. {SOURCE}",
+                clean(kind),
+                clean(host)
+            ),
+            Request::RaiseCap { host } => format!(
+                "Atlas is asking to loosen or remove the monthly limit it keeps for the provider at:\n\n{}\n\nThat lets more requests, and so more spending, through. {SOURCE}",
+                clean(host)
+            ),
+            Request::ResetStats => {
+                "Atlas is asking to erase your usage statistics and start counting from zero.\n\nThis cannot be undone. Choose Yes only if you just asked for this in Atlas's Stats page.".to_string()
             }
             Request::StopKey { label } => format!(
                 "Atlas is asking to change the emergency-stop key to:\n\n{}\n\nThis is the key that stops everything Atlas is doing.\n\n{SOURCE}",
@@ -229,6 +244,14 @@ fn begin(now: Instant) -> Result<(), String> {
 fn finish(outcome: Outcome, now: Instant) -> Result<(), String> {
     OPEN.store(false, Ordering::SeqCst);
     let mut l = limiter().lock().unwrap_or_else(|e| e.into_inner());
+    // Counted for the Stats page: how often Atlas asked, and how it was answered.
+    crate::stats::bump("safety.questions_asked", 1);
+    match outcome {
+        Outcome::Approved => crate::stats::bump("safety.questions_approved", 1),
+        Outcome::Declined => crate::stats::bump("safety.questions_declined", 1),
+        Outcome::Halted => crate::stats::bump("safety.questions_stopped", 1),
+        Outcome::TimedOut => crate::stats::bump("safety.questions_timed_out", 1),
+    }
     match outcome {
         Outcome::Approved => {
             l.approved();
@@ -522,6 +545,8 @@ mod tests {
         ("searxng.rs", "searxng_configure"),
         ("provider_bindings.rs", "provider_bind"),
         ("provider_bindings.rs", "provider_add"),
+        ("provider_bindings.rs", "provider_resume"),
+        ("provider_bindings.rs", "provider_set_caps"),
         ("halt.rs", "set_halt_shortcut"),
     ];
 

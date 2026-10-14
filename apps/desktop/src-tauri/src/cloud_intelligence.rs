@@ -201,7 +201,7 @@ async fn ask_openai_compatible(
     key: &str,
     model: &str,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<(String, Option<(u64, u64)>), String> {
     let resp = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth(key)
@@ -217,7 +217,7 @@ async fn ask_openai_compatible(
     let status = resp.status();
     let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
     if !status.is_success() {
-        return Err(provider_error_message(status.as_u16(), &text));
+        return Err(crate::cloud_safety::tag_failure(status.as_u16(), &text, provider_error_message(status.as_u16(), &text)));
     }
 
     let parsed: OpenAiResponse = serde_json::from_str(&text)
@@ -229,6 +229,7 @@ async fn ask_openai_compatible(
         .and_then(|c| c.message.content)
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "The provider didn't return any text.".to_string())
+        .map(|reply| (reply, crate::cloud_safety::usage_in(&text)))
 }
 
 // ---- Anthropic ------------------------------------------------------------------
@@ -262,7 +263,7 @@ async fn ask_anthropic(
     key: &str,
     model: &str,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<(String, Option<(u64, u64)>), String> {
     let resp = client
         .post(format!("{base}/v1/messages"))
         .header("x-api-key", key)
@@ -279,7 +280,7 @@ async fn ask_anthropic(
     let status = resp.status();
     let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
     if !status.is_success() {
-        return Err(provider_error_message(status.as_u16(), &text));
+        return Err(crate::cloud_safety::tag_failure(status.as_u16(), &text, provider_error_message(status.as_u16(), &text)));
     }
 
     let parsed: AnthropicResponse = serde_json::from_str(&text)
@@ -290,6 +291,7 @@ async fn ask_anthropic(
         .find_map(|b| b.text)
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "The provider didn't return any text.".to_string())
+        .map(|reply| (reply, crate::cloud_safety::usage_in(&text)))
 }
 
 // ---- Gemini -----------------------------------------------------------------------
@@ -333,7 +335,7 @@ async fn ask_gemini(
     key: &str,
     model: &str,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<(String, Option<(u64, u64)>), String> {
     let resp = client
         .post(format!("{base}/v1beta/models/{model}:generateContent"))
         .header("x-goog-api-key", key)
@@ -347,7 +349,7 @@ async fn ask_gemini(
     let status = resp.status();
     let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
     if !status.is_success() {
-        return Err(provider_error_message(status.as_u16(), &text));
+        return Err(crate::cloud_safety::tag_failure(status.as_u16(), &text, provider_error_message(status.as_u16(), &text)));
     }
 
     let parsed: GeminiResponse = serde_json::from_str(&text)
@@ -359,6 +361,7 @@ async fn ask_gemini(
         .and_then(|c| c.content.parts.into_iter().find_map(|p| p.text))
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "The provider didn't return any text.".to_string())
+        .map(|reply| (reply, crate::cloud_safety::usage_in(&text)))
 }
 
 // ---- the one command --------------------------------------------------------------
@@ -388,14 +391,36 @@ async fn ask_cloud_provider_unraced(provider_id: String, model: String, prompt: 
     // Re-judged on every request: a binding is data, and data is not trusted just for being stored.
     let kind = binding.kind;
     let base = crate::provider_bindings::validate(kind, &binding.base_url)?;
-    let client = http_client()?;
 
-    match kind {
+    // Atlas's own protections come first, and cost nothing: a provider that is paused, over a cap
+    // the person set, or being hammered by a loop is refused here, before any request is made.
+    crate::cloud_safety::before_request(&provider_id)?;
+
+    let client = http_client()?;
+    let tokens_in = crate::stats::estimate_tokens(&prompt);
+    let outcome = match kind {
         CloudProviderKind::OpenaiCompatible => {
             ask_openai_compatible(&client, &base, &key, &model, &prompt).await
         }
         CloudProviderKind::Anthropic => ask_anthropic(&client, &base, &key, &model, &prompt).await,
         CloudProviderKind::Gemini => ask_gemini(&client, &base, &key, &model, &prompt).await,
+    };
+
+    match outcome {
+        Ok((text, usage)) => {
+            // The provider's own figures when it gave them; otherwise an estimate, which the
+            // Stats page labels as one.
+            let (inn, out) = usage.unwrap_or((tokens_in, crate::stats::estimate_tokens(&text)));
+            crate::stats::model_request("model.cloud", Some(&provider_id), inn, out, true);
+            Ok(text)
+        }
+        Err(e) => {
+            crate::stats::model_request("model.cloud", Some(&provider_id), tokens_in, 0, false);
+            // A spending limit pauses the provider here, natively, so the next request is refused
+            // without being sent. It never switches to another provider.
+            crate::cloud_safety::after_failure(&provider_id, &e);
+            Err(e)
+        }
     }
 }
 

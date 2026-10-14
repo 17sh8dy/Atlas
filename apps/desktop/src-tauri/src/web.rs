@@ -105,6 +105,7 @@ impl SearchErr {
 /// The key-free default, kept under its original name and message text.
 #[tauri::command]
 pub async fn web_search(query: String) -> Result<Vec<WebSearchResultDto>, String> {
+    crate::stats::bump("search.web", 1);
     ddg_search(&query).await.map_err(|e| e.msg)
 }
 
@@ -117,6 +118,7 @@ pub async fn web_search_with(
     query: String,
     topic: Option<String>,
 ) -> Result<Vec<WebSearchResultDto>, String> {
+    crate::stats::bump("search.web", 1);
     let out = match provider.as_str() {
         "duckduckgo" => ddg_search(&query).await,
         "tavily" => tavily_search(&query, topic.as_deref()).await,
@@ -742,6 +744,7 @@ async fn fetch_text_page(url: &str, opts: FetchOpts) -> Result<WebPageDto, Strin
 
 #[tauri::command]
 pub async fn fetch_page(url: String) -> Result<WebPageDto, String> {
+    crate::stats::bump("search.fetches", 1);
     fetch_text_page(&url, FetchOpts { max_chars: MAX_EXTRACT_CHARS, respect_robots: false, docs: false }).await
 }
 
@@ -749,6 +752,7 @@ pub async fn fetch_page(url: String) -> Result<WebPageDto, String> {
 /// blocks, reports the page's links so a documentation index can be followed, and reads more of the page.
 #[tauri::command]
 pub async fn fetch_doc_page(url: String) -> Result<WebPageDto, String> {
+    crate::stats::bump("search.fetches", 1);
     crate::halt::global().check()?;
     fetch_text_page(&url, FetchOpts { max_chars: MAX_DOC_CHARS, respect_robots: true, docs: true }).await
 }

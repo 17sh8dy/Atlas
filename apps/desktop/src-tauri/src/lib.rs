@@ -20,6 +20,8 @@ mod audio;
 mod cloud_intelligence;
 mod diagnostics;
 mod redact;
+mod stats;
+mod cloud_safety;
 #[cfg(windows)]
 mod devtools;
 mod disk_usage;
@@ -502,6 +504,12 @@ pub fn run() {
             provider_bindings::provider_add,
             provider_bindings::provider_list,
             provider_bindings::provider_update,
+            provider_bindings::provider_resume,
+            provider_bindings::provider_set_caps,
+            stats::stats_summary,
+            stats::stats_record,
+            stats::stats_info,
+            stats::stats_reset,
             provider_bindings::provider_unbind,
         ])
         .manage(StorageState(std::sync::Mutex::new(())))
@@ -562,6 +570,8 @@ pub fn run() {
             // Where each cloud provider's key may be sent, and the provider list itself. Providers
             // set up before this existed are migrated once, with a backup and a check.
             provider_bindings::init(&handle);
+            // Counting starts here: local file, no network, no account (stats.rs).
+            stats::init(&handle);
 
             let dropped = allowed_folders::init(saved);
             if !dropped.is_empty() {
@@ -583,7 +593,10 @@ pub fn run() {
                 .tooltip("Atlas — Ctrl+Space")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => summon(app),
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        stats::flush();
+                        app.exit(0)
+                    }
                     _ => {}
                 })
                 .build(app)?;

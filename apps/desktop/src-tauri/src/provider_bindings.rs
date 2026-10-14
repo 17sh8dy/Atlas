@@ -67,6 +67,15 @@ pub struct Provider {
     /// Orders the list as the person added it.
     #[serde(default)]
     pub added_at: u64,
+    /// Set when the provider said it is out of money: nothing is sent to it until the person
+    /// resumes it (`cloud_safety.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused: Option<crate::cloud_safety::Paused>,
+    /// Caps the person set, counted per calendar month against the Stats totals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap_requests: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap_tokens: Option<u64>,
 }
 
 fn yes() -> bool {
@@ -91,6 +100,14 @@ pub struct ProviderView {
     pub base_url: String,
     pub host: String,
     pub enabled: bool,
+    /// `provider-limit` when the provider said it is out of money, else `None`.
+    pub paused: Option<String>,
+    pub cap_requests: Option<u64>,
+    pub cap_tokens: Option<u64>,
+    /// This calendar month, from Stats: requests, and tokens (reported by the provider where it
+    /// said, otherwise estimated).
+    pub month_requests: u64,
+    pub month_tokens: u64,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
@@ -110,6 +127,12 @@ fn view_of(id: &str, p: &Provider) -> ProviderView {
         base_url: p.base_url.clone(),
         host: host_of(&p.base_url),
         enabled: p.enabled,
+        paused: p.paused.as_ref().map(|x| x.reason.clone()),
+        cap_requests: p.cap_requests,
+        cap_tokens: p.cap_tokens,
+        month_requests: crate::stats::month_total(&format!("cloud:{id}:requests")),
+        month_tokens: crate::stats::month_total(&format!("cloud:{id}:tokens_in"))
+            + crate::stats::month_total(&format!("cloud:{id}:tokens_out")),
     }
 }
 
@@ -286,6 +309,9 @@ pub(crate) fn plan_migration(current: &Table, legacy: &[Legacy], start_at: u64) 
                 model: l.model.clone(),
                 enabled: l.enabled,
                 added_at: start_at + i as u64,
+                paused: None,
+                cap_requests: None,
+                cap_tokens: None,
             },
         );
         adopted += 1;
@@ -331,8 +357,33 @@ fn log(msg: String) {
     crate::diagnostics::log_diagnostic("provider_migration".to_string(), msg);
 }
 
+static APP: OnceLock<AppHandle> = OnceLock::new();
+
+/// Mark a provider paused because it said it is out of money, and remember that.
+pub(crate) fn mark_paused(provider_id: &str) {
+    let changed = {
+        let Ok(mut guard) = table().write() else { return };
+        match guard.get_mut(provider_id) {
+            Some(p) if p.paused.is_none() => {
+                p.paused = Some(crate::cloud_safety::Paused {
+                    reason: "provider-limit".to_string(),
+                    at: now_ms(),
+                });
+                true
+            }
+            _ => false,
+        }
+    };
+    if changed {
+        if let Some(app) = APP.get() {
+            let _ = persist(app);
+        }
+    }
+}
+
 /// Called once from `setup()`, before any command can run.
 pub(crate) fn init(app: &AppHandle) {
+    let _ = APP.set(app.clone());
     let mut current = load_table(crate::storage::get_trusted(app, STORAGE_KEY));
     let migrated = crate::storage::get_trusted(app, MIGRATIONS_KEY)
         .and_then(|v| v.get(MIGRATION_ID).cloned())
@@ -449,6 +500,9 @@ pub async fn provider_add(
         model: clip(&model, 120),
         enabled: true,
         added_at: now_ms(),
+        paused: None,
+        cap_requests: None,
+        cap_tokens: None,
     };
     crate::consent::ask(crate::consent::Request::ProviderAdd {
         kind: kind_label(kind).to_string(),
@@ -537,6 +591,77 @@ pub fn provider_update(
     Ok(view_of(&provider_id, &updated))
 }
 
+/// Let a paused provider be used again. Asks: it makes spending possible again.
+#[tauri::command]
+pub async fn provider_resume(app: AppHandle, provider_id: String) -> Result<ProviderView, String> {
+    check_id(&provider_id)?;
+    let Some(p) = get(&provider_id) else {
+        return Err("That provider isn't on the list.".into());
+    };
+    if p.paused.is_none() {
+        return Ok(view_of(&provider_id, &p));
+    }
+    crate::consent::ask(crate::consent::Request::ResumeProvider {
+        kind: kind_label(p.kind).to_string(),
+        host: host_of(&p.base_url),
+    })
+    .await?;
+    let updated = {
+        let mut guard = table().write().map_err(|_| "Couldn't update the provider list.".to_string())?;
+        let Some(x) = guard.get_mut(&provider_id) else {
+            return Err("That provider isn't on the list.".into());
+        };
+        x.paused = None;
+        x.clone()
+    };
+    persist(&app)?;
+    Ok(view_of(&provider_id, &updated))
+}
+
+/// Is `new` a looser limit than `old`? (`None` means no limit at all.)
+fn looser(old: Option<u64>, new: Option<u64>) -> bool {
+    match (old, new) {
+        (Some(_), None) => true,
+        (Some(o), Some(n)) => n > o,
+        _ => false,
+    }
+}
+
+/// Set the monthly caps Atlas enforces for a provider (`None` = no cap). Lowering a cap, or setting
+/// one where there was none, is free; loosening or removing one asks, because it allows more
+/// spending.
+#[tauri::command]
+pub async fn provider_set_caps(
+    app: AppHandle,
+    provider_id: String,
+    cap_requests: Option<u64>,
+    cap_tokens: Option<u64>,
+) -> Result<ProviderView, String> {
+    check_id(&provider_id)?;
+    let Some(before) = get(&provider_id) else {
+        return Err("That provider isn't on the list.".into());
+    };
+    let norm = |v: Option<u64>| v.filter(|n| *n > 0);
+    let (cr, ct) = (norm(cap_requests), norm(cap_tokens));
+    if looser(before.cap_requests, cr) || looser(before.cap_tokens, ct) {
+        crate::consent::ask(crate::consent::Request::RaiseCap {
+            host: host_of(&before.base_url),
+        })
+        .await?;
+    }
+    let updated = {
+        let mut guard = table().write().map_err(|_| "Couldn't update the provider list.".to_string())?;
+        let Some(x) = guard.get_mut(&provider_id) else {
+            return Err("That provider isn't on the list.".into());
+        };
+        x.cap_requests = cr;
+        x.cap_tokens = ct;
+        x.clone()
+    };
+    persist(&app)?;
+    Ok(view_of(&provider_id, &updated))
+}
+
 /// Forget a provider (called when it is removed). Withdrawing a destination only makes a saved
 /// key less usable, so it asks nothing.
 #[tauri::command]
@@ -563,7 +688,17 @@ mod tests {
     }
 
     fn provider(kind: CloudProviderKind, base: &str) -> Provider {
-        Provider { kind, base_url: base.to_string(), label: "L".into(), model: "m".into(), enabled: true, added_at: 1 }
+        Provider {
+            kind,
+            base_url: base.to_string(),
+            label: "L".into(),
+            model: "m".into(),
+            enabled: true,
+            added_at: 1,
+            paused: None,
+            cap_requests: None,
+            cap_tokens: None,
+        }
     }
 
     #[test]

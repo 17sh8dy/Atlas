@@ -305,9 +305,16 @@ pub async fn ask_local_model_stream(
     stream_id: String,
     num_ctx: Option<u32>,
 ) -> Result<String, String> {
-    crate::halt::global()
+    let tokens_in = crate::stats::estimate_tokens(&prompt);
+    let result = crate::halt::global()
         .race(ask_local_model_unraced(app, base_url, model, prompt, think, stream_id, num_ctx))
-        .await
+        .await;
+    // Counted for the Stats page, on this machine only. Token figures are estimates.
+    match &result {
+        Ok(text) => crate::stats::model_request("model.local", None, tokens_in, crate::stats::estimate_tokens(text), true),
+        Err(_) => crate::stats::model_request("model.local", None, tokens_in, 0, false),
+    }
+    result
 }
 
 async fn ask_local_model_unraced(

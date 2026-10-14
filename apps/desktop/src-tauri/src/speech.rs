@@ -365,6 +365,7 @@ pub async fn synthesize_speech(
     voice_id: Option<String>,
     pace: Option<f32>,
 ) -> Result<tauri::ipc::Response, String> {
+    crate::stats::bump("voice.spoken", 1);
     // A halt silences Atlas. The renderer stops playback on its own (`voice
     // .stop`), but a synthesis requested in the moments before the stop
     // landed would otherwise come back afterwards and be spoken — Atlas

@@ -225,6 +225,7 @@ pub async fn transcribe_speech(
     app: tauri::AppHandle,
     request: tauri::ipc::Request<'_>,
 ) -> Result<Transcript, String> {
+    crate::stats::bump("voice.heard", 1);
     let audio: Vec<u8> = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
         // A JSON body means the raw transport was unavailable and the bytes

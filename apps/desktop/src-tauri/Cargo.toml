@@ -172,6 +172,8 @@ windows = { version = "0.58", features = [
   "Foundation",
   "Foundation_Collections",
   "Win32_System_Power",
+  # stats.rs: today's local date, to bucket statistics by day.
+  "Win32_System_SystemInformation",
   "Win32_UI_Shell_PropertiesSystem",
   "Win32_Devices_FunctionDiscovery",
 ] }
