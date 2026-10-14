@@ -93,6 +93,8 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
 const MAX_ATTEMPTS = 2;
+/** The longest a plan waits to learn what a model supports before using what was declared. */
+const CAPABILITY_WAIT_MS = 4000;
 
 /** The rules about arguments, identical on every route and to what Atlas has always said. */
 function argumentRules(useRules: string): string[] {
@@ -125,7 +127,19 @@ export class ModelGateway {
   ): Promise<GatewayOutcome> {
     if (!provider) return { kind: 'none', reason: 'no-provider', attempts: 0 };
 
-    const caps: ModelCapabilities | null = provider.capabilities?.() ?? null;
+    // What the model's own server says it can do is read before the route is chosen. Without this
+    // the first request after launch would see only what was declared, and a model that supports
+    // tool calling would be asked the plain way. Cached by the provider and bounded here, so a
+    // slow or silent server costs a few seconds at most and never blocks a plan.
+    const refreshed = provider.refreshCapabilities
+      ? await wait(
+          Promise.race([
+            provider.refreshCapabilities().catch(() => null),
+            new Promise<null>((r) => setTimeout(() => r(null), CAPABILITY_WAIT_MS)),
+          ]),
+        )
+      : null;
+    const caps: ModelCapabilities | null = refreshed ?? provider.capabilities?.() ?? null;
     let route: Route = chooseRoute(caps);
     const max = this.options.maxTools ?? MAX_TOOLS;
     let selected = selectSkills(this.catalog.available(), request, max);

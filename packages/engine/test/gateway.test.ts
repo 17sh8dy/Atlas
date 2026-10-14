@@ -165,6 +165,33 @@ describe('asking a model for a plan', () => {
     expect(m.seen[0]!.tools).toBeUndefined();
   });
 
+  test("the server's own report is read before the route is chosen", async () => {
+    // Declared as a plain chat model; the server says, when asked, that it can call tools.
+    let reported: Partial<ModelCapabilities> = {};
+    const m = model({}, () => ({ calls: [{ name: 'apps__open', arguments: { name: 'Calculator' } }] }));
+    const p = m.provider as unknown as {
+      capabilities(): ModelCapabilities;
+      refreshCapabilities(): Promise<ModelCapabilities>;
+    };
+    p.capabilities = () => ({ ...UNKNOWN_CAPABILITIES, ...reported });
+    p.refreshCapabilities = async () => {
+      reported = { toolCalling: 'yes' };
+      return p.capabilities();
+    };
+    const r = await plan(gateway(), m.provider, 'open the calculator');
+    expect(r).toMatchObject({ kind: 'steps', route: 'tools' });
+  });
+
+  test('a server that never answers does not hold a plan up for long', async () => {
+    const m = model({}, () => ({ text: '{"intent":"x","confidence":1,"steps":[{"skill":"apps.open","args":{"name":"Calculator"}}]}' }));
+    (m.provider as unknown as { refreshCapabilities(): Promise<ModelCapabilities> }).refreshCapabilities = () =>
+      new Promise(() => {});
+    const started = Date.now();
+    const r = await plan(gateway(), m.provider, 'open the calculator');
+    expect(r).toMatchObject({ kind: 'steps', route: 'text' });
+    expect(Date.now() - started).toBeLessThan(6000);
+  }, 10_000);
+
   test('a model nobody described is asked in plain text, with the catalog, as it always was', async () => {
     const m = model({}, () => ({
       text: 'Sure! ```json\n{"intent":"x","confidence":0.8,"steps":[{"skill":"apps.open","args":{"name":"Calculator"}}]}\n``` hope that helps',
