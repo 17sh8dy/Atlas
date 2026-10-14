@@ -310,7 +310,6 @@ describe.skipIf(!LIVE)('against a real model (opt-in)', () => {
         }
         rows.push(`${route.padEnd(7)} ${right}/${CORPUS.length} right, ${asks} asks`);
       }
-      // eslint-disable-next-line no-console
       console.log(`\nGateway routes on ${LIVE_MODEL}:\n  ${rows.join('\n  ')}\n`);
       // The harness reports; it asserts only that nothing unsafe can come out, which the
       // behaviour tests above already pin. A route that scores 0 is information, not a failure.
