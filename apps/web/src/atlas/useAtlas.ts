@@ -38,7 +38,8 @@ import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH, redactSecrets } from '@atlas/co
 import { isTauri, statsRecord } from '@atlas/platform';
 import { metricsForAsk, metricsForPlan, taskMetrics, type Metric } from './statsRecord';
 import { folderToOffer, isInsideAnyAllowedFolder } from './folderOffer';
-import { MemoryStore } from '@atlas/data';
+import { MemoryStore, readCloudPlanning } from '@atlas/data';
+import { ROUTING_CHANGED } from './routingEvents';
 import {
   buildIntelligence,
   DEFAULT_LOCAL_AI_RUNTIME,
@@ -228,6 +229,7 @@ function recordMetrics(metrics: Metric[]): void {
 
 /** Where the transcript persists — Phase 3's first piece, the same `Storage` port `MemoryStore` already proved this shape against. */
 const TRANSCRIPT_KEY = 'atlas.transcript';
+
 /** Entries, not turns — matches `MemoryStore`'s `EPISODIC_LIMIT` precedent for "capped rather than unbounded". */
 const TRANSCRIPT_LIMIT = 200;
 /** How long to wait after the last change before writing — a whole turn (the "you" entry, the "atlas" reply, maybe a results card) lands as one write instead of three. */
@@ -514,6 +516,19 @@ export function useAtlas(
       off();
     };
   }, [taskStore]);
+  // Whether a cloud model may be asked to plan an action (Settings → Intelligence). Read at the
+  // moment a model is about to be asked; on by default, as it has always been.
+  const cloudPlanningRef = useRef(true);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void readCloudPlanning(storage).then((v) => alive && (cloudPlanningRef.current = v)).catch(() => {});
+    load();
+    window.addEventListener(ROUTING_CHANGED, load);
+    return () => {
+      alive = false;
+      window.removeEventListener(ROUTING_CHANGED, load);
+    };
+  }, [storage]);
   const announceRef = useRef<(text: string) => void>(() => {});
   const needsYouRef = useRef<(watch: Watch) => void>(() => {});
   const watchManager = useMemo(
@@ -850,6 +865,7 @@ export function useAtlas(
       getExecutionMode: () => executionModeRef.current,
       isPreapproved,
       probes: createProbeRunner(platform),
+      routing: { cloudPlanning: () => cloudPlanningRef.current },
     });
     return built;
   }, [
@@ -875,6 +891,17 @@ export function useAtlas(
   ]);
 
   // Episodic memory doesn't touch the ask/io path at all — it just listens.
+  // Which route a model-written plan took and how it ended: counts only, to the diagnostics file.
+  useEffect(
+    () =>
+      engine.bus.on<{ route: string | null; attempts: number; result: string; steps: number }>('gateway:plan', (p) => {
+        void platform.logDiagnostic?.(
+          'gateway',
+          `route=${p.route ?? 'none'} asks=${p.attempts} result=${p.result} steps=${p.steps}`,
+        )?.catch(() => {});
+      }),
+    [engine, platform],
+  );
   useEffect(() => recordEpisodes(engine.bus, memory, engine.skills), [engine, memory]);
 
   useEffect(() => {

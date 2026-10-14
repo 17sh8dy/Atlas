@@ -210,6 +210,14 @@ export interface EngineOptions {
    * executor; omit it and Atlas reports actions as done, never as confirmed.
    */
   probes?: ProbeRunner;
+  /**
+   * The person's routing choices, read when a model is about to be asked (so a change takes
+   * effect on the next request). Today there is one: whether a *cloud* model may be asked to turn
+   * an instruction into a plan. It defaults to yes, which is how Atlas has always behaved; turning
+   * it off keeps a cloud model to conversation and the deterministic planner does the rest.
+   * It can only ever make Atlas ask a model *less*, never choose a different provider.
+   */
+  routing?: { cloudPlanning?: () => boolean };
 }
 
 export class Engine {
@@ -219,6 +227,7 @@ export class Engine {
   private readonly executor: Executor;
   /** How a plan is asked for from a connected model (gateway/plan.ts). Reads; never runs. */
   private readonly gateway: ModelGateway;
+  private readonly routing: NonNullable<EngineOptions['routing']>;
   private readonly intelligence?: IntelligenceRegistry;
   private readonly threshold: number;
   private readonly working: WorkingMemory;
@@ -264,6 +273,7 @@ export class Engine {
     this.styleNote = role && role !== DEFAULT_ATLAS_ROLE ? ATLAS_ROLE_META[role]?.style : undefined;
     this.executor = new Executor(this.skills, this.phrasing);
     this.gateway = new ModelGateway(this.skills, { useRules: USE_RULES });
+    this.routing = options.routing ?? {};
     this.getExecutionMode = options.getExecutionMode ?? (() => DEFAULT_EXECUTION_MODE);
     this.isPreapproved = options.isPreapproved;
     this.probes = options.probes;
@@ -635,6 +645,9 @@ export class Engine {
   private async planWithAI(text: string, signal: HaltSignal): Promise<Plan | null> {
     const provider = this.intelligence?.active();
     if (!provider) return null;
+    // A cloud model asked to plan is a choice the person can turn off (Settings → Intelligence).
+    // Off, the instruction stays with the deterministic planner and the ask-or-clarify path.
+    if (!provider.isLocal() && this.routing.cloudPlanning && !this.routing.cloudPlanning()) return null;
 
     // The model gateway (gateway/plan.ts): picks the route the model is known to support, offers a
     // short list of tools or a schema, reads whatever shape comes back, validates every step with
@@ -656,6 +669,13 @@ export class Engine {
         return missing ? `The text “${missing}” was in the request and must be copied into the step exactly as written.` : null;
       },
     );
+    // Counts only, for the activity log and diagnostics: which route, how many asks, how it ended.
+    this.bus.emit('gateway:plan', {
+      route: outcome.route ?? null,
+      attempts: outcome.attempts,
+      result: outcome.kind === 'steps' ? 'plan' : outcome.reason,
+      steps: outcome.kind === 'steps' ? outcome.steps.length : 0,
+    });
     if (outcome.kind !== 'steps') return null;
 
     return {

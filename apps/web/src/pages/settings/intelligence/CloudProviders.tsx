@@ -28,7 +28,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icons, Button, Input, Surface, Switch, cn } from '@atlas/ui';
 import type { CloudProviderConfig, CloudProviderKind, Storage } from '@atlas/core';
-import { writeActiveProvider } from '@atlas/data';
+import { readCloudPlanning, writeActiveProvider, writeCloudPlanning } from '@atlas/data';
+import { ROUTING_CHANGED } from '../../../atlas/routingEvents';
 import {
   addProviderWithKey,
   deleteProviderSecret,
@@ -90,6 +91,21 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
   // Where each key is actually sent, as the native side holds it — not what the list says.
   const [hosts, setHosts] = useState<Record<string, string | null>>({});
   const [addError, setAddError] = useState<string | null>(null);
+  // Whether a cloud model may be asked to plan an action (otherwise it only converses).
+  const [cloudPlanning, setCloudPlanning] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    void readCloudPlanning(storage).then((v) => alive && setCloudPlanning(v)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [storage]);
+  async function changeCloudPlanning(next: boolean) {
+    setCloudPlanning(next);
+    await writeCloudPlanning(storage, next);
+    window.dispatchEvent(new Event(ROUTING_CHANGED));
+  }
+
   // Cloud safety: whether a provider is paused, the caps Atlas enforces, and this month's use.
   const [standing, setStanding] = useState<Record<string, ProviderStanding>>({});
   const [capDraft, setCapDraft] = useState<Record<string, { r: string; t: string }>>({});
@@ -274,6 +290,23 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
           is stored in Windows Credential Manager, never in Atlas's own settings file, and is
           never shown again once saved.
         </p>
+      </Surface>
+
+      <Surface className="mb-3 flex items-start justify-between gap-3 p-3">
+        <div className="min-w-0">
+          <p className="text-foreground text-sm font-medium">Let a cloud model plan actions</p>
+          <p className="text-foreground-subtle mt-0.5 text-xs leading-relaxed">
+            When Atlas doesn't recognise an instruction, it can ask your model to turn it into steps. With
+            a cloud model that sends your words, and the names of Atlas's tools, to that provider. Turn this
+            off to use a cloud model for conversation only; Atlas then plans on its own. Every plan,
+            whoever wrote it, is checked and confirmed the same way.
+          </p>
+        </div>
+        <Switch
+          checked={cloudPlanning}
+          onCheckedChange={(next) => void changeCloudPlanning(next)}
+          aria-label="Let a cloud model plan actions"
+        />
       </Surface>
 
       <div className="flex flex-col gap-2">
