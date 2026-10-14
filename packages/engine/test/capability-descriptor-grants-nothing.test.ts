@@ -24,14 +24,29 @@ const DESCRIPTOR_USE =
 /** The only places in the engine allowed to read a descriptor, and why. */
 const ALLOWED: Record<string, string> = {
   'engine.ts': 'chooses who writes ordinary conversation; reads `canConverse` and nothing else',
+  // Phase D. The gateway reads two features, and only to choose HOW a plan is asked for. Every
+  // route ends in the same validation, the same executor and the same confirmation cards, so a
+  // capability can change the wording of the request and never what the result may do.
+  'gateway/route.ts': 'chooses tools, schema or text from toolCalling / structuredOutput',
+  'gateway/plan.ts': 'reads the descriptor once, to pass it to chooseRoute and to step a route down',
 };
 
 describe('the capability descriptor grants nothing', () => {
   const files = sources(SRC).map((p) => ({ rel: relative(SRC, p).replace(/\\/g, '/'), text: readFileSync(p, 'utf8') }));
 
-  test('only the conversation router reads it, and only for conversation', () => {
+  test('only the conversation router and the gateway read it, and each only for what is listed', () => {
     const users = files.filter((f) => DESCRIPTOR_USE.test(f.text)).map((f) => f.rel);
-    expect(users).toEqual(Object.keys(ALLOWED));
+    expect([...users].sort()).toEqual(Object.keys(ALLOWED).sort());
+  });
+
+  test('the gateway uses the descriptor to pick a route and for nothing that gates an action', () => {
+    const route = files.find((f) => f.rel === 'gateway/route.ts')!.text;
+    expect(route).toMatch(/supports\(caps, 'toolCalling'\)/);
+    expect(route).toMatch(/supports\(caps, 'structuredOutput'\)/);
+    // Nothing in the gateway consults risk, mode, policy or confirmation.
+    for (const f of files.filter((x) => x.rel.startsWith('gateway/'))) {
+      expect(f.text, f.rel).not.toMatch(/\bisAvailable\(|riskFor|executionMode|approvedStep|confirm\(/);
+    }
   });
 
   test('the engine reads `canConverse` and no feature that would change what is asked or run', () => {
@@ -43,7 +58,7 @@ describe('the capability descriptor grants nothing', () => {
 
   test('the executor, the registry, risk, policy and every skill are ignorant of it', () => {
     for (const f of files) {
-      if (f.rel === 'engine.ts') continue;
+      if (f.rel in ALLOWED) continue;
       expect(f.text, f.rel).not.toMatch(DESCRIPTOR_USE);
     }
   });

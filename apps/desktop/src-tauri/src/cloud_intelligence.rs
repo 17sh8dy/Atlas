@@ -167,6 +167,34 @@ fn provider_error_message(status: u16, body: &str) -> String {
     }
 }
 
+// ---- what a provider hands back ---------------------------------------------------
+
+/// A tool the model proposed to call. Only ever a *proposal*: it is returned to the interface,
+/// validated against the registered skills there, and run (or not) by the executor like any plan.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCall {
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+/// The reply: what the model said, and any tool calls it proposed.
+#[derive(Serialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudReply {
+    pub text: String,
+    pub tool_calls: Vec<ToolCall>,
+}
+
+struct Parsed {
+    reply: CloudReply,
+    usage: Option<(u64, u64)>,
+}
+
+fn empty_reply() -> String {
+    "The provider didn't return any text.".to_string()
+}
+
 // ---- OpenAI-compatible --------------------------------------------------------
 
 #[derive(Serialize)]
@@ -180,6 +208,12 @@ struct OpenAiRequest<'a> {
     model: &'a str,
     messages: [OpenAiMessage<'a>; 1],
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -189,10 +223,44 @@ struct OpenAiChoice {
 #[derive(Deserialize)]
 struct OpenAiMessageOut {
     content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<OpenAiToolCall>,
+}
+#[derive(Deserialize)]
+struct OpenAiToolCall {
+    function: OpenAiFunction,
+}
+#[derive(Deserialize)]
+struct OpenAiFunction {
+    name: String,
+    /// A JSON document in a string, per the wire format.
+    #[serde(default)]
+    arguments: String,
 }
 #[derive(Deserialize)]
 struct OpenAiResponse {
     choices: Vec<OpenAiChoice>,
+}
+
+/// `[{name, description, parameters}]` → OpenAI's `tools`.
+fn openai_tools(tools: &serde_json::Value) -> Vec<serde_json::Value> {
+    tools
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.get("name").cloned().unwrap_or_default(),
+                            "description": t.get("description").cloned().unwrap_or_default(),
+                            "parameters": t.get("parameters").cloned().unwrap_or_default(),
+                        }
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 async fn ask_openai_compatible(
@@ -201,7 +269,10 @@ async fn ask_openai_compatible(
     key: &str,
     model: &str,
     prompt: &str,
-) -> Result<(String, Option<(u64, u64)>), String> {
+    tools: Option<&serde_json::Value>,
+    schema: Option<&serde_json::Value>,
+) -> Result<Parsed, String> {
+    let tool_defs = tools.map(openai_tools).filter(|d| !d.is_empty());
     let resp = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth(key)
@@ -209,6 +280,14 @@ async fn ask_openai_compatible(
             model,
             messages: [OpenAiMessage { role: "user", content: prompt }],
             stream: false,
+            tool_choice: tool_defs.as_ref().map(|_| "auto"),
+            tools: tool_defs,
+            response_format: schema.map(|s| {
+                serde_json::json!({
+                    "type": "json_schema",
+                    "json_schema": { "name": "atlas_plan", "schema": s, "strict": false }
+                })
+            }),
         })
         .send()
         .await
@@ -222,14 +301,23 @@ async fn ask_openai_compatible(
 
     let parsed: OpenAiResponse = serde_json::from_str(&text)
         .map_err(|_| "That provider's response didn't look like what I expected.".to_string())?;
-    parsed
-        .choices
+    let message = parsed.choices.into_iter().next().map(|c| c.message).ok_or_else(empty_reply)?;
+    let calls: Vec<ToolCall> = message
+        .tool_calls
         .into_iter()
-        .next()
-        .and_then(|c| c.message.content)
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| "The provider didn't return any text.".to_string())
-        .map(|reply| (reply, crate::cloud_safety::usage_in(&text)))
+        .map(|c| ToolCall {
+            name: c.function.name,
+            arguments: serde_json::from_str(&c.function.arguments).unwrap_or(serde_json::Value::Null),
+        })
+        .collect();
+    let said = message.content.unwrap_or_default();
+    if said.trim().is_empty() && calls.is_empty() {
+        return Err(empty_reply());
+    }
+    Ok(Parsed {
+        reply: CloudReply { text: said, tool_calls: calls },
+        usage: crate::cloud_safety::usage_in(&text),
+    })
 }
 
 // ---- Anthropic ------------------------------------------------------------------
@@ -245,12 +333,20 @@ struct AnthropicRequest<'a> {
     model: &'a str,
     max_tokens: u32,
     messages: [AnthropicMessage<'a>; 1],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
 struct AnthropicBlock {
+    #[serde(default, rename = "type")]
+    kind: Option<String>,
     #[serde(default)]
     text: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    input: Option<serde_json::Value>,
 }
 #[derive(Deserialize)]
 struct AnthropicResponse {
@@ -263,7 +359,22 @@ async fn ask_anthropic(
     key: &str,
     model: &str,
     prompt: &str,
-) -> Result<(String, Option<(u64, u64)>), String> {
+    tools: Option<&serde_json::Value>,
+) -> Result<Parsed, String> {
+    let defs: Option<Vec<serde_json::Value>> = tools
+        .and_then(|t| t.as_array())
+        .map(|a| {
+            a.iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.get("name").cloned().unwrap_or_default(),
+                        "description": t.get("description").cloned().unwrap_or_default(),
+                        "input_schema": t.get("parameters").cloned().unwrap_or_default(),
+                    })
+                })
+                .collect()
+        })
+        .filter(|d: &Vec<serde_json::Value>| !d.is_empty());
     let resp = client
         .post(format!("{base}/v1/messages"))
         .header("x-api-key", key)
@@ -272,6 +383,7 @@ async fn ask_anthropic(
             model,
             max_tokens: 4096,
             messages: [AnthropicMessage { role: "user", content: prompt }],
+            tools: defs,
         })
         .send()
         .await
@@ -285,16 +397,35 @@ async fn ask_anthropic(
 
     let parsed: AnthropicResponse = serde_json::from_str(&text)
         .map_err(|_| "That provider's response didn't look like what I expected.".to_string())?;
-    parsed
-        .content
-        .into_iter()
-        .find_map(|b| b.text)
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| "The provider didn't return any text.".to_string())
-        .map(|reply| (reply, crate::cloud_safety::usage_in(&text)))
+    let mut said = String::new();
+    let mut calls = Vec::new();
+    for block in parsed.content {
+        match block.kind.as_deref() {
+            Some("tool_use") => {
+                if let Some(name) = block.name {
+                    calls.push(ToolCall { name, arguments: block.input.unwrap_or(serde_json::Value::Null) });
+                }
+            }
+            _ => {
+                if said.is_empty() {
+                    if let Some(t) = block.text {
+                        said = t;
+                    }
+                }
+            }
+        }
+    }
+    if said.trim().is_empty() && calls.is_empty() {
+        return Err(empty_reply());
+    }
+    Ok(Parsed {
+        reply: CloudReply { text: said, tool_calls: calls },
+        usage: crate::cloud_safety::usage_in(&text),
+    })
 }
 
 // ---- Gemini -----------------------------------------------------------------------
+// Plain text only: Atlas does not declare tool calling for Gemini, so none is offered.
 
 #[derive(Serialize)]
 struct GeminiPart<'a> {
@@ -335,7 +466,7 @@ async fn ask_gemini(
     key: &str,
     model: &str,
     prompt: &str,
-) -> Result<(String, Option<(u64, u64)>), String> {
+) -> Result<Parsed, String> {
     let resp = client
         .post(format!("{base}/v1beta/models/{model}:generateContent"))
         .header("x-goog-api-key", key)
@@ -354,14 +485,17 @@ async fn ask_gemini(
 
     let parsed: GeminiResponse = serde_json::from_str(&text)
         .map_err(|_| "That provider's response didn't look like what I expected.".to_string())?;
-    parsed
+    let said = parsed
         .candidates
         .into_iter()
         .next()
         .and_then(|c| c.content.parts.into_iter().find_map(|p| p.text))
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| "The provider didn't return any text.".to_string())
-        .map(|reply| (reply, crate::cloud_safety::usage_in(&text)))
+        .ok_or_else(empty_reply)?;
+    Ok(Parsed {
+        reply: CloudReply { text: said, tool_calls: Vec::new() },
+        usage: crate::cloud_safety::usage_in(&text),
+    })
 }
 
 // ---- the one command --------------------------------------------------------------
@@ -369,17 +503,32 @@ async fn ask_gemini(
 /// Raced against the emergency stop: a halt drops the request mid-flight,
 /// which closes the connection — see `halt::Halt::race`.
 #[tauri::command]
-pub async fn ask_cloud_provider(provider_id: String, model: String, prompt: String) -> Result<String, String> {
+pub async fn ask_cloud_provider(
+    provider_id: String,
+    model: String,
+    prompt: String,
+    tools: Option<serde_json::Value>,
+    schema: Option<serde_json::Value>,
+) -> Result<CloudReply, String> {
     // A provider's error text is shown to the person and may be logged; some echo the key they
     // rejected, so it is redacted at the one place everything leaves through.
     crate::halt::global()
-        .race(ask_cloud_provider_unraced(provider_id, model, prompt))
+        .race(ask_cloud_provider_unraced(provider_id, model, prompt, tools, schema))
         .await
         .map_err(|e| crate::redact::redact(&e))
 }
 
-async fn ask_cloud_provider_unraced(provider_id: String, model: String, prompt: String) -> Result<String, String> {
+async fn ask_cloud_provider_unraced(
+    provider_id: String,
+    model: String,
+    prompt: String,
+    tools: Option<serde_json::Value>,
+    schema: Option<serde_json::Value>,
+) -> Result<CloudReply, String> {
     validate_prompt(&prompt)?;
+    // Shape-checked and bounded here, in the same words the local path uses: what a page offers a
+    // model as tools or as a schema is data for the model, never something Atlas runs.
+    crate::intelligence::check_constraints(tools.as_ref(), schema.as_ref())?;
     // Where this key may go is decided here, from the native binding, never from the caller: a
     // request that names its own address cannot get a saved key attached to it.
     let binding = crate::provider_bindings::get(&provider_id).ok_or_else(|| {
@@ -400,19 +549,21 @@ async fn ask_cloud_provider_unraced(provider_id: String, model: String, prompt: 
     let tokens_in = crate::stats::estimate_tokens(&prompt);
     let outcome = match kind {
         CloudProviderKind::OpenaiCompatible => {
-            ask_openai_compatible(&client, &base, &key, &model, &prompt).await
+            ask_openai_compatible(&client, &base, &key, &model, &prompt, tools.as_ref(), schema.as_ref()).await
         }
-        CloudProviderKind::Anthropic => ask_anthropic(&client, &base, &key, &model, &prompt).await,
+        CloudProviderKind::Anthropic => {
+            ask_anthropic(&client, &base, &key, &model, &prompt, tools.as_ref()).await
+        }
         CloudProviderKind::Gemini => ask_gemini(&client, &base, &key, &model, &prompt).await,
     };
 
     match outcome {
-        Ok((text, usage)) => {
+        Ok(Parsed { reply, usage }) => {
             // The provider's own figures when it gave them; otherwise an estimate, which the
             // Stats page labels as one.
-            let (inn, out) = usage.unwrap_or((tokens_in, crate::stats::estimate_tokens(&text)));
+            let (inn, out) = usage.unwrap_or((tokens_in, crate::stats::estimate_tokens(&reply.text)));
             crate::stats::model_request("model.cloud", Some(&provider_id), inn, out, true);
-            Ok(text)
+            Ok(reply)
         }
         Err(e) => {
             crate::stats::model_request("model.cloud", Some(&provider_id), tokens_in, 0, false);
@@ -431,7 +582,9 @@ async fn ask_cloud_provider_unraced(provider_id: String, model: String, prompt: 
 /// and a caller should never confuse the two by mistake.
 #[tauri::command]
 pub async fn test_cloud_provider(provider_id: String, model: String) -> Result<String, String> {
-    ask_cloud_provider(provider_id, model, "Reply with just the word OK.".to_string()).await
+    ask_cloud_provider(provider_id, model, "Reply with just the word OK.".to_string(), None, None)
+        .await
+        .map(|r| r.text)
 }
 
 #[cfg(test)]

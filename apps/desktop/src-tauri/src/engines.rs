@@ -187,7 +187,7 @@ fn godot_engines() -> Vec<EngineInfo> {
 
 // ---------------------------------------------------------------- Blender
 
-/// Blender installs as `<root>\Blender <version>lender.exe` (the Foundation's installer, winget
+/// Blender installs as `<root>\Blender <version>\blender.exe` (the Foundation's installer, winget
 /// and Steam all follow this), or as a bare folder holding `blender.exe` (portable, Steam).
 fn scan_blender(root: &Path) -> Vec<EngineInfo> {
     let mut out = Vec::new();

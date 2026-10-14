@@ -316,3 +316,17 @@ describe('Think longer, on the wire', () => {
     expect(Object.keys(lastArgs()).sort()).toEqual(['model', 'prompt', 'providerId'].sort());
   });
 });
+
+describe('tool calling is declared only where the wire format guarantees it', () => {
+  test('Anthropic and OpenAI itself; a custom OpenAI-compatible address and Gemini stay unknown', async () => {
+    const { cloudCapabilities } = await import('@atlas/platform');
+    expect(cloudCapabilities({ kind: 'anthropic', baseUrl: '' }).toolCalling).toBe('yes');
+    expect(cloudCapabilities({ kind: 'openai-compatible', baseUrl: 'https://api.openai.com' })).toMatchObject({
+      toolCalling: 'yes',
+      structuredOutput: 'yes',
+    });
+    expect(cloudCapabilities({ kind: 'openai-compatible', baseUrl: 'https://api.moonshot.ai' }).toolCalling).toBe('unknown');
+    expect(cloudCapabilities({ kind: 'openai-compatible', baseUrl: 'https://api.openai.com.evil.example' }).toolCalling).toBe('unknown');
+    expect(cloudCapabilities({ kind: 'gemini', baseUrl: '' }).toolCalling).toBe('unknown');
+  });
+});

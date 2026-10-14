@@ -6,6 +6,7 @@ import {
   UNKNOWN_CAPABILITIES,
   canConverse,
   capabilitiesFromOllama,
+  versionAtLeast,
   supports,
 } from '../src/models/provider-capabilities';
 
@@ -88,5 +89,24 @@ describe('provider kinds', () => {
     for (const f of [...FEATURES, 'conversation'] as const) {
       assert.equal(NOVA_INTELLIGENCE_CAPABILITIES[f], 'no', f);
     }
+  });
+});
+
+describe('structured output follows the server version', () => {
+  test('a server from 0.5.0 on is reported as enforcing a schema; an older or silent one is not', () => {
+    const base = { capabilities: ['completion'] };
+    assert.equal(capabilitiesFromOllama({ ...base, serverVersion: '0.5.0' }).structuredOutput, 'yes');
+    assert.equal(capabilitiesFromOllama({ ...base, serverVersion: 'v0.12.3-rc1' }).structuredOutput, 'yes');
+    assert.equal(capabilitiesFromOllama({ ...base, serverVersion: '1.0.0' }).structuredOutput, 'yes');
+    assert.equal(capabilitiesFromOllama({ ...base, serverVersion: '0.4.9' }).structuredOutput, 'no');
+    assert.equal(capabilitiesFromOllama({ ...base, serverVersion: 'garbage' }).structuredOutput, 'no');
+    assert.equal(capabilitiesFromOllama({ ...base }).structuredOutput, 'unknown');
+    assert.equal(capabilitiesFromOllama(null).structuredOutput, 'unknown');
+  });
+
+  test('version comparison is numeric', () => {
+    assert.isTrue(versionAtLeast('0.10.0', [0, 5, 0]));
+    assert.isFalse(versionAtLeast('0.4.99', [0, 5, 0]));
+    assert.isFalse(versionAtLeast(null, [0, 5, 0]));
   });
 });

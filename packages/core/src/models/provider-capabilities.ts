@@ -97,6 +97,26 @@ export interface OllamaReport {
   capabilities?: readonly string[] | null;
   /** The model's own context limit, tokens. */
   contextTokens?: number | null;
+  /**
+   * The server's own version (`/api/version`), e.g. "0.5.7". From 0.5.0 on Ollama enforces a JSON
+   * Schema passed as `format` on any model, so a reply can be held to a schema regardless of how
+   * well the model follows instructions.
+   */
+  serverVersion?: string | null;
+}
+
+/** The first Ollama release that enforces a JSON Schema in `format`. */
+export const OLLAMA_STRUCTURED_OUTPUT_SINCE = [0, 5, 0] as const;
+
+/** `true` when a version string like "0.5.7" or "v0.12.3-rc1" is at least `min`. Unparseable is false. */
+export function versionAtLeast(version: string | null | undefined, min: readonly [number, number, number]): boolean {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec((version ?? '').trim());
+  if (!m) return false;
+  const have = [Number(m[1]), Number(m[2]), Number(m[3])];
+  for (let i = 0; i < 3; i += 1) {
+    if (have[i]! !== min[i]!) return have[i]! > min[i]!;
+  }
+  return true;
 }
 
 /**
@@ -126,6 +146,12 @@ export function capabilitiesFromOllama(
   if (typeof report.contextTokens === 'number' && report.contextTokens > 0) {
     reported = true;
     out.longContext = report.contextTokens >= LONG_CONTEXT_TOKENS ? 'yes' : 'no';
+  }
+  // A server new enough to enforce a schema says so by its version. A server that did not say
+  // stays unknown, and unknown is not used.
+  if (report.serverVersion) {
+    reported = true;
+    out.structuredOutput = versionAtLeast(report.serverVersion, OLLAMA_STRUCTURED_OUTPUT_SINCE) ? 'yes' : 'no';
   }
   if (reported) out.source = 'reported';
   return out;

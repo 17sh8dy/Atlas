@@ -36,6 +36,7 @@ export type {
 } from './providers';
 export {
   createCloudProvider,
+  cloudCapabilities,
   saveProviderSecret,
   hasProviderSecret,
   deleteProviderSecret,

@@ -42,6 +42,7 @@ import type {
   LocalModelProfile,
   ModelCapabilities,
   ModelCapacity,
+  ModelTool,
   ProviderStreamHandlers,
 } from '@atlas/core';
 import {
@@ -81,6 +82,21 @@ async function streamNative(
     unlisten = await listen<string>(`atlas://intelligence/${streamId}`, (event) => {
       handlers.onDelta(event.payload);
     });
+    // Tool calls the model proposed come on a channel of their own, as one array, so they can
+    // never be mistaken for words. Ollama's shape: [{ function: { name, arguments } }].
+    const unlistenTools = await listen<unknown>(`atlas://intelligence/${streamId}/tools`, (event) => {
+      const raw = Array.isArray(event.payload) ? event.payload : [];
+      const calls = raw.flatMap((c) => {
+        const fn = (c as { function?: { name?: unknown; arguments?: unknown } })?.function;
+        return typeof fn?.name === 'string' ? [{ name: fn.name, arguments: fn.arguments }] : [];
+      });
+      if (calls.length) handlers.onToolCalls?.(calls);
+    });
+    const stopTools = unlisten;
+    unlisten = () => {
+      stopTools?.();
+      unlistenTools();
+    };
     const text = await invoke<string>(command, { ...args, streamId });
     handlers.onDone(text);
   } catch (err) {
@@ -134,6 +150,7 @@ export function createLocalModelProvider(
         contextLength: number | null;
         billions: number | null;
         capabilities?: string[];
+        serverVersion?: string | null;
       }>('local_model_info', { baseUrl, model: profile.ollamaTag });
       capacityCache = {
         at: Date.now(),
@@ -142,7 +159,11 @@ export function createLocalModelProvider(
           : null,
       };
       known = capabilitiesFromOllama(
-        { capabilities: info.capabilities ?? null, contextTokens: info.contextLength },
+        {
+          capabilities: info.capabilities ?? null,
+          contextTokens: info.contextLength,
+          serverVersion: info.serverVersion ?? null,
+        },
         { conversation: 'yes', source: 'declared' },
       );
     } catch {
@@ -160,7 +181,13 @@ export function createLocalModelProvider(
     ask(
       prompt: string,
       handlers: ProviderStreamHandlers,
-      askOptions?: { signal?: HaltSignal; deeper?: boolean; contextTokens?: number },
+      askOptions?: {
+        signal?: HaltSignal;
+        deeper?: boolean;
+        contextTokens?: number;
+        tools?: ModelTool[];
+        responseSchema?: Record<string, unknown>;
+      },
     ) {
       if (!options.enabled) {
         handlers.onError('not-configured');
@@ -174,6 +201,11 @@ export function createLocalModelProvider(
           prompt,
           // Only a task asks for more than a chat's working memory; the native side clamps it.
           numCtx: askOptions?.contextTokens ?? null,
+          // What the gateway offered: tool definitions, or a schema the reply must satisfy. The
+          // native side shape-checks and bounds both, and a server that refuses them answers
+          // `unsupported:constraints`, which the gateway answers by asking the plain way.
+          tools: askOptions?.tools ?? null,
+          format: askOptions?.responseSchema ?? null,
           // "Think longer" switches thinking on for a model that had it off. A
           // model with no thinking mode is asked again without the field
           // natively, so this can never turn a chat into an error.
@@ -537,25 +569,61 @@ export async function testCloudProviderConnection(
  * non-streaming provider to a single `onDone` call, so this is a complete,
  * working provider today and a config-only change to add deltas later.
  */
+/**
+ * What a cloud provider is *declared* to support, from its wire format and nothing the person
+ * typed. Anthropic's Messages API has tool use on every current model. OpenAI's own endpoint has
+ * tools and JSON-schema output. A custom or third-party "OpenAI-compatible" address is a
+ * different server that may implement some or none of that, so it stays unknown (plain text)
+ * until someone says otherwise. Declared is a claim about a catalogue, not a measurement.
+ */
+export function cloudCapabilities(config: Pick<CloudProviderConfig, 'kind' | 'baseUrl'>): ModelCapabilities {
+  if (config.kind === 'anthropic') {
+    return { ...CLOUD_DECLARED_CAPABILITIES, toolCalling: 'yes', structuredOutput: 'no' };
+  }
+  if (config.kind === 'openai-compatible') {
+    let host = '';
+    try {
+      host = new URL(config.baseUrl).hostname.toLowerCase();
+    } catch {
+      /* a malformed address declares nothing */
+    }
+    if (host === 'api.openai.com') {
+      return { ...CLOUD_DECLARED_CAPABILITIES, toolCalling: 'yes', structuredOutput: 'yes' };
+    }
+  }
+  return CLOUD_DECLARED_CAPABILITIES;
+}
+
 export function createCloudProvider(config: CloudProviderConfig): IntelligenceProvider {
   return {
     id: config.id,
     label: config.label,
     isConfigured: () => config.enabled,
     isLocal: () => false,
-    // A chat endpoint converses; what the typed-in model supports beyond that is not known.
-    capabilities: () => CLOUD_DECLARED_CAPABILITIES,
-    ask(prompt: string, handlers: ProviderStreamHandlers) {
+    // A chat endpoint converses; tool calling is declared only where the wire format guarantees
+    // it (see `cloudCapabilities`). Anything else stays unknown, which is treated as "no".
+    capabilities: () => cloudCapabilities(config),
+    ask(
+      prompt: string,
+      handlers: ProviderStreamHandlers,
+      askOptions?: { tools?: ModelTool[]; responseSchema?: Record<string, unknown> },
+    ) {
       if (!config.enabled) {
         handlers.onError('not-configured');
         return;
       }
-      invoke<string>('ask_cloud_provider', {
+      invoke<{ text: string; toolCalls: Array<{ name: string; arguments: unknown }> }>('ask_cloud_provider', {
         providerId: config.id,
         model: config.model,
         prompt,
+        // Only present when the gateway offered them, so an ordinary message is sent exactly as before.
+        ...(askOptions?.tools ? { tools: askOptions.tools } : {}),
+        ...(askOptions?.responseSchema ? { schema: askOptions.responseSchema } : {}),
       })
-        .then((text) => handlers.onDone(text))
+        .then((reply) => {
+          if (reply.toolCalls?.length) handlers.onToolCalls?.(reply.toolCalls);
+          handlers.onDone(reply.text);
+        })
         .catch((err) => handlers.onError(err instanceof Error ? err.message : String(err)));
     },
   };

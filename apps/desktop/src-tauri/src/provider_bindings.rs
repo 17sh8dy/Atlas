@@ -742,6 +742,8 @@ mod tests {
             "cloud-unbound".to_string(),
             "m".to_string(),
             "hello".to_string(),
+            None,
+            None,
         ))
         .unwrap_err();
         assert!(err.contains("hasn't been confirmed"), "{err}");

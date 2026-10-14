@@ -59,6 +59,7 @@ import {
 } from '@atlas/core';
 import type { HaltSignal } from '@atlas/core';
 import { describeProviderFailure } from './cloud-limits';
+import { ModelGateway } from './gateway/plan';
 import { Bus } from './bus';
 import { Grammar, quotedTexts, waitForOpenedApps } from './planner/grammar';
 import { Executor } from './planner/executor';
@@ -216,6 +217,8 @@ export class Engine {
   readonly grammar: Grammar;
   readonly bus: Bus;
   private readonly executor: Executor;
+  /** How a plan is asked for from a connected model (gateway/plan.ts). Reads; never runs. */
+  private readonly gateway: ModelGateway;
   private readonly intelligence?: IntelligenceRegistry;
   private readonly threshold: number;
   private readonly working: WorkingMemory;
@@ -260,6 +263,7 @@ export class Engine {
     const role = options.voice?.role;
     this.styleNote = role && role !== DEFAULT_ATLAS_ROLE ? ATLAS_ROLE_META[role]?.style : undefined;
     this.executor = new Executor(this.skills, this.phrasing);
+    this.gateway = new ModelGateway(this.skills, { useRules: USE_RULES });
     this.getExecutionMode = options.getExecutionMode ?? (() => DEFAULT_EXECUTION_MODE);
     this.isPreapproved = options.isPreapproved;
     this.probes = options.probes;
@@ -632,74 +636,33 @@ export class Engine {
     const provider = this.intelligence?.active();
     if (!provider) return null;
 
-    const prompt = [
-      'Turn the user request into a JSON plan. Reply with JSON only, no prose.',
-      'Schema: {"intent":string,"confidence":number,"steps":[{"skill":string,"args":object}]}',
-      'Rules for the arguments:',
-      '- Copy anything the user wrote out into the step that needs it, exactly as written: text in quotes, file names, paths, app names, destinations. Do not reword, correct, shorten or translate it.',
-      '- Never invent an argument the user did not give. If a step cannot be filled from the request, leave that step out.',
-      '- Do not add a step that asks the user for something the request already states.',
-      '- Steps run in order. After opening an app, use window.await for that app before typing or clicking in it.',
-      `- ${USE_RULES} For a request like that, reply with a plan that has no steps.`,
-      'You may ONLY use these actions:',
-      this.skills.catalog(text),
-      '',
-      `Request: ${text}`,
-    ].join('\n');
-
-    const asked = new Promise<string | null>((resolve) => {
-      let settled = false;
-      const finish = (v: string | null) => {
-        if (!settled) {
-          settled = true;
-          resolve(v);
-        }
-      };
-      provider.ask(
-        prompt,
-        {
-          onDelta: () => {},
-          onDone: (full) => finish(full),
-          onError: () => finish(null),
-        },
-        { signal },
-      );
-    });
-    const reply = await untilHalted(asked, signal);
-    if (!reply) return null;
-
-    let parsed: unknown;
-    try {
-      const json = reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1);
-      parsed = JSON.parse(json);
-    } catch {
-      return null;
-    }
-
-    const candidate = parsed as { intent?: string; confidence?: number; steps?: unknown };
-    if (!Array.isArray(candidate.steps) || candidate.steps.length === 0) return null;
-
-    const steps = [];
-    for (const s of candidate.steps as Array<{ skill?: string; args?: Record<string, never> }>) {
-      if (!s?.skill) return null;
-      const check = this.skills.validate(s.skill, s.args ?? {});
-      if (!check.ok) return null; // one bad step invalidates the whole plan
-      steps.push({ skill: s.skill, args: check.args });
-    }
-
-    // Anything the user put in quotes is content they wrote on purpose. A plan
-    // that no longer contains it has replaced it, and is refused rather than
-    // run with something else in its place.
-    const planText = JSON.stringify(steps.map((step) => step.args));
-    if (quotedTexts(text).some((quoted) => quoted && !planText.includes(JSON.stringify(quoted).slice(1, -1)))) {
-      return null;
-    }
+    // The model gateway (gateway/plan.ts): picks the route the model is known to support, offers a
+    // short list of tools or a schema, reads whatever shape comes back, validates every step with
+    // the registry's own rules and re-asks once, saying what was wrong. It returns validated steps
+    // or nothing, and never runs anything.
+    const outcome = await this.gateway.plan(
+      provider,
+      text,
+      signal,
+      (p) => untilHalted(p, signal),
+      (steps) => {
+        // Anything the user put in quotes is content they wrote on purpose. A plan that no longer
+        // contains it has replaced it, and is refused rather than run with something else in its
+        // place (the model gets one chance to put it back).
+        const planText = JSON.stringify(steps.map((step) => step.args));
+        const missing = quotedTexts(text).find(
+          (quoted) => quoted && !planText.includes(JSON.stringify(quoted).slice(1, -1)),
+        );
+        return missing ? `The text “${missing}” was in the request and must be copied into the step exactly as written.` : null;
+      },
+    );
+    if (outcome.kind !== 'steps') return null;
 
     return {
       source: 'ai',
-      intent: candidate.intent ?? 'ai',
-      steps: waitForOpenedApps(steps),
-      confidence: typeof candidate.confidence === 'number' ? candidate.confidence : 0.7,
+      intent: outcome.intent,
+      steps: waitForOpenedApps(outcome.steps),
+      confidence: outcome.confidence,
     };
   }
 

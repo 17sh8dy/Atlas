@@ -183,12 +183,14 @@ struct ChatLine {
     delta: String,
     done: bool,
     error: Option<String>,
+    /// Tool calls the model proposed in this line (`message.tool_calls`), as the server sent them.
+    tool_calls: Vec<serde_json::Value>,
 }
 
 fn parse_chat_line(line: &str) -> Option<ChatLine> {
     let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
     if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
-        return Some(ChatLine { delta: String::new(), done: true, error: Some(err.to_string()) });
+        return Some(ChatLine { delta: String::new(), done: true, error: Some(err.to_string()), tool_calls: Vec::new() });
     }
     Some(ChatLine {
         delta: v
@@ -198,7 +200,86 @@ fn parse_chat_line(line: &str) -> Option<ChatLine> {
             .to_string(),
         done: v.get("done").and_then(|d| d.as_bool()).unwrap_or(false),
         error: None,
+        tool_calls: v
+            .pointer("/message/tool_calls")
+            .and_then(|c| c.as_array())
+            .cloned()
+            .unwrap_or_default(),
     })
+}
+
+/// How much a page may hand to the model as tool definitions or an output schema. These are data
+/// for the model, not instructions to Atlas, but they are still bounded and shape-checked.
+const MAX_TOOLS_BYTES: usize = 120_000;
+const MAX_FORMAT_BYTES: usize = 40_000;
+const MAX_TOOLS: usize = 40;
+
+/// Check what the page wants offered: a bounded array of `{name, description, parameters}` and a
+/// bounded schema object. A refusal says why; nothing is sent.
+pub(crate) fn check_constraints(
+    tools: Option<&serde_json::Value>,
+    format: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    if let Some(t) = tools {
+        let arr = t.as_array().ok_or("The tool list has to be an array.")?;
+        if arr.len() > MAX_TOOLS {
+            return Err(format!("Too many tools were offered at once ({}).", arr.len()));
+        }
+        if t.to_string().len() > MAX_TOOLS_BYTES {
+            return Err("The tool list is too large.".into());
+        }
+        for tool in arr {
+            let name = tool.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let ok = !name.is_empty()
+                && name.len() <= 64
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+            if !ok {
+                return Err("A tool has a name the model cannot be given.".into());
+            }
+            if !tool.get("parameters").map(|p| p.is_object()).unwrap_or(false) {
+                return Err("A tool has no parameter schema.".into());
+            }
+        }
+    }
+    if let Some(f) = format {
+        if !f.is_object() {
+            return Err("The output schema has to be an object.".into());
+        }
+        if f.to_string().len() > MAX_FORMAT_BYTES {
+            return Err("The output schema is too large.".into());
+        }
+    }
+    Ok(())
+}
+
+/// Add tool definitions and an output schema to a chat body, in Ollama's shape.
+fn with_constraints(
+    mut body: serde_json::Value,
+    tools: Option<&serde_json::Value>,
+    format: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    if let Some(arr) = tools.and_then(|t| t.as_array()) {
+        let defs: Vec<serde_json::Value> = arr
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": t.get("name").cloned().unwrap_or_default(),
+                        "description": t.get("description").cloned().unwrap_or_default(),
+                        "parameters": t.get("parameters").cloned().unwrap_or_default(),
+                    }
+                })
+            })
+            .collect();
+        if !defs.is_empty() {
+            body["tools"] = serde_json::Value::Array(defs);
+        }
+    }
+    if let Some(f) = format {
+        body["format"] = f.clone();
+    }
+    body
 }
 
 /// Drops `<think>…</think>` spans from a stream.
@@ -304,10 +385,12 @@ pub async fn ask_local_model_stream(
     think: Option<bool>,
     stream_id: String,
     num_ctx: Option<u32>,
+    tools: Option<serde_json::Value>,
+    format: Option<serde_json::Value>,
 ) -> Result<String, String> {
     let tokens_in = crate::stats::estimate_tokens(&prompt);
     let result = crate::halt::global()
-        .race(ask_local_model_unraced(app, base_url, model, prompt, think, stream_id, num_ctx))
+        .race(ask_local_model_unraced(app, base_url, model, prompt, think, stream_id, num_ctx, tools, format))
         .await;
     // Counted for the Stats page, on this machine only. Token figures are estimates.
     match &result {
@@ -325,7 +408,11 @@ async fn ask_local_model_unraced(
     think: Option<bool>,
     stream_id: String,
     num_ctx: Option<u32>,
+    tools: Option<serde_json::Value>,
+    format: Option<serde_json::Value>,
 ) -> Result<String, String> {
+    check_constraints(tools.as_ref(), format.as_ref())?;
+    let constrained = tools.is_some() || format.is_some();
     // Chat uses the fixed size (Ollama reloads a model whenever it changes). A task that asked for more gets it, within
     // what this build allows — the TypeScript side has already clamped it to what the model really supports.
     let num_ctx = num_ctx.map(|n| n.clamp(NUM_CTX, MAX_TASK_CTX)).unwrap_or(NUM_CTX);
@@ -337,7 +424,7 @@ async fn ask_local_model_unraced(
     let send = |think: Option<bool>| {
         client
             .post(format!("{base}/api/chat"))
-            .json(&chat_body(&model, &prompt, think, num_ctx))
+            .json(&with_constraints(chat_body(&model, &prompt, think, num_ctx), tools.as_ref(), format.as_ref()))
             .send()
     };
     // A refused connection means Ollama isn't up: the normal state on a
@@ -360,10 +447,16 @@ async fn ask_local_model_unraced(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let text = resp.text().await.unwrap_or_default();
+        // A server (or model) that cannot do tool calls or a schema says so with a 400. That is
+        // not a failure of the question: the gateway asks again the plain way.
+        if constrained && status == 400 {
+            return Err("unsupported:constraints".to_string());
+        }
         return Err(ollama_error_message(status, &text, &model));
     }
 
     let channel = format!("atlas://intelligence/{stream_id}");
+    let mut tool_calls: Vec<serde_json::Value> = Vec::new();
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
     let mut partial: Vec<u8> = Vec::new();
@@ -391,6 +484,7 @@ async fn ask_local_model_unraced(
                 answer.push_str(&piece);
                 let _ = app.emit(&channel, &piece);
             }
+            tool_calls.extend(parsed.tool_calls);
             if parsed.done {
                 finished = true;
             }
@@ -405,8 +499,14 @@ async fn ask_local_model_unraced(
         let _ = app.emit(&channel, &tail);
     }
 
+    // Proposed tool calls travel on a channel of their own, as one JSON array, so they can never
+    // be mistaken for words the model said.
+    if !tool_calls.is_empty() {
+        let _ = app.emit(&format!("{channel}/tools"), serde_json::Value::Array(tool_calls.clone()));
+    }
+
     let answer = answer.trim().to_string();
-    if answer.is_empty() {
+    if answer.is_empty() && tool_calls.is_empty() {
         return Err("The model didn't return any text.".into());
     }
     Ok(answer)
@@ -502,6 +602,9 @@ pub struct ModelInfo {
     /// What the server says the model can do ("completion", "tools", "vision", "thinking", …).
     /// Empty when the server does not say (an older Ollama), which Atlas reads as "unknown".
     pub capabilities: Vec<String>,
+    /// The server's own version string (`/api/version`), when it said. Structured output with a
+    /// JSON schema is enforced by the server from 0.5.0 on.
+    pub server_version: Option<String>,
 }
 
 fn parse_model_info(body: &str) -> ModelInfo {
@@ -528,7 +631,14 @@ fn parse_model_info(body: &str) -> ModelInfo {
         .and_then(|c| c.as_array())
         .map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| s.to_ascii_lowercase()).collect())
         .unwrap_or_default();
-    ModelInfo { context_length, parameter_size, billions, quantization: text("quantization_level"), capabilities }
+    ModelInfo {
+        context_length,
+        parameter_size,
+        billions,
+        quantization: text("quantization_level"),
+        capabilities,
+        server_version: None,
+    }
 }
 
 /// The context window and size of one installed model (`/api/show`).
@@ -548,7 +658,16 @@ pub async fn local_model_info(base_url: String, model: String) -> Result<ModelIn
         return Err(format!("The local model server returned {}.", resp.status()));
     }
     let body = resp.text().await.map_err(|_| "offline".to_string())?;
-    Ok(parse_model_info(&body))
+    let mut info = parse_model_info(&body);
+    // Best effort: an older server has no /api/version, and that just leaves it unknown.
+    if let Ok(v) = client.get(format!("{base}/api/version")).send().await {
+        if let Ok(text) = v.text().await {
+            info.server_version = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|j| j.get("version").and_then(|s| s.as_str()).map(str::to_string));
+        }
+    }
+    Ok(info)
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,7 +1119,7 @@ mod tests {
         assert!((info.billions.unwrap() - 9.7).abs() < 0.01);
         assert_eq!(info.quantization, "Q4_K_M");
         assert_eq!(parse_model_info(r#"{"details":{"parameter_size":"560M"}}"#).billions.map(|b| (b * 100.0).round() as i32), Some(56));
-        assert_eq!(parse_model_info("not json"), ModelInfo { context_length: None, parameter_size: String::new(), billions: None, quantization: String::new(), capabilities: vec![] });
+        assert_eq!(parse_model_info("not json"), ModelInfo { context_length: None, parameter_size: String::new(), billions: None, quantization: String::new(), capabilities: vec![], server_version: None });
     }
 
     #[test]
@@ -1025,5 +1144,41 @@ mod tests {
         assert!(validate_prompt(&long).is_err(), "chat keeps its old limit");
         assert!(validate_prompt_for(&long, 65_536).is_ok(), "a 64K-token task can send 140k characters");
         assert!(validate_prompt_for(&"a".repeat(600_000), 65_536).is_err(), "but not unbounded text");
+    }
+
+    #[test]
+    fn tool_calls_in_a_stream_line_are_read_separately_from_words() {
+        let line = r#"{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"files__createFolder","arguments":{"path":"D:/x"}}}]},"done":true}"#;
+        let l = parse_chat_line(line).unwrap();
+        assert_eq!(l.delta, "");
+        assert_eq!(l.tool_calls.len(), 1);
+        assert_eq!(l.tool_calls[0]["function"]["name"], "files__createFolder");
+        assert!(parse_chat_line(r#"{"message":{"content":"hi"},"done":false}"#).unwrap().tool_calls.is_empty());
+    }
+
+    #[test]
+    fn constraints_are_shape_checked_and_added_in_ollamas_form() {
+        let tools = serde_json::json!([{ "name": "files__createFolder", "description": "d", "parameters": { "type": "object" } }]);
+        let fmt = serde_json::json!({ "type": "object", "properties": {} });
+        assert!(check_constraints(Some(&tools), Some(&fmt)).is_ok());
+        let body = with_constraints(chat_body("m", "x", None, NUM_CTX), Some(&tools), Some(&fmt));
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["function"]["name"], "files__createFolder");
+        assert_eq!(body["format"]["type"], "object");
+        // Nothing offered, nothing added.
+        let plain = with_constraints(chat_body("m", "x", None, NUM_CTX), None, None);
+        assert!(plain.get("tools").is_none() && plain.get("format").is_none());
+    }
+
+    #[test]
+    fn a_malformed_or_oversized_tool_list_is_refused_before_anything_is_sent() {
+        assert!(check_constraints(Some(&serde_json::json!({})), None).is_err(), "not an array");
+        assert!(check_constraints(Some(&serde_json::json!([{ "name": "has space", "parameters": {} }])), None).is_err());
+        assert!(check_constraints(Some(&serde_json::json!([{ "name": "ok" }])), None).is_err(), "no schema");
+        let many: Vec<_> = (0..41)
+            .map(|i| serde_json::json!({ "name": format!("t{i}"), "description": "d", "parameters": { "type": "object" } }))
+            .collect();
+        assert!(check_constraints(Some(&serde_json::Value::Array(many)), None).is_err());
+        assert!(check_constraints(None, Some(&serde_json::json!("not an object"))).is_err());
     }
 }

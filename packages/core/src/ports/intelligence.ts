@@ -34,9 +34,35 @@ export interface ModelCapacity {
   billions?: number;
 }
 
+/**
+ * A tool offered to a model, in the neutral shape every wire format is built from.
+ *
+ * It is a *description* — the model reads it to decide what to propose. Offering a tool grants
+ * nothing: what a model returns is a proposal that is validated against the skill registry and
+ * run (or refused) by the executor like any other plan.
+ */
+export interface ModelTool {
+  /** `[A-Za-z0-9_-]{1,64}`: the form every provider accepts. Skill ids are mapped to it. */
+  name: string;
+  description: string;
+  /** JSON Schema (object) for the arguments. */
+  parameters: Record<string, unknown>;
+}
+
+/** A call a model proposed. `arguments` is whatever it sent; nothing in it is trusted. */
+export interface ModelToolCall {
+  name: string;
+  arguments: unknown;
+}
+
 export interface ProviderStreamHandlers {
   /** A chunk of the answer, as it arrives. */
   onDelta(chunk: string): void;
+  /**
+   * The model proposed tool calls instead of (or as well as) words. Only delivered when `tools`
+   * were offered in the request options. Called at most once, before `onDone`.
+   */
+  onToolCalls?(calls: ModelToolCall[]): void;
   /** The complete answer. Always called on success, after the last delta. */
   onDone(full: string): void;
   /**
@@ -76,6 +102,17 @@ export interface IntelligenceProvider {
        * really supports); one that cannot ignores it.
        */
       contextTokens?: number;
+      /**
+       * Tools the model may propose calls to. Sent only when the provider's capabilities say
+       * tool calling is supported; a provider that cannot honour it ignores the field and the
+       * gateway reads the text reply as before.
+       */
+      tools?: ModelTool[];
+      /**
+       * A JSON Schema the reply must satisfy (structured output). Same rule: only sent to a
+       * provider declared to enforce one, ignored by one that cannot.
+       */
+      responseSchema?: Record<string, unknown>;
     },
   ): void;
   /**
