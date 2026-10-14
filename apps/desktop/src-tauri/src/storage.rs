@@ -221,11 +221,76 @@ mod tests {
         );
     }
 
+    /// The skip list in the sweep must stay a list of skill ids and nothing else: each one has
+    /// to be declared as a skill (`id: '…'`) in the engine, so a real storage key cannot be
+    /// parked here to make the sweep pass.
+    #[test]
+    fn the_atlas_names_the_sweep_skips_really_are_skill_ids() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("..");
+        let mut declared = String::new();
+        for file in source_files(&root.join("packages").join("engine").join("src")) {
+            if let Ok(text) = std::fs::read_to_string(&file) {
+                declared.push_str(&text);
+            }
+        }
+        for id in SKILL_IDS {
+            assert!(
+                declared.contains(&format!("id: '{id}'")),
+                "{id} is on the sweep's skip list but is not declared as a skill id"
+            );
+            // And a skill id is not a key: storage would refuse it, which is why it must never
+            // be passed to storage_get/storage_set.
+            assert!(!is_valid_key(id), "{id} is a valid storage key, so it does not belong on the skip list");
+        }
+    }
+
+    /// The settings that matter this release round-trip through the real store, under the exact
+    /// keys the code uses — saved, reloaded from disk, and equal.
+    #[test]
+    fn the_settings_keys_the_app_uses_save_and_read_back() {
+        let keys = [
+            "atlas.searxng-endpoint",
+            "atlas.allowed-folders",
+            "atlas.halt-shortcut",
+            "atlas.settings.clipboard-history",
+        ];
+        let path = scratch("roundtrip-keys");
+        let mut store = Store::new();
+        for (i, key) in keys.iter().enumerate() {
+            assert!(is_valid_key(key), "{key} must be accepted");
+            store.insert((*key).to_string(), serde_json::json!({ "n": i, "text": "kept" }));
+        }
+        save_to(&path, &store).unwrap();
+        let back = load_from(&path).unwrap();
+        for (i, key) in keys.iter().enumerate() {
+            assert_eq!(back.get(*key), Some(&serde_json::json!({ "n": i, "text": "kept" })), "{key}");
+        }
+    }
+
+    /// A capitalised key is still refused — the validator was not loosened to make the sweep pass.
+    #[test]
+    fn a_capitalised_key_is_still_refused() {
+        assert!(!is_valid_key("atlas.selfAudit"));
+        // Built, not written out: a capitalised `atlas.…` literal would trip the repo sweep.
+        assert!(!is_valid_key(&format!("atlas.{}", "searxngEndpoint")));
+        assert!(!is_valid_key("Atlas.theme"));
+    }
+
     /// The one legitimate reason to write a key storage would refuse: reading
     /// a value the *browser* build saved under an older spelling, where
     /// `localStorage` accepted it. A line carrying this marker is exempt — it
     /// has to be written deliberately, and it reads as what it is.
     const LEGACY_MARKER: &str = "storage-key-legacy";
+
+    /// `atlas.…` literals that are NOT storage keys: engine *skill ids*, which share the
+    /// `atlas.` prefix because the skill is about Atlas itself. A skill id is a name in the
+    /// registry and never reaches `storage_get`/`storage_set`, so camelCase is correct there
+    /// (the same as `files.createFolder`). The sweep exists to catch keys that storage would
+    /// silently refuse; flagging these was a false positive, not a storage bug.
+    ///
+    /// Each name here is checked by `the_atlas_names_the_sweep_skips_really_are_skill_ids`, so
+    /// this list cannot be used to hide a real key.
+    const SKILL_IDS: &[&str] = &["atlas.selfAudit"];
 
     /// Quoted `atlas.…` literals, single- or double-quoted, containing no path
     /// separator — which is what keeps a file path that merely mentions the
@@ -247,6 +312,7 @@ mod tests {
                     if literal.starts_with("atlas.")
                         && literal.len() > "atlas.".len()
                         && !literal.contains(not_a_key)
+                        && !SKILL_IDS.contains(&literal)
                     {
                         found.push(literal.to_string());
                     }
