@@ -185,10 +185,10 @@ describe('cloud providers still work through the existing system', () => {
     expect(built.activeId).toBe(CLOUD.id);
     await askActive(built, 'hi cloud');
     expect(commandsCalled()).toEqual(['ask_cloud_provider']);
+    // The destination is not on the wire: the native side resolves it from the provider's binding,
+    // so a caller cannot aim a saved key somewhere else.
     expect(lastArgs()).toEqual({
       providerId: CLOUD.id,
-      kind: 'openai-compatible',
-      baseUrl: CLOUD.baseUrl,
       model: 'gpt-x',
       prompt: 'hi cloud',
     });
@@ -313,8 +313,6 @@ describe('Think longer, on the wire', () => {
   test('a cloud provider is not sent anything it did not ask for', async () => {
     const built = setup({ activeProviderId: CLOUD.id, cloudProviders: [CLOUD] });
     await askActive(built, 'hi', { deeper: true });
-    expect(Object.keys(lastArgs()).sort()).toEqual(
-      ['baseUrl', 'kind', 'model', 'prompt', 'providerId'].sort(),
-    );
+    expect(Object.keys(lastArgs()).sort()).toEqual(['model', 'prompt', 'providerId'].sort());
   });
 });

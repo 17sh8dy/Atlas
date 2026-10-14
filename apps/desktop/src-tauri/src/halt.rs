@@ -1008,6 +1008,8 @@ mod tests {
             // out of their own preferences — least of all the folder list and
             // the keys that bound what Atlas can do in the first place.
             "add_allowed_folder", "remove_allowed_folder", "save_secret", "delete_secret",
+            // Where a provider's key may be sent, set from Settings by the person.
+            "provider_binding", "provider_bind", "provider_unbind",
             // The SearXNG address, saved from Settings by the person. It only chooses where
             // Atlas's own search is sent; every address is checked again on each search.
             "searxng_configure",

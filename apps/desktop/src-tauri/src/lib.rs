@@ -12,6 +12,7 @@
 
 mod allowed_folders;
 mod protected_paths;
+mod provider_bindings;
 #[cfg(windows)]
 mod audio;
 #[cfg(windows)]
@@ -490,6 +491,9 @@ pub fn run() {
             secrets::delete_secret,
             cloud_intelligence::ask_cloud_provider,
             cloud_intelligence::test_cloud_provider,
+            provider_bindings::provider_binding,
+            provider_bindings::provider_bind,
+            provider_bindings::provider_unbind,
         ])
         .manage(StorageState(std::sync::Mutex::new(())))
         .setup(move |app| {
@@ -563,6 +567,31 @@ pub fn run() {
                 .ok()
                 .flatten(),
             );
+
+            // Where each cloud provider's key may be sent. Providers set up before bindings
+            // existed are adopted once from the saved list (only if a key is already saved).
+            {
+                let saved_bindings = storage::storage_get(
+                    handle.clone(),
+                    handle.state::<StorageState>(),
+                    provider_bindings::STORAGE_KEY.to_string(),
+                )
+                .ok()
+                .flatten();
+                let legacy = storage::storage_get(
+                    handle.clone(),
+                    handle.state::<StorageState>(),
+                    "atlas.preferences".to_string(),
+                )
+                .ok()
+                .flatten();
+                let (adopted, _) = provider_bindings::init(saved_bindings, legacy, |id| {
+                    secrets::read_secret(id).ok().flatten().is_some()
+                });
+                if adopted > 0 {
+                    provider_bindings::persist_after_init(&handle);
+                }
+            }
 
             let dropped = allowed_folders::init(saved);
             if !dropped.is_empty() {

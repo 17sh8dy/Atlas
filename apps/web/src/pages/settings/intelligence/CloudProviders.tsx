@@ -25,11 +25,18 @@
  * kind is the only thing Rust needs to know.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icons, Button, Input, Surface, Switch, cn } from '@atlas/ui';
 import type { CloudProviderConfig, CloudProviderKind, Storage } from '@atlas/core';
 import { writeActiveProvider, writeCloudProviders } from '@atlas/data';
-import { deleteProviderSecret, saveProviderSecret, testCloudProviderConnection } from '@atlas/platform';
+import {
+  bindProvider,
+  deleteProviderSecret,
+  readProviderBinding,
+  saveProviderSecret,
+  testCloudProviderConnection,
+  unbindProvider,
+} from '@atlas/platform';
 
 interface Props {
   storage: Storage;
@@ -76,6 +83,21 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  // Where each key is actually sent, as the native side holds it — not what the list says.
+  const [hosts, setHosts] = useState<Record<string, string | null>>({});
+  const [addError, setAddError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const next: Record<string, string | null> = {};
+      for (const p of providers) next[p.id] = (await readProviderBinding(p.id))?.host ?? null;
+      if (live) setHosts(next);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [providers]);
 
   const [presetId, setPresetId] = useState(DEFAULT_PRESET.id);
   const preset = presetFor(presetId);
@@ -107,8 +129,12 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
     if (preset.kind === 'openai-compatible' && !trimmedBaseUrl) return;
 
     setBusy(true);
+    setAddError(null);
     try {
       const id = newProviderId();
+      // The destination first: it is what the key will be attached to, and it is validated and
+      // held natively. If the address is refused nothing else is written.
+      await bindProvider(id, preset.kind, trimmedBaseUrl);
       await saveProviderSecret(id, trimmedKey);
       const config: CloudProviderConfig = {
         id,
@@ -121,6 +147,8 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
       await writeCloudProviders(storage, [...providers, config]);
       onChange();
       resetForm();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -161,6 +189,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
     setBusy(true);
     try {
       await deleteProviderSecret(id);
+      await unbindProvider(id);
       await writeCloudProviders(
         storage,
         providers.filter((p) => p.id !== id),
@@ -223,7 +252,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
                   </div>
                   <p className="text-foreground-subtle mt-0.5 truncate text-xs">
                     {config.kind} · {config.model}
-                    {config.baseUrl ? ` · ${config.baseUrl}` : ''}
+                    {hosts[config.id] ? ` · sends to ${hosts[config.id]}` : ' · address not confirmed'}
                   </p>
                 </div>
                 <Switch
@@ -341,6 +370,8 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
               autoComplete="off"
             />
           </div>
+
+          {addError && <p className="text-danger text-xs leading-relaxed">{addError}</p>}
 
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="md" disabled={busy} onClick={resetForm}>

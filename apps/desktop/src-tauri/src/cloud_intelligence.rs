@@ -109,7 +109,7 @@ fn validate_prompt(prompt: &str) -> Result<(), String> {
 /// explicitly. `Anthropic`/`Gemini` name one real service each, so an empty
 /// value falls back to it, the same as `intelligence.rs::validate_base_url`
 /// does for the local model endpoint.
-fn resolve_base_url(kind: CloudProviderKind, base_url: &str) -> Result<String, String> {
+pub(crate) fn resolve_base_url(kind: CloudProviderKind, base_url: &str) -> Result<String, String> {
     let trimmed = base_url.trim().trim_end_matches('/');
     // Every request below appends `/v1/...` itself; a base pasted in as
     // `https://host/v1` would otherwise become `/v1/v1/...` and 404.
@@ -366,21 +366,23 @@ async fn ask_gemini(
 /// Raced against the emergency stop: a halt drops the request mid-flight,
 /// which closes the connection — see `halt::Halt::race`.
 #[tauri::command]
-pub async fn ask_cloud_provider(provider_id: String, kind: CloudProviderKind, base_url: String, model: String, prompt: String) -> Result<String, String> {
-    crate::halt::global().race(ask_cloud_provider_unraced(provider_id, kind, base_url, model, prompt)).await
+pub async fn ask_cloud_provider(provider_id: String, model: String, prompt: String) -> Result<String, String> {
+    crate::halt::global().race(ask_cloud_provider_unraced(provider_id, model, prompt)).await
 }
 
-async fn ask_cloud_provider_unraced(
-    provider_id: String,
-    kind: CloudProviderKind,
-    base_url: String,
-    model: String,
-    prompt: String,
-) -> Result<String, String> {
+async fn ask_cloud_provider_unraced(provider_id: String, model: String, prompt: String) -> Result<String, String> {
     validate_prompt(&prompt)?;
+    // Where this key may go is decided here, from the native binding, never from the caller: a
+    // request that names its own address cannot get a saved key attached to it.
+    let binding = crate::provider_bindings::get(&provider_id).ok_or_else(|| {
+        "This provider's address hasn't been confirmed. Remove it and add it again in Settings → Intelligence."
+            .to_string()
+    })?;
     let key = crate::secrets::read_secret(&provider_id)?
         .ok_or_else(|| "No API key saved for this provider.".to_string())?;
-    let base = resolve_base_url(kind, &base_url)?;
+    // Re-judged on every request: a binding is data, and data is not trusted just for being stored.
+    let kind = binding.kind;
+    let base = crate::provider_bindings::validate(kind, &binding.base_url)?;
     let client = http_client()?;
 
     match kind {
@@ -398,20 +400,8 @@ async fn ask_cloud_provider_unraced(
 /// conceptually "does this work at all", not "answer this specific thing",
 /// and a caller should never confuse the two by mistake.
 #[tauri::command]
-pub async fn test_cloud_provider(
-    provider_id: String,
-    kind: CloudProviderKind,
-    base_url: String,
-    model: String,
-) -> Result<String, String> {
-    ask_cloud_provider(
-        provider_id,
-        kind,
-        base_url,
-        model,
-        "Reply with just the word OK.".to_string(),
-    )
-    .await
+pub async fn test_cloud_provider(provider_id: String, model: String) -> Result<String, String> {
+    ask_cloud_provider(provider_id, model, "Reply with just the word OK.".to_string()).await
 }
 
 #[cfg(test)]

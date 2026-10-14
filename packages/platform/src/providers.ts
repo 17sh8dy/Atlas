@@ -365,15 +365,45 @@ export async function deleteProviderSecret(providerId: string): Promise<void> {
   await invoke<void>('delete_secret', { providerId });
 }
 
+/**
+ * Where a provider's key may be sent, as the native side holds it. The address is **bound
+ * natively**: `ask_cloud_provider` takes only the provider id, so nothing here can aim a saved key
+ * at a different host. Binding is the one call that decides the destination.
+ */
+export interface ProviderBinding {
+  kind: CloudProviderConfig['kind'];
+  baseUrl: string;
+  /** What the key is sent to, for display: host (and port). */
+  host: string;
+}
+
+export async function bindProvider(
+  providerId: string,
+  kind: CloudProviderConfig['kind'],
+  baseUrl: string,
+): Promise<ProviderBinding> {
+  return invoke<ProviderBinding>('provider_bind', { providerId, kind, baseUrl });
+}
+
+export async function unbindProvider(providerId: string): Promise<void> {
+  await invoke<void>('provider_unbind', { providerId });
+}
+
+export async function readProviderBinding(providerId: string): Promise<ProviderBinding | null> {
+  try {
+    return (await invoke<ProviderBinding | null>('provider_binding', { providerId })) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** The Settings page's "Test connection" button. Never throws — a failed test is data, not an exception. */
 export async function testCloudProviderConnection(
-  config: Pick<CloudProviderConfig, 'id' | 'kind' | 'baseUrl' | 'model'>,
+  config: Pick<CloudProviderConfig, 'id' | 'model'>,
 ): Promise<CloudProviderTestResult> {
   try {
     const reply = await invoke<string>('test_cloud_provider', {
       providerId: config.id,
-      kind: config.kind,
-      baseUrl: config.baseUrl,
       model: config.model,
     });
     return { ok: true, message: reply };
@@ -405,8 +435,6 @@ export function createCloudProvider(config: CloudProviderConfig): IntelligencePr
       }
       invoke<string>('ask_cloud_provider', {
         providerId: config.id,
-        kind: config.kind,
-        baseUrl: config.baseUrl,
         model: config.model,
         prompt,
       })

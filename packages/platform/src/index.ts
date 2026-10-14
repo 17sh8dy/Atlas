@@ -40,7 +40,11 @@ export {
   hasProviderSecret,
   deleteProviderSecret,
   testCloudProviderConnection,
+  bindProvider,
+  unbindProvider,
+  readProviderBinding,
 } from './providers';
+export type { ProviderBinding } from './providers';
 
 /** The platform for the current runtime. */
 export function detectPlatform(): Platform {
