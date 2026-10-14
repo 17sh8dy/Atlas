@@ -448,6 +448,46 @@ export async function listCloudProviders(): Promise<CloudProviderConfig[]> {
   return rows.map(fromNative);
 }
 
+/** Where a provider stands: paused or not, the caps Atlas enforces, and this month's use. */
+export interface ProviderStanding {
+  id: string;
+  paused: string | null;
+  capRequests: number | null;
+  capTokens: number | null;
+  monthRequests: number;
+  monthTokens: number;
+  host: string;
+}
+
+export async function listProviderStanding(): Promise<ProviderStanding[]> {
+  const rows = await invoke<
+    Array<{
+      id: string;
+      paused: string | null;
+      capRequests: number | null;
+      capTokens: number | null;
+      monthRequests: number;
+      monthTokens: number;
+      host: string;
+    }>
+  >('provider_list');
+  return rows.map((r) => ({ ...r }));
+}
+
+/** Let a paused provider be used again. Asks natively first; rejects if the answer is no. */
+export async function resumeProvider(providerId: string): Promise<void> {
+  await invoke<unknown>('provider_resume', { providerId });
+}
+
+/** Monthly caps Atlas enforces (null = none). Loosening or removing one asks natively. */
+export async function setProviderCaps(
+  providerId: string,
+  capRequests: number | null,
+  capTokens: number | null,
+): Promise<void> {
+  await invoke<unknown>('provider_set_caps', { providerId, capRequests, capTokens });
+}
+
 /** Rename, change the model, or enable/disable. None of these can redirect a key, so none asks. */
 export async function updateProvider(
   providerId: string,

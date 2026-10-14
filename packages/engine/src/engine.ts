@@ -58,6 +58,7 @@ import {
   untilHalted,
 } from '@atlas/core';
 import type { HaltSignal } from '@atlas/core';
+import { describeProviderFailure } from './cloud-limits';
 import { Bus } from './bus';
 import { Grammar, quotedTexts, waitForOpenedApps } from './planner/grammar';
 import { Executor } from './planner/executor';
@@ -130,7 +131,14 @@ export interface EngineIO {
 export type AskOutcome =
   | { ok: boolean; mode: 'command'; plan: Plan; outcome: PlanOutcome }
   | { ok: false; mode: 'halted' }
-  | { ok: boolean; mode: 'chat'; text?: string; error?: string };
+  | {
+      ok: boolean;
+      mode: 'chat';
+      text?: string;
+      error?: string;
+      /** Who wrote the reply: a connected model, or Atlas's own words. Only counted, never branched on. */
+      via?: 'model' | 'atlas';
+    };
 
 /** Per-message choices from the person, as opposed to how the engine was built. */
 export interface AskOptions {
@@ -918,12 +926,17 @@ export class Engine {
           const withSources = sourcesFooter ? full + sourcesFooter : full;
           if (stream) stream.finish(withSources);
           else if (withSources) io.say(withSources);
-          resolve({ ok: true, mode: 'chat', text: withSources });
+          resolve({ ok: true, mode: 'chat', text: withSources, via: 'model' });
         },
         onError: (reason: string) => {
           if (over) return;
           settle();
           io.typing?.(false);
+          // Money is never a silent failure: a provider that is out of quota, over a cap the person
+          // set, or looping is named, plainly, whatever else is said after it. Nothing here picks
+          // another provider; that is the person's decision (see cloud-limits.ts).
+          const limitNote = describeProviderFailure(reason, provider.label);
+          if (limitNote) io.say(limitNote);
           if (replyOnFailure) {
             const reply = replyOnFailure();
             io.say(reply);
@@ -933,6 +946,10 @@ export class Engine {
           if (fallback) {
             io.say(fallback);
             resolve({ ok: true, mode: 'chat', text: fallback });
+            return;
+          }
+          if (limitNote) {
+            resolve({ ok: false, mode: 'chat', error: reason });
             return;
           }
           // 'not-configured'/'offline' are the two sentinel reasons this

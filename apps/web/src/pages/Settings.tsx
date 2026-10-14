@@ -37,6 +37,7 @@ import { Appearance } from './settings/Appearance';
 import { Voice } from './settings/Voice';
 import { Personalization } from './settings/Personalization';
 import { Activity } from './settings/Activity';
+import { Stats } from './settings/Stats';
 import { Watches } from './settings/Watches';
 import { Tasks, type TasksHandle } from './settings/Tasks';
 import { Setups } from './settings/Setups';
@@ -97,6 +98,7 @@ export const SECTIONS: readonly SettingsSection[] = [
   { id: 'voice', label: 'Voice', icon: Icons.Mic },
   { id: 'personalization', label: 'Personalization', icon: Icons.UserCircle },
   { id: 'activity', label: 'Activity', icon: Icons.Activity },
+  { id: 'stats', label: 'Stats', icon: Icons.BarChart3 },
   { id: 'watches', label: 'Watches', icon: Icons.Eye },
   { id: 'tasks', label: 'Tasks', icon: Icons.ListChecks },
   { id: 'setups', label: 'Setups', icon: Icons.Clapperboard },
@@ -196,6 +198,9 @@ export function Settings({
             </TabsContent>
             <TabsContent value="activity">
               <Activity memory={memory} />
+            </TabsContent>
+            <TabsContent value="stats">
+              <Stats platform={platform} storage={storage} />
             </TabsContent>
             <TabsContent value="tasks">
               <Tasks tasks={tasks} onResume={onTaskResume} />

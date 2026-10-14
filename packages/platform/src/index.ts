@@ -46,11 +46,16 @@ export {
   clearAccountSession,
   addProviderWithKey,
   listCloudProviders,
+  listProviderStanding,
+  resumeProvider,
+  setProviderCaps,
   updateProvider,
   unbindProvider,
   readProviderBinding,
 } from './providers';
-export type { ProviderBinding } from './providers';
+export type { ProviderBinding, ProviderStanding } from './providers';
+export { statsSummary, statsInfo, statsRecord, statsReset } from './stats';
+export type { StatsPeriod, StatsSummary, StatsInfo, ProviderUsage } from './stats';
 
 /** The platform for the current runtime. */
 export function detectPlatform(): Platform {

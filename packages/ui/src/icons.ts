@@ -37,6 +37,7 @@ export {
   Clipboard,
   // the machine
   ListChecks,
+  BarChart3,
   Cpu,
   HardDrive,
   MemoryStick,

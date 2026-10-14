@@ -35,6 +35,8 @@ import type {
   Watch,
 } from '@atlas/core';
 import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH, redactSecrets } from '@atlas/core';
+import { isTauri, statsRecord } from '@atlas/platform';
+import { metricsForAsk, metricsForPlan, taskMetrics, type Metric } from './statsRecord';
 import { folderToOffer, isInsideAnyAllowedFolder } from './folderOffer';
 import { MemoryStore } from '@atlas/data';
 import {
@@ -217,6 +219,12 @@ export interface HaltState {
 }
 
 let nextId = 1;
+
+/** Best-effort, fire-and-forget: counting must never slow or break what is being counted. */
+function recordMetrics(metrics: Metric[]): void {
+  if (!isTauri()) return;
+  for (const [name, n] of metrics) void statsRecord(name, n);
+}
 
 /** Where the transcript persists — Phase 3's first piece, the same `Storage` port `MemoryStore` already proved this shape against. */
 const TRANSCRIPT_KEY = 'atlas.transcript';
@@ -487,6 +495,25 @@ export function useAtlas(
     }),
     [taskStore],
   );
+  // Tasks that newly ended are counted for the Stats page (counts only; see statsRecord.ts).
+  useEffect(() => {
+    if (!isTauri()) return;
+    let seen: Map<string, string> | null = null;
+    let alive = true;
+    const check = () =>
+      void taskStore.list().then((all) => {
+        if (!alive) return;
+        const m = taskMetrics(seen as Map<string, never> | null, all);
+        seen = new Map(all.map((t) => [t.id, t.status]));
+        recordMetrics(m);
+      });
+    check();
+    const off = taskStore.subscribe(check);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [taskStore]);
   const announceRef = useRef<(text: string) => void>(() => {});
   const needsYouRef = useRef<(watch: Watch) => void>(() => {});
   const watchManager = useMemo(
@@ -1259,7 +1286,8 @@ export function useAtlas(
       if (options.echo !== false) push({ kind: 'you', text: trimmed });
       setBusy(true);
       try {
-        await engine.ask(trimmed, io, { thinkLonger: thinkLonger && hasModel });
+        const outcome = await engine.ask(trimmed, io, { thinkLonger: thinkLonger && hasModel });
+        recordMetrics(metricsForAsk(outcome));
       } finally {
         setBusy(false);
       }
@@ -1290,10 +1318,13 @@ export function useAtlas(
       if (haltRef.current && !(await resume())) return;
       setBusy(true);
       try {
-        await engine.run(
+        const outcome = await engine.run(
           { source: 'direct', intent: 'action', confidence: 1, steps: [{ skill, args }] },
           io,
         );
+        if (outcome && typeof outcome === 'object' && 'outcomes' in outcome) {
+          recordMetrics(metricsForPlan(outcome as Parameters<typeof metricsForPlan>[0]));
+        }
       } finally {
         setBusy(false);
       }

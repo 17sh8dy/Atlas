@@ -25,17 +25,21 @@
  * kind is the only thing Rust needs to know.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Icons, Button, Input, Surface, Switch, cn } from '@atlas/ui';
 import type { CloudProviderConfig, CloudProviderKind, Storage } from '@atlas/core';
 import { writeActiveProvider } from '@atlas/data';
 import {
   addProviderWithKey,
   deleteProviderSecret,
+  listProviderStanding,
   readProviderBinding,
+  resumeProvider,
+  setProviderCaps,
   testCloudProviderConnection,
   unbindProvider,
   updateProvider,
+  type ProviderStanding,
 } from '@atlas/platform';
 
 interface Props {
@@ -86,6 +90,60 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
   // Where each key is actually sent, as the native side holds it — not what the list says.
   const [hosts, setHosts] = useState<Record<string, string | null>>({});
   const [addError, setAddError] = useState<string | null>(null);
+  // Cloud safety: whether a provider is paused, the caps Atlas enforces, and this month's use.
+  const [standing, setStanding] = useState<Record<string, ProviderStanding>>({});
+  const [capDraft, setCapDraft] = useState<Record<string, { r: string; t: string }>>({});
+  const [safetyNote, setSafetyNote] = useState<Record<string, string>>({});
+
+  const refreshStanding = useCallback(async () => {
+    try {
+      const rows = await listProviderStanding();
+      setStanding(Object.fromEntries(rows.map((r) => [r.id, r])));
+    } catch {
+      /* the card simply shows no usage line */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStanding();
+  }, [providers, refreshStanding]);
+
+  async function resume(id: string) {
+    setBusy(true);
+    setSafetyNote((p) => ({ ...p, [id]: '' }));
+    try {
+      await resumeProvider(id);
+      await refreshStanding();
+      onChange();
+    } catch (err) {
+      setSafetyNote((p) => ({ ...p, [id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCaps(id: string) {
+    const d = capDraft[id] ?? { r: '', t: '' };
+    const num = (s: string) => {
+      const n = Number(s.replace(/[,\s]/g, ''));
+      return s.trim() && Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+    };
+    setBusy(true);
+    setSafetyNote((p) => ({ ...p, [id]: '' }));
+    try {
+      await setProviderCaps(id, num(d.r), num(d.t));
+      await refreshStanding();
+      setCapDraft((p) => {
+        const next = { ...p };
+        delete next[id];
+        return next;
+      });
+    } catch (err) {
+      setSafetyNote((p) => ({ ...p, [id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -272,6 +330,66 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
                   Remove
                 </Button>
               </div>
+
+              {(() => {
+                const st = standing[config.id];
+                if (!st) return null;
+                const d = capDraft[config.id] ?? {
+                  r: st.capRequests ? String(st.capRequests) : '',
+                  t: st.capTokens ? String(st.capTokens) : '',
+                };
+                const tokens =
+                  st.monthTokens >= 1000 ? `≈ ${(st.monthTokens / 1000).toFixed(1)}k` : `≈ ${st.monthTokens}`;
+                return (
+                  <div className="border-border mt-1 flex flex-col gap-2 border-t pt-2">
+                    {st.paused && (
+                      <div className="border-warning/40 bg-warning/10 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2">
+                        <p className="text-foreground text-xs leading-relaxed">
+                          ⚠️ <strong className="font-medium">Cloud AI limit reached.</strong> This provider said
+                          its account has reached its limit, so Atlas has paused requests to it. Nothing was
+                          switched to another provider.
+                        </p>
+                        <Button variant="secondary" size="sm" disabled={busy} onClick={() => void resume(config.id)}>
+                          Resume
+                        </Button>
+                      </div>
+                    )}
+                    <p className="text-foreground-subtle text-xs">
+                      This month: {st.monthRequests.toLocaleString('en-US')} request
+                      {st.monthRequests === 1 ? '' : 's'} · {tokens} tokens (estimated unless the provider
+                      reported them)
+                    </p>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="text-foreground-subtle text-xs">
+                        Requests a month
+                        <Input
+                          value={d.r}
+                          inputMode="numeric"
+                          placeholder="no limit"
+                          onChange={(e) => setCapDraft((p) => ({ ...p, [config.id]: { ...d, r: e.target.value } }))}
+                        />
+                      </label>
+                      <label className="text-foreground-subtle text-xs">
+                        Tokens a month
+                        <Input
+                          value={d.t}
+                          inputMode="numeric"
+                          placeholder="no limit"
+                          onChange={(e) => setCapDraft((p) => ({ ...p, [config.id]: { ...d, t: e.target.value } }))}
+                        />
+                      </label>
+                      <Button variant="ghost" size="sm" disabled={busy} onClick={() => void saveCaps(config.id)}>
+                        Save limits
+                      </Button>
+                    </div>
+                    <p className="text-foreground-subtle text-xs leading-relaxed">
+                      Atlas stops sending requests to this provider when a limit is reached, on top of
+                      whatever your provider enforces. Raising or removing a limit asks you first.
+                    </p>
+                    {safetyNote[config.id] && <p className="text-danger text-xs">{safetyNote[config.id]}</p>}
+                  </div>
+                );
+              })()}
 
               {result && (
                 <p
