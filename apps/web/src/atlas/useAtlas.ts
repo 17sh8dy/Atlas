@@ -34,7 +34,7 @@ import type {
   VoiceProfile,
   Watch,
 } from '@atlas/core';
-import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH } from '@atlas/core';
+import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH, redactSecrets } from '@atlas/core';
 import { folderToOffer, isInsideAnyAllowedFolder } from './folderOffer';
 import { MemoryStore } from '@atlas/data';
 import {
@@ -390,7 +390,15 @@ export function useAtlas(
     if (!loaded.current) return;
     const timer = setTimeout(() => {
       // A list marked private (clipboard history) is shown but never written to disk.
-      const keep = entries.filter((e) => !(e.kind === 'results' && e.meta?.private));
+      const keep = entries
+        .filter((e) => !(e.kind === 'results' && e.meta?.private))
+        // A key pasted into the chat is shown to the person but not kept on disk.
+        .map((e) => ({
+          ...e,
+          ...(e.text ? { text: redactSecrets(e.text) } : {}),
+          ...(e.detail ? { detail: redactSecrets(e.detail) } : {}),
+          ...(e.question ? { question: redactSecrets(e.question) } : {}),
+        }));
       storage.set(TRANSCRIPT_KEY, keep.slice(-TRANSCRIPT_LIMIT)).catch(() => {});
     }, TRANSCRIPT_SAVE_DELAY_MS);
     return () => clearTimeout(timer);

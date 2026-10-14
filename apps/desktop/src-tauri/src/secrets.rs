@@ -86,8 +86,12 @@ pub(crate) fn save_secret_now(provider_id: String, secret: String) -> Result<(),
     if secret.is_empty() {
         return Err("That key is empty.".into());
     }
+    write_target(&target_for(&provider_id), secret)
+}
 
-    let target_wide = to_wide_null(&target_for(&provider_id));
+/// Credential Manager write for any target name. Windows caps a blob at 2560 bytes.
+fn write_target(target: &str, secret: String) -> Result<(), String> {
+    let target_wide = to_wide_null(target);
     let mut blob = secret.into_bytes();
 
     let mut credential = CREDENTIALW {
@@ -123,7 +127,11 @@ pub fn read_secret(provider_id: &str) -> Result<Option<String>, String> {
     if !is_valid_provider_id(provider_id) {
         return Err("That isn't a valid provider id.".into());
     }
-    let target_wide = to_wide_null(&target_for(provider_id));
+    read_target(&target_for(provider_id))
+}
+
+fn read_target(target: &str) -> Result<Option<String>, String> {
+    let target_wide = to_wide_null(target);
 
     unsafe {
         let mut ptr: *mut CREDENTIALW = std::ptr::null_mut();
@@ -164,7 +172,11 @@ pub async fn delete_secret(provider_id: String) -> Result<(), String> {
         what: crate::consent::describe_key(&provider_id),
     })
     .await?;
-    let target_wide = to_wide_null(&target_for(&provider_id));
+    delete_target(&target_for(&provider_id))
+}
+
+fn delete_target(target: &str) -> Result<(), String> {
+    let target_wide = to_wide_null(target);
     unsafe {
         match CredDeleteW(PCWSTR(target_wide.as_ptr()), CRED_TYPE_GENERIC, 0) {
             Ok(()) => Ok(()),
@@ -174,6 +186,35 @@ pub async fn delete_secret(provider_id: String) -> Result<(), String> {
             Err(e) => Err(format!("Couldn't remove that key: {e}")),
         }
     }
+}
+
+// ---- the Nova account session ---------------------------------------------------------------
+//
+// The sign-in session used to sit in `storage.json` as plain text. It is a credential, so it lives
+// here with the keys: DPAPI-protected, tied to this Windows account, visible in Credential
+// Manager, and not in a file that a backup, a sync tool or a support attachment would carry.
+// The renderer's account client still needs the value (it talks to Nova itself), so these three
+// commands hand it back; what changes is where it rests.
+
+const SESSION_TARGET: &str = "Atlas:account:session";
+const MAX_SESSION_CHARS: usize = 2000;
+
+#[tauri::command]
+pub fn account_session_get() -> Result<Option<String>, String> {
+    read_target(SESSION_TARGET)
+}
+
+#[tauri::command]
+pub fn account_session_set(value: String) -> Result<(), String> {
+    if value.is_empty() || value.chars().count() > MAX_SESSION_CHARS {
+        return Err("That isn't a usable sign-in session.".into());
+    }
+    write_target(SESSION_TARGET, value)
+}
+
+#[tauri::command]
+pub fn account_session_clear() -> Result<(), String> {
+    delete_target(SESSION_TARGET)
 }
 
 #[cfg(test)]

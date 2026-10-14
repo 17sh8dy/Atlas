@@ -49,7 +49,8 @@ pub fn record(scope: &str, message: &str) {
 
     // Newlines are flattened so one event is always one line — a message that
     // wraps turns a grep into a puzzle.
-    let flattened = message.replace(['\n', '\r'], " ");
+    // Credentials never reach disk, whatever was passed in: see redact.rs.
+    let flattened = crate::redact::redact(&message.replace(['\n', '\r'], " "));
 
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = writeln!(file, "[{stamp}] {scope}: {flattened}");
@@ -71,5 +72,6 @@ pub fn log_diagnostic(scope: String, message: String) {
 /// Hand the log back, so it can be shown in Settings without a file manager.
 #[tauri::command]
 pub fn read_diagnostics() -> String {
-    fs::read_to_string(log_path()).unwrap_or_default()
+    // Redacted again on the way out: lines written by an older build were not.
+    crate::redact::redact(&fs::read_to_string(log_path()).unwrap_or_default())
 }

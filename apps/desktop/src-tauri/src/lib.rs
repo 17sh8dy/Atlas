@@ -19,6 +19,7 @@ mod audio;
 #[cfg(windows)]
 mod cloud_intelligence;
 mod diagnostics;
+mod redact;
 #[cfg(windows)]
 mod devtools;
 mod disk_usage;
@@ -491,6 +492,9 @@ pub fn run() {
             secrets::save_secret,
             secrets::has_secret,
             secrets::delete_secret,
+            secrets::account_session_get,
+            secrets::account_session_set,
+            secrets::account_session_clear,
             cloud_intelligence::ask_cloud_provider,
             cloud_intelligence::test_cloud_provider,
             provider_bindings::provider_binding,

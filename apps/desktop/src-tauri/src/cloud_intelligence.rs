@@ -367,7 +367,12 @@ async fn ask_gemini(
 /// which closes the connection — see `halt::Halt::race`.
 #[tauri::command]
 pub async fn ask_cloud_provider(provider_id: String, model: String, prompt: String) -> Result<String, String> {
-    crate::halt::global().race(ask_cloud_provider_unraced(provider_id, model, prompt)).await
+    // A provider's error text is shown to the person and may be logged; some echo the key they
+    // rejected, so it is redacted at the one place everything leaves through.
+    crate::halt::global()
+        .race(ask_cloud_provider_unraced(provider_id, model, prompt))
+        .await
+        .map_err(|e| crate::redact::redact(&e))
 }
 
 async fn ask_cloud_provider_unraced(provider_id: String, model: String, prompt: String) -> Result<String, String> {

@@ -366,6 +366,23 @@ export async function deleteProviderSecret(providerId: string): Promise<void> {
 }
 
 /**
+ * The Nova account session. It is a credential, so in the desktop app it rests in Windows
+ * Credential Manager with the provider keys, not in `storage.json`. The account client still
+ * needs the value (it talks to Nova itself), so these hand it back.
+ */
+export async function readAccountSession(): Promise<string | null> {
+  return (await invoke<string | null>('account_session_get')) ?? null;
+}
+
+export async function writeAccountSession(value: string): Promise<void> {
+  await invoke<void>('account_session_set', { value });
+}
+
+export async function clearAccountSession(): Promise<void> {
+  await invoke<void>('account_session_clear');
+}
+
+/**
  * Where a provider's key may be sent, as the native side holds it. The address is **bound
  * natively**: `ask_cloud_provider` takes only the provider id, so nothing here can aim a saved key
  * at a different host. Binding is the one call that decides the destination.

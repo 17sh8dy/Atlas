@@ -1013,6 +1013,8 @@ mod tests {
             // out of their own preferences — least of all the folder list and
             // the keys that bound what Atlas can do in the first place.
             "add_allowed_folder", "remove_allowed_folder", "save_secret", "delete_secret",
+            // The signed-in session's resting place. Sign-in and sign-out must work while halted.
+            "account_session_get", "account_session_set", "account_session_clear",
             // Where a provider's key may be sent, set from Settings by the person.
             "provider_binding", "provider_bind", "provider_add", "provider_unbind", "provider_list",
             "provider_update",

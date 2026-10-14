@@ -18,6 +18,7 @@
  */
 
 import type { EpisodicEvent, Fact, Memory, Storage } from '@atlas/core';
+import { redactSecrets } from '@atlas/core';
 
 // Predates facts/aliases generalizing beyond preferences — kept as-is so
 // preference data already on disk isn't orphaned by a rename.
@@ -38,7 +39,9 @@ export class MemoryStore implements Memory {
   }
 
   async remember(kind: Fact['kind'], subject: string, value: string): Promise<void> {
-    const trimmed = value.trim();
+    // A key someone asked Atlas to "remember" is not kept in plain text; preferences are settings
+    // and are written as given.
+    const trimmed = (kind === 'preference' ? value : redactSecrets(value)).trim();
     const next = (await this.facts()).filter((f) => !(f.kind === kind && f.subject === subject));
     if (trimmed) next.push({ kind, subject, value: trimmed, at: Date.now() });
     await this.storage.set(FACTS_KEY, next);

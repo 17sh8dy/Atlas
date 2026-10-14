@@ -47,6 +47,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createNovaAccountClient, type NovaAccount, type NovaAccountClient } from '@nova/account-client';
 import { asyncStorage } from '@nova/account-client/storage';
 import type { Platform, Storage } from '@atlas/core';
+import { clearAccountSession, isTauri, readAccountSession, writeAccountSession } from '@atlas/platform';
 
 /**
  * The one place the production address appears. Must match the host allowed
@@ -94,14 +95,48 @@ let backing: Backing | null = null;
  * cache; until it has run Atlas is simply signed out, which is the correct thing for an app
  * that has not finished starting to believe about itself.
  */
+/**
+ * Where the signed-in session rests. In the desktop app that is Windows Credential Manager (a
+ * credential does not belong in a plain JSON file); anywhere else it is the ordinary storage. A
+ * session left in `storage.json` by an earlier version is moved on first read: copied into
+ * Credential Manager, then removed from the file. Signing in again is the cost on an older copy
+ * of Atlas that shares the same data folder, and it is only a sign-in.
+ */
+export function sessionStore(storage: Storage) {
+  if (!isTauri()) {
+    return {
+      get: (key: string) => storage.get<string>(key),
+      set: (key: string, value: string) => storage.set(key, value),
+      remove: (key: string) => storage.remove(key),
+    };
+  }
+  return {
+    get: async (key: string) => {
+      const held = await readAccountSession().catch(() => null);
+      if (held) return held;
+      const legacy = await storage.get<string>(key);
+      if (typeof legacy === 'string' && legacy) {
+        await writeAccountSession(legacy);
+        await storage.remove(key);
+        return legacy;
+      }
+      return undefined;
+    },
+    set: async (_key: string, value: string) => {
+      await writeAccountSession(value);
+      await storage.remove(STORAGE_KEY);
+    },
+    remove: async () => {
+      await clearAccountSession();
+      await storage.remove(STORAGE_KEY);
+    },
+  };
+}
+
 export function initNovaAccount(storage: Storage): NovaAccountClient {
   if (client) return client;
 
-  backing = asyncStorage({
-    get: (key) => storage.get<string>(key),
-    set: (key, value) => storage.set(key, value),
-    remove: (key) => storage.remove(key),
-  }, { key: STORAGE_KEY });
+  backing = asyncStorage(sessionStore(storage), { key: STORAGE_KEY });
 
   client = createNovaAccountClient({
     product: 'atlas',
