@@ -268,12 +268,11 @@ pub(crate) const STORAGE_KEY: &str = "atlas.allowed-folders";
 
 fn persist(
     app: tauri::AppHandle,
-    state: tauri::State<crate::storage::StorageState>,
+    _state: tauri::State<crate::storage::StorageState>,
 ) -> Result<(), String> {
-    crate::storage::storage_set(
-        app,
-        state,
-        STORAGE_KEY.to_string(),
+    crate::storage::set_trusted(
+        &app,
+        STORAGE_KEY,
         serde_json::to_value(as_strings()).map_err(|e| e.to_string())?,
     )
 }

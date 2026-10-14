@@ -495,6 +495,8 @@ pub fn run() {
             provider_bindings::provider_binding,
             provider_bindings::provider_bind,
             provider_bindings::provider_add,
+            provider_bindings::provider_list,
+            provider_bindings::provider_update,
             provider_bindings::provider_unbind,
         ])
         .manage(StorageState(std::sync::Mutex::new(())))
@@ -537,63 +539,24 @@ pub fn run() {
             // checks it. A fresh install has nothing saved yet and keeps the
             // built-in default (%USERPROFILE% alone, today's exact reach).
             let handle = app.handle().clone();
-            let saved: Option<Vec<String>> = storage::storage_get(
-                handle.clone(),
-                handle.state::<StorageState>(),
-                allowed_folders::STORAGE_KEY.to_string(),
-            )
-            .ok()
-            .flatten()
+            let saved: Option<Vec<String>> = storage::get_trusted(&handle, allowed_folders::STORAGE_KEY)
             .and_then(|v| serde_json::from_value(v).ok());
             // The emergency stop, before anything else that can act. Its own
             // thread and its own hotkey registration — see halt.rs for why it
             // must not share the event loop with the summon key below.
-            let saved_stop_key: Option<String> = storage::storage_get(
-                handle.clone(),
-                handle.state::<StorageState>(),
-                halt::SHORTCUT_STORAGE_KEY.to_string(),
-            )
-            .ok()
-            .flatten()
+            let saved_stop_key: Option<String> = storage::get_trusted(&handle, halt::SHORTCUT_STORAGE_KEY)
             .and_then(|v| v.as_str().map(str::to_string));
             halt::start(handle.clone(), saved_stop_key);
 
             // The SearXNG address, if one was saved. Held in memory from here on; a search
             // never takes an address from the renderer.
             searxng::init(
-                storage::storage_get(
-                    handle.clone(),
-                    handle.state::<StorageState>(),
-                    searxng::STORAGE_KEY.to_string(),
-                )
-                .ok()
-                .flatten(),
+                storage::get_trusted(&handle, searxng::STORAGE_KEY),
             );
 
-            // Where each cloud provider's key may be sent. Providers set up before bindings
-            // existed are adopted once from the saved list (only if a key is already saved).
-            {
-                let saved_bindings = storage::storage_get(
-                    handle.clone(),
-                    handle.state::<StorageState>(),
-                    provider_bindings::STORAGE_KEY.to_string(),
-                )
-                .ok()
-                .flatten();
-                let legacy = storage::storage_get(
-                    handle.clone(),
-                    handle.state::<StorageState>(),
-                    "atlas.preferences".to_string(),
-                )
-                .ok()
-                .flatten();
-                let (adopted, _) = provider_bindings::init(saved_bindings, legacy, |id| {
-                    secrets::read_secret(id).ok().flatten().is_some()
-                });
-                if adopted > 0 {
-                    provider_bindings::persist_after_init(&handle);
-                }
-            }
+            // Where each cloud provider's key may be sent, and the provider list itself. Providers
+            // set up before this existed are migrated once, with a backup and a check.
+            provider_bindings::init(&handle);
 
             let dropped = allowed_folders::init(saved);
             if !dropped.is_empty() {

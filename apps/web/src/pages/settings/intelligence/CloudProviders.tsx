@@ -28,13 +28,14 @@
 import { useEffect, useState } from 'react';
 import { Icons, Button, Input, Surface, Switch, cn } from '@atlas/ui';
 import type { CloudProviderConfig, CloudProviderKind, Storage } from '@atlas/core';
-import { writeActiveProvider, writeCloudProviders } from '@atlas/data';
+import { writeActiveProvider } from '@atlas/data';
 import {
   addProviderWithKey,
   deleteProviderSecret,
   readProviderBinding,
   testCloudProviderConnection,
   unbindProvider,
+  updateProvider,
 } from '@atlas/platform';
 
 interface Props {
@@ -133,16 +134,8 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
       const id = newProviderId();
       // One native question covers both the address the key is bound to and the key. If the
       // address is refused, or the person says no, nothing is written anywhere.
-      await addProviderWithKey(id, preset.kind, trimmedBaseUrl, trimmedKey);
-      const config: CloudProviderConfig = {
-        id,
-        kind: preset.kind,
-        label: trimmedLabel,
-        model: trimmedModel,
-        baseUrl: trimmedBaseUrl,
-        enabled: true,
-      };
-      await writeCloudProviders(storage, [...providers, config]);
+      // The list is native too: this one call records the provider, its address and its key.
+      await addProviderWithKey(id, preset.kind, trimmedBaseUrl, trimmedKey, trimmedLabel, trimmedModel);
       onChange();
       resetForm();
     } catch (err) {
@@ -155,10 +148,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
   async function toggleEnabled(id: string, next: boolean) {
     setBusy(true);
     try {
-      await writeCloudProviders(
-        storage,
-        providers.map((p) => (p.id === id ? { ...p, enabled: next } : p)),
-      );
+      await updateProvider(id, { enabled: next });
       // Disabling the one currently in use falls back to nothing selected,
       // rather than leaving `activeProviderId` pointing at a provider that
       // will now refuse every call — the same "selected but unconfigured is
@@ -188,10 +178,6 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
     try {
       await deleteProviderSecret(id);
       await unbindProvider(id);
-      await writeCloudProviders(
-        storage,
-        providers.filter((p) => p.id !== id),
-      );
       if (activeProviderId === id) await writeActiveProvider(storage, null);
       onChange();
     } finally {

@@ -43,7 +43,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::web::{check_query, truncate_chars, SearchErr, WebSearchResultDto, MAX_RESULTS, MAX_SNIPPET_CHARS, USER_AGENT};
 
@@ -543,8 +543,7 @@ pub async fn searxng_configure(app: AppHandle, url: String, allow_private: bool)
         if is_set {
             crate::consent::ask(crate::consent::Request::SearxngClear).await?;
         }
-        let state = app.state::<crate::storage::StorageState>();
-        crate::storage::storage_remove(app.clone(), state, STORAGE_KEY.to_string())?;
+        crate::storage::remove_trusted(&app, STORAGE_KEY)?;
         if let Ok(mut slot) = current().write() {
             *slot = None;
         }
@@ -571,11 +570,9 @@ pub async fn searxng_configure(app: AppHandle, url: String, allow_private: bool)
         })
         .await?;
     }
-    let state = app.state::<crate::storage::StorageState>();
-    crate::storage::storage_set(
-        app.clone(),
-        state,
-        STORAGE_KEY.to_string(),
+    crate::storage::set_trusted(
+        &app,
+        STORAGE_KEY,
         serde_json::to_value(&config).map_err(|e| e.to_string())?,
     )?;
     if let Ok(mut slot) = current().write() {

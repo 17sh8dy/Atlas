@@ -1,46 +1,98 @@
-//! Where a stored cloud-provider key may be sent.
+//! The cloud-provider list, held natively, and where each provider's key may be sent.
 //!
-//! A saved API key is only as safe as the address it is attached to. Before this module the
-//! renderer passed `kind` and `base_url` with every request, so anything that could call
-//! `ask_cloud_provider` could point a saved key at any https host. Now the destination is held
-//! here, natively, **per provider id**, and the request commands take only the id:
+//! A saved API key is only as safe as the address it is attached to, and a provider list that the
+//! webview can rewrite is a way to change that address. So the list lives here, not in the
+//! renderer's preferences:
 //!
-//! * `provider_bind(id, kind, base_url)` records an approved destination (validated the same way
-//!   a request is: https, or plain http to this machine only; link-local and metadata addresses
-//!   never). In the authorization stage this is the call that asks the person first.
+//! * `provider_add(id, kind, base_url, secret, label, model)` records a provider, its destination
+//!   and its key behind **one** native question (`consent.rs`).
+//! * `provider_bind(id, kind, base_url)` moves a provider's destination; that asks too, and asks
+//!   nothing when the address is unchanged.
+//! * `provider_update(id, label, model, enabled)` changes what cannot redirect a key: the name,
+//!   the model, and whether the provider may be selected. Enabling or switching between providers
+//!   the person already approved is deliberately not a question.
 //! * `ask_cloud_provider(id, model, prompt)` and `test_cloud_provider(id, model)` resolve the
-//!   destination from the binding. An id with no binding is refused; so is an id that has a key
-//!   saved for something else (the search provider's key can never be sent to a model endpoint).
-//! * Requests never follow redirects (see `cloud_intelligence.rs`), so a destination cannot hand
-//!   the key on to another host.
+//!   destination from this table and from nowhere else. An id with no entry is refused; so is any
+//!   `search-*` id (the web-search key is for a fixed service and can never go to a model
+//!   endpoint). Requests never follow redirects (`cloud_intelligence.rs`).
 //!
-//! The bindings live in `atlas.provider-bindings`, which is a trust-bearing key: it is read once
-//! at startup and held in memory. Providers configured before this existed are adopted **once**,
-//! at startup, from the saved provider list — and only when a key is already saved for that id —
-//! so nobody has to re-enter anything. That adoption is a trust-on-first-use step and is
-//! documented as such: a renderer that tampered with the saved list *before* the first run of
-//! this version could have chosen the address that gets adopted.
+//! The table is persisted in `atlas.provider-bindings`, a trust key the generic store refuses
+//! (`storage.rs`), read once at startup and held in memory.
+//!
+//! ## The one-time migration
+//!
+//! Before this existed the list was a fact (`cloudProviders.list`) inside `atlas.preferences`.
+//! At the first start of this version it is read **once**, and:
+//!
+//! 1. `storage.json` is copied to `storage.json.pre-2.0-providers.bak` (only if that copy does
+//!    not exist yet);
+//! 2. every well-formed entry becomes a table entry (its address re-validated);
+//! 3. the table and a marker (`atlas.migrations`) are written, and the store is read back: every
+//!    *other* key must be exactly what it was, and the new keys must say what was intended;
+//! 4. on any mismatch the backup is put back and nothing is adopted.
+//!
+//! The old fact is **never deleted or edited**, which is the rollback path: Atlas 1.0.x ignores
+//! the new keys and keeps reading it. The cost of that is skew: a provider added by 2.0 is not
+//! visible to 1.0.x, and one added by 1.0.x after migration is not adopted by 2.0 (adoption is a
+//! single trust-on-first-use step, not a standing channel from the renderer's list into the
+//! table). Both are documented in `docs/NATIVE-AUTHORIZATION-INVENTORY.md`.
 
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::sync::{OnceLock, RwLock};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::cloud_intelligence::{resolve_base_url, CloudProviderKind};
 
 pub(crate) const STORAGE_KEY: &str = "atlas.provider-bindings";
+pub(crate) const MIGRATIONS_KEY: &str = "atlas.migrations";
+const MIGRATION_ID: &str = "providers-2.0";
+const BACKUP_NAME: &str = "storage.json.pre-2.0-providers.bak";
+const LEGACY_KEY: &str = "atlas.preferences";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct Binding {
+pub struct Provider {
     pub kind: CloudProviderKind,
     /// Resolved and normalised, exactly what a request will use.
     pub base_url: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// Orders the list as the person added it.
+    #[serde(default)]
+    pub added_at: u64,
 }
 
-/// What the Settings page may see: where the key goes, never the key.
+fn yes() -> bool {
+    true
+}
+
+impl Provider {
+    /// Where a key goes, and nothing else: the part that is trust.
+    fn destination(&self) -> (CloudProviderKind, &str) {
+        (self.kind, &self.base_url)
+    }
+}
+
+/// What the Settings page sees: never the key.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderView {
+    pub id: String,
+    pub kind: CloudProviderKind,
+    pub label: String,
+    pub model: String,
+    pub base_url: String,
+    pub host: String,
+    pub enabled: bool,
+}
+
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BindingView {
@@ -49,8 +101,20 @@ pub struct BindingView {
     pub host: String,
 }
 
-fn view(b: &Binding) -> BindingView {
-    BindingView { kind: b.kind, base_url: b.base_url.clone(), host: host_of(&b.base_url) }
+fn view_of(id: &str, p: &Provider) -> ProviderView {
+    ProviderView {
+        id: id.to_string(),
+        kind: p.kind,
+        label: p.label.clone(),
+        model: p.model.clone(),
+        base_url: p.base_url.clone(),
+        host: host_of(&p.base_url),
+        enabled: p.enabled,
+    }
+}
+
+fn binding_view(p: &Provider) -> BindingView {
+    BindingView { kind: p.kind, base_url: p.base_url.clone(), host: host_of(&p.base_url) }
 }
 
 fn host_of(base: &str) -> String {
@@ -65,12 +129,14 @@ fn host_of(base: &str) -> String {
         .unwrap_or_default()
 }
 
-fn table() -> &'static RwLock<BTreeMap<String, Binding>> {
-    static T: OnceLock<RwLock<BTreeMap<String, Binding>>> = OnceLock::new();
+type Table = BTreeMap<String, Provider>;
+
+fn table() -> &'static RwLock<Table> {
+    static T: OnceLock<RwLock<Table>> = OnceLock::new();
     T.get_or_init(|| RwLock::new(BTreeMap::new()))
 }
 
-pub(crate) fn get(provider_id: &str) -> Option<Binding> {
+pub(crate) fn get(provider_id: &str) -> Option<Provider> {
     table().read().ok()?.get(provider_id).cloned()
 }
 
@@ -79,8 +145,7 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
 }
 
-/// Ids that name something other than a model provider. A key saved under one of these is for a
-/// fixed service with its own fixed address, and must never be attachable to a model endpoint.
+/// Ids that name something other than a model provider.
 fn reserved(id: &str) -> bool {
     id.starts_with("search-")
 }
@@ -101,10 +166,7 @@ fn check_destination(base: &str) -> Result<(), String> {
         let bad = match ip {
             IpAddr::V4(v4) => v4.is_unspecified() || v4.is_link_local() || v4.is_multicast() || v4.is_broadcast(),
             IpAddr::V6(v6) => {
-                v6.is_unspecified()
-                    || v6.is_multicast()
-                    // fe80::/10, link-local
-                    || (v6.segments()[0] & 0xffc0) == 0xfe80
+                v6.is_unspecified() || v6.is_multicast() || (v6.segments()[0] & 0xffc0) == 0xfe80
             }
         };
         if bad {
@@ -121,60 +183,54 @@ pub(crate) fn validate(kind: CloudProviderKind, base_url: &str) -> Result<String
     Ok(resolved)
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 fn persist(app: &AppHandle) -> Result<(), String> {
-    let snapshot = table().read().map_err(|_| "Couldn't read the provider bindings.".to_string())?.clone();
-    crate::storage::storage_set(
-        app.clone(),
-        app.state::<crate::storage::StorageState>(),
-        STORAGE_KEY.to_string(),
+    let snapshot = table().read().map_err(|_| "Couldn't read the provider list.".to_string())?.clone();
+    crate::storage::set_trusted(
+        app,
+        STORAGE_KEY,
         serde_json::to_value(snapshot).map_err(|e| e.to_string())?,
     )
 }
 
-/// Called once from `setup()`, before any command can run.
-///
-/// `saved` is the stored bindings; `legacy_facts` is the stored `atlas.preferences` array, read
-/// only to adopt providers that already have a key saved (`has_key` tells which). Returns how
-/// many providers were adopted.
-pub(crate) fn init(
-    saved: Option<serde_json::Value>,
-    legacy_facts: Option<serde_json::Value>,
-    has_key: impl Fn(&str) -> bool,
-) -> (usize, bool) {
-    let mut map: BTreeMap<String, Binding> = BTreeMap::new();
-    if let Some(v) = saved {
-        if let Ok(parsed) = serde_json::from_value::<BTreeMap<String, Binding>>(v) {
-            for (id, b) in parsed {
-                // Stored values are re-validated: a hand-edited file does not get a pass.
-                if valid_id(&id) && !reserved(&id) {
-                    if let Ok(base) = validate(b.kind, &b.base_url) {
-                        map.insert(id, Binding { kind: b.kind, base_url: base });
-                    }
-                }
-            }
+// ---- loading and the one-time migration ------------------------------------------------------
+
+/// Re-validate a stored table: a hand-edited file does not get a pass.
+fn load_table(value: Option<serde_json::Value>) -> Table {
+    let mut out = Table::new();
+    let Some(v) = value else { return out };
+    let Ok(parsed) = serde_json::from_value::<Table>(v) else { return out };
+    for (id, mut p) in parsed {
+        if !valid_id(&id) || reserved(&id) {
+            continue;
+        }
+        if let Ok(base) = validate(p.kind, &p.base_url) {
+            p.base_url = base;
+            out.insert(id, p);
         }
     }
-    let had_any = !map.is_empty();
-    let mut adopted = 0;
-    if !had_any {
-        for (id, kind, base_url) in legacy_providers(legacy_facts.as_ref()) {
-            if !valid_id(&id) || reserved(&id) || map.contains_key(&id) || !has_key(&id) {
-                continue;
-            }
-            if let Ok(base) = validate(kind, &base_url) {
-                map.insert(id, Binding { kind, base_url: base });
-                adopted += 1;
-            }
-        }
-    }
-    if let Ok(mut guard) = table().write() {
-        *guard = map;
-    }
-    (adopted, had_any)
+    out
 }
 
-/// `(id, kind, baseUrl)` for each entry of the provider list inside the saved preference facts.
-fn legacy_providers(facts: Option<&serde_json::Value>) -> Vec<(String, CloudProviderKind, String)> {
+/// A legacy provider-list entry: what the old preference fact held.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Legacy {
+    pub id: String,
+    pub kind: CloudProviderKind,
+    pub base_url: String,
+    pub label: String,
+    pub model: String,
+    pub enabled: bool,
+}
+
+/// The entries of the provider list inside the saved preference facts.
+pub(crate) fn legacy_providers(facts: Option<&serde_json::Value>) -> Vec<Legacy> {
     let mut out = Vec::new();
     let Some(arr) = facts.and_then(|f| f.as_array()) else { return out };
     let list = arr.iter().find(|f| {
@@ -184,62 +240,167 @@ fn legacy_providers(facts: Option<&serde_json::Value>) -> Vec<(String, CloudProv
     let Some(raw) = list.and_then(|f| f.get("value")).and_then(|v| v.as_str()) else { return out };
     let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(raw) else { return out };
     for e in entries {
-        let id = e.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let kind = e
-            .get("kind")
-            .and_then(|v| serde_json::from_value::<CloudProviderKind>(v.clone()).ok());
-        let base = e.get("baseUrl").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        if let Some(kind) = kind {
-            out.push((id, kind, base));
-        }
+        let s = |k: &str| e.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let Some(kind) = e.get("kind").and_then(|v| serde_json::from_value::<CloudProviderKind>(v.clone()).ok())
+        else {
+            continue;
+        };
+        out.push(Legacy {
+            id: s("id"),
+            kind,
+            base_url: s("baseUrl"),
+            label: s("label"),
+            model: s("model"),
+            enabled: e.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false),
+        });
     }
     out
 }
 
-/// Persist what `init` adopted. Separate so `lib.rs` can call it once it has a handle.
-pub(crate) fn persist_after_init(app: &AppHandle) {
-    let _ = persist(app);
+/// What the table should look like after migrating: the current table, plus every legacy entry
+/// that is well-formed and not already present (an existing entry only has its name and model
+/// filled in, never its destination). Pure, so it can be tested without a store.
+pub(crate) fn plan_migration(current: &Table, legacy: &[Legacy], start_at: u64) -> (Table, usize) {
+    let mut next = current.clone();
+    let mut adopted = 0;
+    for (i, l) in legacy.iter().enumerate() {
+        if !valid_id(&l.id) || reserved(&l.id) {
+            continue;
+        }
+        if let Some(existing) = next.get_mut(&l.id) {
+            if existing.label.is_empty() {
+                existing.label = l.label.clone();
+            }
+            if existing.model.is_empty() {
+                existing.model = l.model.clone();
+            }
+            continue;
+        }
+        let Ok(base) = validate(l.kind, &l.base_url) else { continue };
+        next.insert(
+            l.id.clone(),
+            Provider {
+                kind: l.kind,
+                base_url: base,
+                label: l.label.clone(),
+                model: l.model.clone(),
+                enabled: l.enabled,
+                added_at: start_at + i as u64,
+            },
+        );
+        adopted += 1;
+    }
+    (next, adopted)
+}
+
+/// Did the migration write exactly what it meant to, and touch nothing else?
+pub(crate) fn verify_migration(
+    before: &std::collections::HashMap<String, serde_json::Value>,
+    after: &std::collections::HashMap<String, serde_json::Value>,
+    intended: &Table,
+) -> Result<(), String> {
+    for (k, v) in before {
+        if k == STORAGE_KEY || k == MIGRATIONS_KEY {
+            continue;
+        }
+        if after.get(k) != Some(v) {
+            return Err(format!("the key {k} changed"));
+        }
+    }
+    for k in after.keys() {
+        if k != STORAGE_KEY && k != MIGRATIONS_KEY && !before.contains_key(k) {
+            return Err(format!("the key {k} appeared"));
+        }
+    }
+    let written: Table = after
+        .get(STORAGE_KEY)
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .ok_or("the provider table was not written")?;
+    if &written != intended {
+        return Err("the provider table read back differently".into());
+    }
+    let marked = after.get(MIGRATIONS_KEY).and_then(|v| v.get(MIGRATION_ID)).is_some();
+    if !marked {
+        return Err("the migration marker was not written".into());
+    }
+    Ok(())
+}
+
+fn log(msg: String) {
+    crate::diagnostics::log_diagnostic("provider_migration".to_string(), msg);
+}
+
+/// Called once from `setup()`, before any command can run.
+pub(crate) fn init(app: &AppHandle) {
+    let mut current = load_table(crate::storage::get_trusted(app, STORAGE_KEY));
+    let migrated = crate::storage::get_trusted(app, MIGRATIONS_KEY)
+        .and_then(|v| v.get(MIGRATION_ID).cloned())
+        .is_some();
+
+    if !migrated {
+        match migrate(app, &current) {
+            Ok(Some(next)) => current = next,
+            Ok(None) => {}
+            Err(why) => log(format!("not migrated, state left as it was: {why}")),
+        }
+    }
+    if let Ok(mut guard) = table().write() {
+        *guard = current;
+    }
+}
+
+/// `Ok(Some(table))` when entries were adopted and verified, `Ok(None)` when there was nothing to
+/// do, `Err` when it was abandoned (the store is back as it was).
+fn migrate(app: &AppHandle, current: &Table) -> Result<Option<Table>, String> {
+    let legacy = legacy_providers(crate::storage::get_trusted(app, LEGACY_KEY).as_ref());
+    let (next, adopted) = plan_migration(current, &legacy, now_ms());
+    let marker = serde_json::json!({ MIGRATION_ID: { "at": now_ms(), "adopted": adopted } });
+
+    if legacy.is_empty() && next == *current {
+        // Nothing to carry over: record that, so this never looks at the list again.
+        crate::storage::set_trusted(app, MIGRATIONS_KEY, marker)?;
+        return Ok(None);
+    }
+
+    crate::storage::backup_once(app, BACKUP_NAME)?;
+    let before = crate::storage::snapshot(app)?;
+    let write = || -> Result<(), String> {
+        crate::storage::set_trusted(app, STORAGE_KEY, serde_json::to_value(&next).map_err(|e| e.to_string())?)?;
+        crate::storage::set_trusted(app, MIGRATIONS_KEY, marker.clone())
+    };
+    let verified = write().and_then(|_| {
+        let after = crate::storage::snapshot(app)?;
+        verify_migration(&before, &after, &next)
+    });
+    match verified {
+        Ok(()) => {
+            log(format!("adopted {adopted} provider(s); backup kept as {BACKUP_NAME}"));
+            Ok(Some(next))
+        }
+        Err(why) => {
+            let restored = crate::storage::restore_backup(app, BACKUP_NAME);
+            Err(format!("verification failed ({why}); backup restored: {}", restored.is_ok()))
+        }
+    }
+}
+
+// ---- commands ----------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn provider_list() -> Vec<ProviderView> {
+    let guard = match table().read() {
+        Ok(g) => g,
+        Err(_) => return Vec::new(),
+    };
+    let mut rows: Vec<(&String, &Provider)> = guard.iter().collect();
+    rows.sort_by(|a, b| a.1.added_at.cmp(&b.1.added_at).then(a.0.cmp(b.0)));
+    rows.into_iter().map(|(id, p)| view_of(id, p)).collect()
 }
 
 #[tauri::command]
 pub fn provider_binding(provider_id: String) -> Option<BindingView> {
-    get(&provider_id).as_ref().map(view)
-}
-
-/// Record where this provider's key may be sent. Replaces any earlier binding for the id.
-#[tauri::command]
-pub async fn provider_bind(
-    app: AppHandle,
-    provider_id: String,
-    kind: CloudProviderKind,
-    base_url: String,
-) -> Result<BindingView, String> {
-    if !valid_id(&provider_id) {
-        return Err("That isn't a valid provider id.".into());
-    }
-    if reserved(&provider_id) {
-        return Err("That id is for a built-in service, not a model provider.".into());
-    }
-    let resolved = validate(kind, &base_url)?;
-    let binding = Binding { kind, base_url: resolved };
-    let out = view(&binding);
-    let before = get(&provider_id);
-    // Re-binding to the address it already has changes nothing, so asks nothing.
-    if before.as_ref() == Some(&binding) {
-        return Ok(out);
-    }
-    crate::consent::ask(crate::consent::Request::ProviderBind {
-        kind: kind_label(kind).to_string(),
-        host: out.host.clone(),
-        was: before.as_ref().map(|b| host_of(&b.base_url)),
-    })
-    .await?;
-    {
-        let mut guard = table().write().map_err(|_| "Couldn't update the provider bindings.".to_string())?;
-        guard.insert(provider_id, binding);
-    }
-    persist(&app)?;
-    Ok(out)
+    get(&provider_id).as_ref().map(binding_view)
 }
 
 fn kind_label(kind: CloudProviderKind) -> &'static str {
@@ -248,6 +409,20 @@ fn kind_label(kind: CloudProviderKind) -> &'static str {
         CloudProviderKind::Anthropic => "Anthropic",
         CloudProviderKind::Gemini => "Gemini",
     }
+}
+
+fn check_id(provider_id: &str) -> Result<(), String> {
+    if !valid_id(provider_id) {
+        return Err("That isn't a valid provider id.".into());
+    }
+    if reserved(provider_id) {
+        return Err("That id is for a built-in service, not a model provider.".into());
+    }
+    Ok(())
+}
+
+fn clip(s: &str, max: usize) -> String {
+    s.trim().chars().take(max).collect()
 }
 
 /// Add a provider in one step: where its key goes **and** the key, behind a single question, so
@@ -259,28 +434,31 @@ pub async fn provider_add(
     kind: CloudProviderKind,
     base_url: String,
     secret: String,
-) -> Result<BindingView, String> {
-    if !valid_id(&provider_id) {
-        return Err("That isn't a valid provider id.".into());
-    }
-    if reserved(&provider_id) {
-        return Err("That id is for a built-in service, not a model provider.".into());
-    }
+    label: String,
+    model: String,
+) -> Result<ProviderView, String> {
+    check_id(&provider_id)?;
     if secret.is_empty() {
         return Err("That key is empty.".into());
     }
     let resolved = validate(kind, &base_url)?;
-    let binding = Binding { kind, base_url: resolved };
-    let out = view(&binding);
+    let entry = Provider {
+        kind,
+        base_url: resolved,
+        label: clip(&label, 80),
+        model: clip(&model, 120),
+        enabled: true,
+        added_at: now_ms(),
+    };
     crate::consent::ask(crate::consent::Request::ProviderAdd {
         kind: kind_label(kind).to_string(),
-        host: out.host.clone(),
+        host: host_of(&entry.base_url),
     })
     .await?;
     let before = get(&provider_id);
     {
-        let mut guard = table().write().map_err(|_| "Couldn't update the provider bindings.".to_string())?;
-        guard.insert(provider_id.clone(), binding);
+        let mut guard = table().write().map_err(|_| "Couldn't update the provider list.".to_string())?;
+        guard.insert(provider_id.clone(), entry.clone());
     }
     if let Err(e) = crate::secrets::save_secret_now(provider_id.clone(), secret) {
         // Put the table back: a destination with no key behind it would be a half-made provider.
@@ -293,15 +471,78 @@ pub async fn provider_add(
         return Err(e);
     }
     persist(&app)?;
-    Ok(out)
+    Ok(view_of(&provider_id, &entry))
 }
 
-/// Forget a provider's destination (called when the provider is removed). Withdrawing a
-/// destination only makes a saved key less usable, so it asks nothing.
+/// Move a provider's destination. Asks, unless the address is the one it already has.
+#[tauri::command]
+pub async fn provider_bind(
+    app: AppHandle,
+    provider_id: String,
+    kind: CloudProviderKind,
+    base_url: String,
+) -> Result<ProviderView, String> {
+    check_id(&provider_id)?;
+    let Some(before) = get(&provider_id) else {
+        return Err("That provider isn't on the list. Add it first.".into());
+    };
+    let resolved = validate(kind, &base_url)?;
+    let mut next = before.clone();
+    next.kind = kind;
+    next.base_url = resolved;
+    if next.destination() == before.destination() {
+        return Ok(view_of(&provider_id, &before));
+    }
+    crate::consent::ask(crate::consent::Request::ProviderBind {
+        kind: kind_label(kind).to_string(),
+        host: host_of(&next.base_url),
+        was: Some(host_of(&before.base_url)),
+    })
+    .await?;
+    {
+        let mut guard = table().write().map_err(|_| "Couldn't update the provider list.".to_string())?;
+        guard.insert(provider_id.clone(), next.clone());
+    }
+    persist(&app)?;
+    Ok(view_of(&provider_id, &next))
+}
+
+/// Change what cannot redirect a key: the name, the model, whether the provider may be selected.
+#[tauri::command]
+pub fn provider_update(
+    app: AppHandle,
+    provider_id: String,
+    label: Option<String>,
+    model: Option<String>,
+    enabled: Option<bool>,
+) -> Result<ProviderView, String> {
+    check_id(&provider_id)?;
+    let updated = {
+        let mut guard = table().write().map_err(|_| "Couldn't update the provider list.".to_string())?;
+        let Some(p) = guard.get_mut(&provider_id) else {
+            return Err("That provider isn't on the list.".into());
+        };
+        if let Some(l) = label {
+            p.label = clip(&l, 80);
+        }
+        if let Some(m) = model {
+            p.model = clip(&m, 120);
+        }
+        if let Some(e) = enabled {
+            p.enabled = e;
+        }
+        p.clone()
+    };
+    persist(&app)?;
+    Ok(view_of(&provider_id, &updated))
+}
+
+/// Forget a provider (called when it is removed). Withdrawing a destination only makes a saved
+/// key less usable, so it asks nothing.
 #[tauri::command]
 pub fn provider_unbind(app: AppHandle, provider_id: String) -> Result<(), String> {
     {
-        let mut guard = table().write().map_err(|_| "Couldn't update the provider bindings.".to_string())?;
+        let mut guard = table().write().map_err(|_| "Couldn't update the provider list.".to_string())?;
         guard.remove(&provider_id);
     }
     persist(&app)
@@ -317,8 +558,12 @@ mod tests {
         LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn set(map: BTreeMap<String, Binding>) {
+    fn set(map: Table) {
         *table().write().unwrap() = map;
+    }
+
+    fn provider(kind: CloudProviderKind, base: &str) -> Provider {
+        Provider { kind, base_url: base.to_string(), label: "L".into(), model: "m".into(), enabled: true, added_at: 1 }
     }
 
     #[test]
@@ -350,73 +595,14 @@ mod tests {
     #[test]
     fn an_unbound_id_has_no_destination() {
         let _t = turn();
-        set(BTreeMap::new());
+        set(Table::new());
         assert!(get("cloud-1").is_none());
-    }
-
-    #[test]
-    fn search_ids_can_never_be_bound_or_adopted() {
-        let _t = turn();
-        assert!(reserved("search-tavily"));
-        let facts = serde_json::json!([{
-            "kind": "preference", "subject": "cloudProviders.list",
-            "value": serde_json::to_string(&serde_json::json!([
-                {"id": "search-tavily", "kind": "openai-compatible", "baseUrl": "https://evil.example"}
-            ])).unwrap()
-        }]);
-        let (adopted, _) = init(None, Some(facts), |_| true);
-        assert_eq!(adopted, 0);
-        assert!(get("search-tavily").is_none());
-    }
-
-    #[test]
-    fn existing_providers_with_a_saved_key_are_adopted_once_and_others_are_not() {
-        let _t = turn();
-        let list = serde_json::to_string(&serde_json::json!([
-            {"id": "cloud-a", "kind": "openai-compatible", "baseUrl": "https://api.moonshot.ai/v1/"},
-            {"id": "cloud-b", "kind": "anthropic", "baseUrl": ""},
-            {"id": "cloud-c", "kind": "openai-compatible", "baseUrl": "http://evil.example"}
-        ]))
-        .unwrap();
-        let facts = serde_json::json!([{ "kind": "preference", "subject": "cloudProviders.list", "value": list }]);
-        let (adopted, had) = init(None, Some(facts.clone()), |id| id != "cloud-b");
-        assert!(!had);
-        assert_eq!(adopted, 1, "only the one with a key and a valid address");
-        assert_eq!(get("cloud-a").unwrap().base_url, "https://api.moonshot.ai");
-        assert!(get("cloud-b").is_none(), "no key saved, so nothing to protect or adopt");
-        assert!(get("cloud-c").is_none(), "an http address to another machine is refused");
-
-        // Once bindings exist the saved list is never consulted again: a later edit to the list
-        // cannot move an approved destination.
-        let saved = serde_json::to_value(table().read().unwrap().clone()).unwrap();
-        let tampered = serde_json::json!([{
-            "kind": "preference", "subject": "cloudProviders.list",
-            "value": serde_json::to_string(&serde_json::json!([
-                {"id": "cloud-a", "kind": "openai-compatible", "baseUrl": "https://evil.example"}
-            ])).unwrap()
-        }]);
-        let (adopted, had) = init(Some(saved), Some(tampered), |_| true);
-        assert!(had);
-        assert_eq!(adopted, 0);
-        assert_eq!(get("cloud-a").unwrap().base_url, "https://api.moonshot.ai");
-    }
-
-    #[test]
-    fn a_stored_binding_with_a_bad_address_is_dropped_on_load() {
-        let _t = turn();
-        let saved = serde_json::json!({
-            "cloud-x": { "kind": "openai-compatible", "baseUrl": "http://evil.example" },
-            "cloud-y": { "kind": "openai-compatible", "baseUrl": "https://api.example.com" }
-        });
-        let _ = init(Some(saved), None, |_| false);
-        assert!(get("cloud-x").is_none());
-        assert!(get("cloud-y").is_some());
     }
 
     #[test]
     fn a_request_for_an_unbound_provider_is_refused_before_anything_is_sent() {
         let _t = turn();
-        set(BTreeMap::new());
+        set(Table::new());
         let err = tauri::async_runtime::block_on(crate::cloud_intelligence::ask_cloud_provider(
             "cloud-unbound".to_string(),
             "m".to_string(),
@@ -424,12 +610,126 @@ mod tests {
         ))
         .unwrap_err();
         assert!(err.contains("hasn't been confirmed"), "{err}");
-        // And the built-in search key can never be borrowed as a model-provider key.
         let err = tauri::async_runtime::block_on(crate::cloud_intelligence::test_cloud_provider(
             "search-tavily".to_string(),
             "m".to_string(),
         ))
         .unwrap_err();
         assert!(err.contains("hasn't been confirmed"), "{err}");
+    }
+
+    fn legacy_facts(list: serde_json::Value) -> serde_json::Value {
+        serde_json::json!([
+            { "kind": "preference", "subject": "execution.mode", "value": "doItPlus" },
+            { "kind": "preference", "subject": "cloudProviders.list", "value": serde_json::to_string(&list).unwrap() }
+        ])
+    }
+
+    #[test]
+    fn the_saved_list_is_carried_over_with_its_names_models_and_flags() {
+        let facts = legacy_facts(serde_json::json!([
+            {"id": "cloud-a", "kind": "openai-compatible", "label": "Kimi", "model": "kimi-k2", "baseUrl": "https://api.moonshot.ai/v1/", "enabled": true},
+            {"id": "cloud-b", "kind": "anthropic", "label": "Claude", "model": "opus", "baseUrl": "", "enabled": false}
+        ]));
+        let legacy = legacy_providers(Some(&facts));
+        assert_eq!(legacy.len(), 2);
+        let (next, adopted) = plan_migration(&Table::new(), &legacy, 1000);
+        assert_eq!(adopted, 2);
+        let a = &next["cloud-a"];
+        assert_eq!((a.label.as_str(), a.model.as_str(), a.enabled), ("Kimi", "kimi-k2", true));
+        assert_eq!(a.base_url, "https://api.moonshot.ai", "the same normalisation a request uses");
+        assert_eq!(next["cloud-b"].base_url, "https://api.anthropic.com", "an empty address resolves to the default");
+        assert!(!next["cloud-b"].enabled);
+        assert!(a.added_at < next["cloud-b"].added_at, "the list keeps its order");
+    }
+
+    #[test]
+    fn a_bad_or_reserved_entry_is_dropped_and_a_good_one_next_to_it_is_not() {
+        let facts = legacy_facts(serde_json::json!([
+            {"id": "cloud-http", "kind": "openai-compatible", "label": "x", "model": "m", "baseUrl": "http://evil.example", "enabled": true},
+            {"id": "search-tavily", "kind": "openai-compatible", "label": "x", "model": "m", "baseUrl": "https://evil.example", "enabled": true},
+            {"id": "bad id!", "kind": "openai-compatible", "label": "x", "model": "m", "baseUrl": "https://ok.example", "enabled": true},
+            {"id": "cloud-ok", "kind": "openai-compatible", "label": "ok", "model": "m", "baseUrl": "https://ok.example", "enabled": true}
+        ]));
+        let (next, adopted) = plan_migration(&Table::new(), &legacy_providers(Some(&facts)), 0);
+        assert_eq!(adopted, 1);
+        assert_eq!(next.keys().collect::<Vec<_>>(), vec!["cloud-ok"]);
+    }
+
+    #[test]
+    fn an_entry_already_in_the_table_keeps_its_destination() {
+        let mut current = Table::new();
+        current.insert(
+            "cloud-a".into(),
+            Provider {
+                label: String::new(),
+                model: String::new(),
+                ..provider(CloudProviderKind::OpenaiCompatible, "https://approved.example")
+            },
+        );
+        let facts = legacy_facts(serde_json::json!([
+            {"id": "cloud-a", "kind": "openai-compatible", "label": "Name", "model": "m1", "baseUrl": "https://evil.example", "enabled": true}
+        ]));
+        let (next, adopted) = plan_migration(&current, &legacy_providers(Some(&facts)), 0);
+        assert_eq!(adopted, 0);
+        assert_eq!(next["cloud-a"].base_url, "https://approved.example");
+        assert_eq!((next["cloud-a"].label.as_str(), next["cloud-a"].model.as_str()), ("Name", "m1"));
+    }
+
+    #[test]
+    fn verification_accepts_only_exactly_what_was_intended() {
+        use std::collections::HashMap;
+        let mut intended = Table::new();
+        intended.insert(
+            "cloud-a".into(),
+            provider(CloudProviderKind::Gemini, "https://generativelanguage.googleapis.com"),
+        );
+        let mut before: HashMap<String, serde_json::Value> = HashMap::new();
+        before.insert("atlas.theme".into(), serde_json::json!("dark"));
+        before.insert("atlas.nova.account".into(), serde_json::json!({"token": "kept"}));
+        let mut after = before.clone();
+        after.insert(STORAGE_KEY.into(), serde_json::to_value(&intended).unwrap());
+        after.insert(MIGRATIONS_KEY.into(), serde_json::json!({ MIGRATION_ID: {"at": 1} }));
+        assert!(verify_migration(&before, &after, &intended).is_ok());
+
+        let mut changed = after.clone();
+        changed.insert("atlas.theme".into(), serde_json::json!("light"));
+        assert!(verify_migration(&before, &changed, &intended).unwrap_err().contains("atlas.theme"));
+
+        let mut lost = after.clone();
+        lost.remove("atlas.nova.account");
+        assert!(verify_migration(&before, &lost, &intended).is_err(), "a vanished key is a failure");
+
+        let mut extra = after.clone();
+        extra.insert("stray.key".into(), serde_json::json!(1));
+        assert!(verify_migration(&before, &extra, &intended).is_err());
+
+        let mut wrong = after.clone();
+        wrong.insert(STORAGE_KEY.into(), serde_json::json!({}));
+        assert!(verify_migration(&before, &wrong, &intended).is_err());
+
+        let mut unmarked = after.clone();
+        unmarked.remove(MIGRATIONS_KEY);
+        assert!(verify_migration(&before, &unmarked, &intended).is_err());
+    }
+
+    #[test]
+    fn a_stored_table_with_a_bad_address_loses_that_entry_on_load() {
+        let saved = serde_json::json!({
+            "cloud-x": { "kind": "openai-compatible", "baseUrl": "http://evil.example" },
+            "cloud-y": { "kind": "openai-compatible", "baseUrl": "https://api.example.com" },
+            "search-tavily": { "kind": "openai-compatible", "baseUrl": "https://api.example.com" }
+        });
+        let t = load_table(Some(saved));
+        assert_eq!(t.keys().collect::<Vec<_>>(), vec!["cloud-y"]);
+        assert!(t["cloud-y"].enabled, "a table written before the list was native defaults to enabled");
+    }
+
+    #[test]
+    fn the_earlier_shape_without_names_still_loads() {
+        let t = load_table(Some(serde_json::json!({
+            "cloud-z": { "kind": "anthropic", "baseUrl": "https://api.anthropic.com" }
+        })));
+        assert_eq!(t["cloud-z"].label, "");
     }
 }

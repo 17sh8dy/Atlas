@@ -887,7 +887,6 @@ pub async fn set_halt_shortcut(
     app: tauri::AppHandle,
     shortcut: String,
 ) -> Result<HaltStatus, String> {
-    use tauri::Manager;
     let parsed = parse_shortcut(&shortcut)?;
     let label = parsed.label.clone();
     // Moving the emergency stop is a durable trust change: the person confirms it natively.
@@ -896,10 +895,9 @@ pub async fn set_halt_shortcut(
     tauri::async_runtime::spawn_blocking(move || hotkeys.rebind(parsed))
         .await
         .map_err(|e| e.to_string())??;
-    let saved = crate::storage::storage_set(
-        app.clone(),
-        app.state::<crate::storage::StorageState>(),
-        SHORTCUT_STORAGE_KEY.into(),
+    let saved = crate::storage::set_trusted(
+        &app,
+        SHORTCUT_STORAGE_KEY,
         serde_json::Value::String(label),
     );
     let mut status = status_now();
@@ -1011,7 +1009,8 @@ mod tests {
             // the keys that bound what Atlas can do in the first place.
             "add_allowed_folder", "remove_allowed_folder", "save_secret", "delete_secret",
             // Where a provider's key may be sent, set from Settings by the person.
-            "provider_binding", "provider_bind", "provider_add", "provider_unbind",
+            "provider_binding", "provider_bind", "provider_add", "provider_unbind", "provider_list",
+            "provider_update",
             // The SearXNG address, saved from Settings by the person. It only chooses where
             // Atlas's own search is sent; every address is checked again on each search.
             "searxng_configure",

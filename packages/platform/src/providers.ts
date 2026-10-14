@@ -394,8 +394,55 @@ export async function addProviderWithKey(
   kind: CloudProviderConfig['kind'],
   baseUrl: string,
   secret: string,
-): Promise<ProviderBinding> {
-  return invoke<ProviderBinding>('provider_add', { providerId, kind, baseUrl, secret });
+  label: string,
+  model: string,
+): Promise<CloudProviderConfig> {
+  const row = await invoke<NativeProvider>('provider_add', {
+    providerId,
+    kind,
+    baseUrl,
+    secret,
+    label,
+    model,
+  });
+  return fromNative(row);
+}
+
+/** What `provider_list` returns: the list as the native side holds it. */
+interface NativeProvider {
+  id: string;
+  kind: CloudProviderConfig['kind'];
+  label: string;
+  model: string;
+  baseUrl: string;
+  enabled: boolean;
+}
+
+function fromNative(p: NativeProvider): CloudProviderConfig {
+  return { id: p.id, kind: p.kind, label: p.label, model: p.model, baseUrl: p.baseUrl, enabled: p.enabled };
+}
+
+/**
+ * The configured cloud providers. The list is **held natively** (it decides where a saved key may
+ * go), so the renderer reads it from there and changes it only through the commands below.
+ */
+export async function listCloudProviders(): Promise<CloudProviderConfig[]> {
+  const rows = await invoke<NativeProvider[]>('provider_list');
+  return rows.map(fromNative);
+}
+
+/** Rename, change the model, or enable/disable. None of these can redirect a key, so none asks. */
+export async function updateProvider(
+  providerId: string,
+  patch: { label?: string; model?: string; enabled?: boolean },
+): Promise<CloudProviderConfig> {
+  const row = await invoke<NativeProvider>('provider_update', {
+    providerId,
+    label: patch.label ?? null,
+    model: patch.model ?? null,
+    enabled: patch.enabled ?? null,
+  });
+  return fromNative(row);
 }
 
 export async function unbindProvider(providerId: string): Promise<void> {

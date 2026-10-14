@@ -1,5 +1,12 @@
 /**
- * Cloud provider *configuration* — never the key.
+ * Cloud provider *configuration* — never the key — **read-only here**.
+ *
+ * In the desktop app the provider list is held natively (`provider_bindings.rs`): it decides where
+ * a saved key may be sent, so the renderer reads it from there and changes it only through
+ * `@atlas/platform`'s `addProviderWithKey` / `updateProvider` / `bindProvider`. What is left in
+ * this module is the reader of the *old* preference fact, kept for the browser build (which has no
+ * keys) and as the source the native one-time migration carries over. There is deliberately no
+ * writer.
  *
  * Same `MemoryStore`-backed `Fact` pattern `local-ai-settings.ts` already
  * uses: one subject, holding the whole list as a JSON string, because a
@@ -33,6 +40,3 @@ export async function readCloudProviders(storage: Storage): Promise<CloudProvide
   }
 }
 
-export async function writeCloudProviders(storage: Storage, configs: CloudProviderConfig[]): Promise<void> {
-  await new MemoryStore(storage).remember('preference', LIST_SUBJECT, JSON.stringify(configs));
-}

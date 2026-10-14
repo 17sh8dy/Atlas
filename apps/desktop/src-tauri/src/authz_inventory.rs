@@ -26,6 +26,8 @@ pub enum Class {
     SensitiveRead,
     /// Shows, hides or toggles Atlas's own window.
     OwnWindow,
+    /// Changes a setting that cannot widen reach or redirect anything (a name, a model, a flag).
+    Setting,
     /// Durably widens reach or redirects trust (folders, destinations, the stop key, the store).
     TrustChange,
     /// Saves, deletes or tests a stored secret.
@@ -216,6 +218,8 @@ pub const COMMANDS: &[(&str, &str, Class)] = &[
     ("provider_bindings.rs", "provider_add", Class::TrustChange),
     ("provider_bindings.rs", "provider_bind", Class::TrustChange),
     ("provider_bindings.rs", "provider_binding", Class::Read),
+    ("provider_bindings.rs", "provider_list", Class::Read),
+    ("provider_bindings.rs", "provider_update", Class::Setting),
     ("provider_bindings.rs", "provider_unbind", Class::TrustChange),
     ("searxng.rs", "searxng_config", Class::Read),
     ("searxng.rs", "searxng_configure", Class::TrustChange),
@@ -326,11 +330,13 @@ pub const KEYS: &[Key] = &[
     Key { key: "atlas.searxng-endpoint", trust: Trust::High,
           consumers: "native-startup: searxng::init; the only address web_search_with ever uses" },
     Key { key: "atlas.provider-bindings", trust: Trust::High,
-          consumers: "native-startup: provider_bindings::init; where each cloud provider's saved key may be sent" },
+          consumers: "native-startup: provider_bindings::init; the cloud-provider list and where each saved key may be sent" },
+    Key { key: "atlas.migrations", trust: Trust::High,
+          consumers: "native-startup: provider_bindings::init; records the one-time provider migration" },
     Key { key: "atlas.nova.account", trust: Trust::High,
           consumers: "renderer: Nova account client; the sign-in token, readable through storage_get" },
     Key { key: "atlas.preferences", trust: Trust::High,
-          consumers: "renderer: MemoryStore facts. provider.active, cloudProviders.list (base URL, model, enabled), local.baseUrl, nova.baseUrl, nova.folder, enable flags; they become parameters of ask_cloud_provider, ask_local_model_stream, nova_intelligence_start" },
+          consumers: "renderer: MemoryStore facts. No longer holds cloud-provider trust (moved native, stage 4); still holds provider.active, local/nova enable flags and base URLs (loopback-only, re-checked natively), nova.folder (a program the launcher may start) and execution.mode" },
     Key { key: "atlas.watches", trust: Trust::High,
           consumers: "engine: watch manager; continuation steps run unattended with their saved approval" },
     Key { key: "routines.items", trust: Trust::High,
@@ -371,9 +377,9 @@ pub const NOT_STORAGE_KEYS: &[&str] = &["atlas.hide", "atlas.name"];
 /// dedicated command for it. Each is a place a native consent would have to cover; none is
 /// changed by this inventory.
 pub const BYPASSES: &[(&str, &str)] = &[
-    ("storage_set", "writes any valid key, including every High key; natively-held values apply at next launch"),
-    ("storage_remove", "removes any key, e.g. resets allowed folders to the home default"),
-    ("storage_get", "returns any key, including the Nova account token"),
+    ("storage_set", "RESOLVED for TRUST_KEYS (stage 4): refused; every other key stays writable by design"),
+    ("storage_remove", "RESOLVED for TRUST_KEYS (stage 4)"),
+    ("storage_get", "TRUST_KEYS refused (stage 4); the Nova account token stays readable by the renderer, which owns the sign-in"),
     ("append_file", "RESOLVED (stage 1): Atlas's own folders are refused by is_permitted"),
     ("write_text_file", "RESOLVED (stage 1)"),
     ("patch_text_file", "RESOLVED (stage 1)"),
@@ -612,6 +618,35 @@ mod tests {
             let entry = KEYS.iter().find(|k| k.key == key).unwrap_or_else(|| panic!("{why} key {key} is not classified"));
             assert!(matches!(entry.trust, Trust::High | Trust::Medium), "{why} must be High or Medium");
             assert!(entry.consumers.starts_with("native-startup"), "{why} is read natively at launch; say so");
+        }
+    }
+
+    #[test]
+    fn the_keys_the_generic_store_refuses_are_exactly_the_natively_held_ones() {
+        let mut refused: Vec<&str> = crate::storage::TRUST_KEYS.to_vec();
+        refused.sort_unstable();
+        let mut held: Vec<&str> = KEYS
+            .iter()
+            .filter(|k| k.consumers.starts_with("native-startup"))
+            .map(|k| k.key)
+            .collect();
+        held.sort_unstable();
+        assert_eq!(refused, held, "TRUST_KEYS in storage.rs and the inventory disagree");
+    }
+
+    #[test]
+    fn no_typescript_source_writes_a_trust_key() {
+        let root = repo_root();
+        let dirs = [root.join("packages"), root.join("apps").join("web").join("src")];
+        for f in files(&dirs, &[".ts", ".tsx"]) {
+            let text = std::fs::read_to_string(&f).unwrap_or_default();
+            for key in crate::storage::TRUST_KEYS {
+                assert!(
+                    !text.contains(&format!("'{key}'")) && !text.contains(&format!("\"{key}\"")),
+                    "{} names the trust key {key}; only native code may",
+                    f.display()
+                );
+            }
         }
     }
 

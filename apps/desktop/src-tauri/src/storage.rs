@@ -83,48 +83,125 @@ fn save_to(path: &Path, store: &Store) -> Result<(), String> {
     })
 }
 
-#[tauri::command]
-pub fn storage_get(
-    app: AppHandle,
-    state: tauri::State<StorageState>,
-    key: String,
-) -> Result<Option<serde_json::Value>, String> {
-    let _guard = state.0.lock().unwrap();
-    if !is_valid_key(&key) {
+/// Keys that hold **trust**: what Atlas may touch, where a search or a key is sent, the stop key,
+/// and the record of the one-time provider migration. They are held natively (read once at
+/// launch, kept in memory) and written only by the dedicated commands, each of which asks the
+/// person first (`consent.rs`). The generic commands below refuse them in both directions, so
+/// script in the webview cannot reach them through the store; see
+/// `docs/NATIVE-AUTHORIZATION-INVENTORY.md`.
+pub(crate) const TRUST_KEYS: &[&str] = &[
+    crate::allowed_folders::STORAGE_KEY,
+    crate::searxng::STORAGE_KEY,
+    crate::halt::SHORTCUT_STORAGE_KEY,
+    crate::provider_bindings::STORAGE_KEY,
+    crate::provider_bindings::MIGRATIONS_KEY,
+];
+
+pub(crate) fn is_trust_key(key: &str) -> bool {
+    TRUST_KEYS.contains(&key)
+}
+
+const MANAGED: &str = "That setting is managed by Atlas itself and can't be read or changed this way.";
+
+fn get_impl(app: &AppHandle, key: &str) -> Result<Option<serde_json::Value>, String> {
+    let state = app.state::<StorageState>();
+    let _guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    if !is_valid_key(key) {
         return Err("Invalid storage key.".into());
     }
-    Ok(load(&app)?.get(&key).cloned())
+    Ok(load(app)?.get(key).cloned())
+}
+
+fn set_impl(app: &AppHandle, key: &str, value: serde_json::Value) -> Result<(), String> {
+    let state = app.state::<StorageState>();
+    let _guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    if !is_valid_key(key) {
+        return Err("Invalid storage key.".into());
+    }
+    let mut store = load(app)?;
+    store.insert(key.to_string(), value);
+    save(app, &store)
+}
+
+fn remove_impl(app: &AppHandle, key: &str) -> Result<(), String> {
+    let state = app.state::<StorageState>();
+    let _guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    if !is_valid_key(key) {
+        return Err("Invalid storage key.".into());
+    }
+    let mut store = load(app)?;
+    store.remove(key);
+    save(app, &store)
+}
+
+/// For native code only: read a key the generic command would refuse.
+pub(crate) fn get_trusted(app: &AppHandle, key: &str) -> Option<serde_json::Value> {
+    get_impl(app, key).ok().flatten()
+}
+
+/// For native code only: write a trust-bearing key. Callers have already obtained consent.
+pub(crate) fn set_trusted(app: &AppHandle, key: &str, value: serde_json::Value) -> Result<(), String> {
+    set_impl(app, key, value)
+}
+
+pub(crate) fn remove_trusted(app: &AppHandle, key: &str) -> Result<(), String> {
+    remove_impl(app, key)
+}
+
+/// The whole store, for the one-time migration's verification. Native code only.
+pub(crate) fn snapshot(app: &AppHandle) -> Result<HashMap<String, serde_json::Value>, String> {
+    let state = app.state::<StorageState>();
+    let _guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    load(app)
+}
+
+/// Copy `storage.json` beside itself under `name`, if that copy does not exist yet.
+pub(crate) fn backup_once(app: &AppHandle, name: &str) -> Result<Option<PathBuf>, String> {
+    let state = app.state::<StorageState>();
+    let _guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    let path = store_path(app)?;
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let target = path.with_file_name(name);
+    if target.exists() {
+        return Ok(Some(target));
+    }
+    fs::copy(&path, &target).map_err(|e| e.to_string())?;
+    Ok(Some(target))
+}
+
+/// Put a backup made by `backup_once` back as the store.
+pub(crate) fn restore_backup(app: &AppHandle, name: &str) -> Result<(), String> {
+    let state = app.state::<StorageState>();
+    let _guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    let path = store_path(app)?;
+    let source = path.with_file_name(name);
+    fs::copy(&source, &path).map(|_| ()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn storage_set(
-    app: AppHandle,
-    state: tauri::State<StorageState>,
-    key: String,
-    value: serde_json::Value,
-) -> Result<(), String> {
-    let _guard = state.0.lock().unwrap();
-    if !is_valid_key(&key) {
-        return Err("Invalid storage key.".into());
+pub fn storage_get(app: AppHandle, key: String) -> Result<Option<serde_json::Value>, String> {
+    if is_trust_key(&key) {
+        return Err(MANAGED.into());
     }
-    let mut store = load(&app)?;
-    store.insert(key, value);
-    save(&app, &store)
+    get_impl(&app, &key)
 }
 
 #[tauri::command]
-pub fn storage_remove(
-    app: AppHandle,
-    state: tauri::State<StorageState>,
-    key: String,
-) -> Result<(), String> {
-    let _guard = state.0.lock().unwrap();
-    if !is_valid_key(&key) {
-        return Err("Invalid storage key.".into());
+pub fn storage_set(app: AppHandle, key: String, value: serde_json::Value) -> Result<(), String> {
+    if is_trust_key(&key) {
+        return Err(MANAGED.into());
     }
-    let mut store = load(&app)?;
-    store.remove(&key);
-    save(&app, &store)
+    set_impl(&app, &key, value)
+}
+
+#[tauri::command]
+pub fn storage_remove(app: AppHandle, key: String) -> Result<(), String> {
+    if is_trust_key(&key) {
+        return Err(MANAGED.into());
+    }
+    remove_impl(&app, &key)
 }
 
 #[cfg(test)]

@@ -42,6 +42,8 @@ export {
   testCloudProviderConnection,
   bindProvider,
   addProviderWithKey,
+  listCloudProviders,
+  updateProvider,
   unbindProvider,
   readProviderBinding,
 } from './providers';

@@ -42,6 +42,7 @@ import {
   writeListeningPreferences,
   writeSpeechPreferences,
 } from '@atlas/data';
+import { isTauri, listCloudProviders } from '@atlas/platform';
 import { loadLocalAiRuntime, type LocalAiRuntime } from '../atlas/buildIntelligence';
 import { Icons, Spinner, cn } from '@atlas/ui';
 import { TitleBar } from '../components/TitleBar';
@@ -122,7 +123,11 @@ export function AtlasApp({ platform: basePlatform, storage }: { platform: Platfo
         readVoiceProfile(storage).catch(() => ({}) as VoiceProfile),
         loadLocalAiRuntime(storage, known),
         readActiveProvider(storage).catch(() => undefined),
-        readCloudProviders(storage).catch(() => [] as CloudProviderConfig[]),
+        // Natively held in the desktop app (it decides where a saved key may go); the browser
+        // build, which has no keys, reads the old preference.
+        (isTauri() ? listCloudProviders() : readCloudProviders(storage)).catch(
+          () => [] as CloudProviderConfig[],
+        ),
         readSpeechPreferences(storage).catch(() => DEFAULT_SPEECH),
         // An empty list is the honest answer for a build without the engine;
         // the Voice tab renders that case rather than pretending otherwise.

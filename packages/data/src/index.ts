@@ -33,7 +33,7 @@ export {
   DEFAULT_LOCAL_AI_SETTINGS,
 } from './local-ai-settings';
 export type { LocalAiSettings, EndpointSettings, NovaSettings } from './local-ai-settings';
-export { readCloudProviders, writeCloudProviders } from './cloud-provider-settings';
+export { readCloudProviders } from './cloud-provider-settings';
 
 /** The storage implementation for the given platform. */
 export function detectStorage(platformId: Platform['id']): Storage {
