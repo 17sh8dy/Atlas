@@ -19,7 +19,7 @@ function sources(dir: string): string[] {
 
 /** Every identifier a branch on a model's abilities would have to use. */
 const DESCRIPTOR_USE =
-  /(?:canConverse|capabilitiesFromOllama|refreshCapabilities|ModelCapabilities|UNKNOWN_CAPABILITIES|NOVA_INTELLIGENCE_CAPABILITIES|CLOUD_DECLARED_CAPABILITIES)|supports\(\s*[\w.?!]+\s*,\s*['"]|\.toolCalling|\.structuredOutput|\.capabilities\?\.\(\)/;
+  /\b(?:canConverse|capabilitiesFromOllama|refreshCapabilities|ModelCapabilities|UNKNOWN_CAPABILITIES|NOVA_INTELLIGENCE_CAPABILITIES|CLOUD_DECLARED_CAPABILITIES)\b|\bsupports\(\s*[\w.?!]+\s*,\s*['"]|\.toolCalling\b|\.structuredOutput\b|\.capabilities\?\.\(\)/;
 
 /** The only places in the engine allowed to read a descriptor, and why. */
 const ALLOWED: Record<string, string> = {

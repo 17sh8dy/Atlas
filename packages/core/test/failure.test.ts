@@ -3,7 +3,7 @@ import { RECOVERY, classifyFailure, recoveryFor, type FailureKind } from '../src
 
 describe('classifying a failure', () => {
   const cases: Array<[string, FailureKind]> = [
-    ["I couldn't find D:\Dev\Missing.", 'not-found'],
+    ["I couldn't find D:\\Dev\\Missing.", 'not-found'],
     ['That path doesn’t exist.', 'not-found'],
     ['Steam isn’t installed.', 'not-found'],
     ['Access is denied.', 'permission'],
