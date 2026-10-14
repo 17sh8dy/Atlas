@@ -45,6 +45,7 @@ export * from './models/halt';
 export * from './models/failure';
 export * from './models/verify';
 export * from './models/provider-capabilities';
+export * from './models/task';
 export * from './models/watch';
 export * from './ports/platform';
 export * from './ports/intelligence';

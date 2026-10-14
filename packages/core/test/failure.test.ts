@@ -63,3 +63,8 @@ describe('the recovery table', () => {
     assert.isFalse(recoveryFor('unknown').automatic);
   });
 });
+
+test('a content-policy refusal is a refusal, not a decline', () => {
+  assert.equal(classifyFailure('Refused.', { skipped: true }), 'refused');
+  assert.equal(classifyFailure('Refused.'), 'refused');
+});

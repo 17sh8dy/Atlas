@@ -62,6 +62,7 @@ import { Bus } from './bus';
 import { Grammar, quotedTexts, waitForOpenedApps } from './planner/grammar';
 import { Executor } from './planner/executor';
 import type { ProbeRunner } from './verify/probes';
+import type { TaskHost } from './task/kernel';
 import { SkillRegistry } from './skills/registry';
 import { createPhrasing, type Phrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
@@ -254,6 +255,18 @@ export class Engine {
     this.getExecutionMode = options.getExecutionMode ?? (() => DEFAULT_EXECUTION_MODE);
     this.isPreapproved = options.isPreapproved;
     this.probes = options.probes;
+  }
+
+  /**
+   * What the task kernel runs its steps through: this engine's own `run` — the one validated
+   * executor — plus the mode and the plan-card wording. Nothing here executes anything itself.
+   */
+  taskHost(): TaskHost {
+    return {
+      run: (plan, io, extra) => this.run(plan, io, extra),
+      mode: () => this.getExecutionMode(),
+      planApproval: (steps) => this.phrasing.planApproval(steps),
+    };
   }
 
   /** The one thing every `executor.run(...)` call site below shares. */

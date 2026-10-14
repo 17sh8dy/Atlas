@@ -550,7 +550,8 @@ export class Executor {
       const refusal = skill.guard?.(step.args) ?? null;
       if (refusal) {
         report('failed', refusal);
-        outcomes.push({ skill: step.skill, ok: false, error: refusal });
+        // Refused on purpose: that is its own kind of failure, whatever the sentence says.
+        outcomes.push({ skill: step.skill, ok: false, error: refusal, failure: 'refused' });
         ctx.say(refusal);
         aborted = true;
         break;

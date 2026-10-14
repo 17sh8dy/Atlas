@@ -85,6 +85,9 @@ import {
   createSelfTestSkills,
   createClipboardHistorySkills,
   createProbeRunner,
+  TaskKernel,
+  TaskStore,
+  createTaskSkills,
   ClipboardHistory,
   ReminderScheduler,
   createNetworkSkills,
@@ -639,6 +642,26 @@ export function useAtlas(
     skills.registerMany(createPcHealthSkills(platform));
     skills.registerMany(createFileIntelSkills(platform));
     skills.registerMany(createWorkflowSkills(workflowLog));
+    // Tasks: a dependency-ordered set of steps, each one run through THIS engine's validated
+    // executor. The kernel itself acts on nothing — it sequences, saves progress and recovers.
+    const taskKernel = new TaskKernel({
+      skills,
+      store: new TaskStore(storage),
+      host: {
+        run: (plan, runIo, extra) =>
+          engineRef.current
+            ? engineRef.current.run(plan, runIo, extra)
+            : Promise.resolve({
+                ok: false,
+                ran: 0,
+                aborted: true,
+                outcomes: [{ skill: plan.steps[0]?.skill ?? '', ok: false, error: 'Atlas is still starting.' }],
+              }),
+        mode: () => executionModeRef.current,
+        planApproval: (steps) => phrasing.planApproval(steps),
+      },
+    });
+    skills.registerMany(createTaskSkills(taskKernel));
     // Research while building: read the documentation, keep notes with their sources.
     skills.registerMany(createDocsSkills({ platform, context: researchNotes, search: searchManager }));
     skills.registerMany(createCatalogMediaSkills(platform, memory));

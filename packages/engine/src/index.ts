@@ -19,6 +19,15 @@ export { Executor } from './planner/executor';
 export type { ExecutorOptions, ActivityEvent } from './planner/executor';
 export { createProbeRunner } from './verify/probes';
 export type { ProbeRunner, ProbeRunnerOptions } from './verify/probes';
+export { TaskKernel, TaskPlanError, describeTask, isFinished } from './task/kernel';
+export type { TaskHost, TaskKernelOptions } from './task/kernel';
+export { TaskStore, TASK_STORAGE_KEY } from './task/store';
+export { checkGraph, nextReady, dependentsOf, orderedSteps, MAX_TASK_STEPS } from './task/graph';
+export { RECIPES, findRecipe } from './task/recipes';
+export type { Recipe } from './task/recipes';
+export { taskPlanFromPlan, taskViewFromWatch, taskViewFromSetupChecks } from './task/adapters';
+export type { TaskView } from './task/adapters';
+export { createTaskSkills } from './skills/task-skills';
 export { VERIFY_DECLARATIONS } from './verify/declarations';
 
 export { Engine } from './engine';

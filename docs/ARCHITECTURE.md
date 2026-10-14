@@ -847,6 +847,39 @@ and what was typed into it is never echoed. Administrator changes are read back 
 state from `sc`, the variable from the registry). Where a control will not say what it holds (many
 editors), the honest answer is `sent`.
 
+### 6.13 Tasks: dependency-ordered steps, honest books (`task/kernel.ts`, `task/graph.ts`, `task/recipes.ts`)
+
+A task is a set of steps with dependencies. It is **not** a second executor: the kernel never calls
+a skill. Each step is handed to `TaskHost.run` — `Engine.run`, the one validated executor — as a plan
+of exactly one step, so registry validation, content policy, guards, risk, the four execution modes,
+confirmations and the emergency stop all apply to it exactly as to a typed step. The kernel decides
+which step goes next and what to write down.
+
+- **Validation first, all or nothing.** Ids, dependencies and cycles are checked, and every step
+  is validated (and its arguments coerced) by `SkillRegistry.validate` before anything runs.
+- **Modes.** Plan First shows the whole task once (the executor's own plan card) and passes each
+  covered step as `approvedStep`, the mechanism a Watch uses; nothing off the card runs. Confirm
+  Actions and Do It? / Do It + pass nothing, so each step is judged by the executor alone.
+- **Books.** A step is saved as `running` before it is handed over and as its result after. Status
+  per step: done / failed / skipped (declined) / blocked (a prerequisite did not finish) /
+  cancelled (never reached) / uncertain.
+- **Interruption.** The emergency stop (or a crash) leaves the in-flight step `pending` if it is
+  `safe` by the risk model, else `uncertain`. An uncertain step is **never** run again automatically:
+  resume takes a decision per step (retry, treat as done, skip), and a retry still goes through the
+  executor's confirmation.
+- **Retries** happen only if asked, only for a safe-to-repeat step, and only for a failure kind the
+  recovery table marks as clearing by itself (`busy`, `timeout`).
+- **Reporting.** "Confirmed" is said only for a step whose result was read back (`Skill.verify`); a
+  finished step with nothing to read back is "reported done". A partly finished task says which
+  steps finished, failed and never ran, with reasons.
+- **Compatibility.** `task/adapters.ts` converts a plain `Plan` (grammar, a routine, later a model)
+  into a task, and presents a Watch or a Setup's checks in the same vocabulary. Their own managers
+  still own them.
+- **Recipes** (`task/recipes.ts`) are hand-written dependency shapes over existing skills; the
+  three shipped are read-only.
+
+---
+
 ## 7. Safety
 
 | Rule | Where | Why |

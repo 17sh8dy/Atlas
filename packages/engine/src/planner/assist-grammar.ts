@@ -10,6 +10,7 @@
  *   “what do my notes say about X in D:\Dev\Docs”        → knowledge.citeEvidence
  */
 
+import { RECIPES } from '../task/recipes';
 import { plan, step, type GrammarRule } from './grammar';
 import { pathsIn } from './health-grammar';
 
@@ -64,8 +65,44 @@ export function parseTransaction(raw: string): string | null {
   return request.length >= 5 ? request : null;
 }
 
+/**
+ * "run the pc-checkup task", "run the space review task on Downloads", "run the project status task for D:\\Dev\\Atlas".
+ * Only recipes that exist are recognised, so an unrelated "run the … task" is left to the rest of the grammar.
+ */
+function parseTaskRun(raw: string): { recipe: string; path?: string } | null {
+  const m = /^\s*(?:please\s+)?(?:run|start|do)\s+(?:the\s+)?([a-z][a-z -]{2,30}?)\s+(?:task|recipe)(?:\s+(?:on|for|in|of)\s+(.+?))?\s*[.!]*$/i.exec(raw);
+  if (!m) return null;
+  const wanted = m[1]!.toLowerCase().replace(/[\s_]+/g, '-').replace(/^pc-check-up$/, 'pc-checkup');
+  const recipe = RECIPES.find((r) => r.id === wanted);
+  if (!recipe) return null;
+  const path = m[2] ? clean(m[2]) : undefined;
+  return { recipe: recipe.id, ...(path ? { path } : {}) };
+}
+
 export function createAssistGrammar(): GrammarRule[] {
   return [
+    {
+      name: 'taskRun',
+      order: -12.795,
+      pathSafe: true,
+      questionSafe: ['task-run'],
+      test(_lower, raw) {
+        const t = parseTaskRun(raw);
+        return t ? plan(step('task.run', t), 'task-run') : null;
+      },
+    },
+    {
+      name: 'taskControl',
+      order: -12.785,
+      questionSafe: ['task-list'],
+      test(lower) {
+        const t = lower.trim().replace(/[?.!]+$/, '');
+        if (/^(?:please\s+)?(?:resume|continue|carry\s+on\s+with)\s+(?:the\s+|my\s+)?(?:stopped\s+|interrupted\s+|unfinished\s+|last\s+)?task$/.test(t)) return plan(step('task.resume', {}), 'task-resume');
+        if (/^(?:please\s+)?(?:cancel|stop)\s+(?:the\s+|my\s+)?(?:running\s+|current\s+)?task$/.test(t)) return plan(step('task.cancel', {}), 'task-cancel');
+        if (/^(?:show|list|what\s+(?:are|were))\s+(?:me\s+)?(?:my\s+|the\s+)?(?:recent\s+|past\s+|last\s+)?tasks?(?:\s+history)?$/.test(t) || /^task\s+history$/.test(t)) return plan(step('task.list', {}), 'task-list');
+        return null;
+      },
+    },
     {
       name: 'workflowTransaction',
       order: -12.8,

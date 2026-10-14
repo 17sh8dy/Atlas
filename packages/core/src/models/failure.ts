@@ -141,6 +141,8 @@ export function classifyFailure(
 ): FailureKind {
   const text = (error ?? '').trim();
   if (text.startsWith(HALTED_PREFIX)) return 'halted';
+  // The content policy refuses a whole plan with the word "Refused." — a refusal, never a "no".
+  if (/^refused\.?$/i.test(text)) return 'refused';
   if (context.skipped || /^(?:cancelled|skipped)\.?$/i.test(text)) return 'declined';
   if (!text) return 'unknown';
   for (const [kind, pattern] of RULES) if (pattern.test(text)) return kind;
