@@ -385,6 +385,19 @@ export async function bindProvider(
   return invoke<ProviderBinding>('provider_bind', { providerId, kind, baseUrl });
 }
 
+/**
+ * Add a provider: where its key goes and the key itself, behind **one** native question. Nothing is
+ * stored unless the person says yes in the box Windows shows; the answer never comes back here.
+ */
+export async function addProviderWithKey(
+  providerId: string,
+  kind: CloudProviderConfig['kind'],
+  baseUrl: string,
+  secret: string,
+): Promise<ProviderBinding> {
+  return invoke<ProviderBinding>('provider_add', { providerId, kind, baseUrl, secret });
+}
+
 export async function unbindProvider(providerId: string): Promise<void> {
   await invoke<void>('provider_unbind', { providerId });
 }

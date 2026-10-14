@@ -61,8 +61,25 @@ fn to_wide_null(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// Saving a key is a credential change: the person is asked natively first (`consent.rs`), with
+/// the address the key is bound to, never the id the renderer chose.
 #[tauri::command]
-pub fn save_secret(provider_id: String, secret: String) -> Result<(), String> {
+pub async fn save_secret(provider_id: String, secret: String) -> Result<(), String> {
+    if !is_valid_provider_id(&provider_id) {
+        return Err("That isn't a valid provider id.".into());
+    }
+    if secret.is_empty() {
+        return Err("That key is empty.".into());
+    }
+    crate::consent::ask(crate::consent::Request::SaveKey {
+        what: crate::consent::describe_key(&provider_id),
+    })
+    .await?;
+    save_secret_now(provider_id, secret)
+}
+
+/// The write itself. Callers have already obtained consent.
+pub(crate) fn save_secret_now(provider_id: String, secret: String) -> Result<(), String> {
     if !is_valid_provider_id(&provider_id) {
         return Err("That isn't a valid provider id.".into());
     }
@@ -135,10 +152,18 @@ pub fn has_secret(provider_id: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn delete_secret(provider_id: String) -> Result<(), String> {
+pub async fn delete_secret(provider_id: String) -> Result<(), String> {
     if !is_valid_provider_id(&provider_id) {
         return Err("That isn't a valid provider id.".into());
     }
+    // Nothing to ask about when no key is saved.
+    if read_secret(&provider_id)?.is_none() {
+        return Ok(());
+    }
+    crate::consent::ask(crate::consent::Request::DeleteKey {
+        what: crate::consent::describe_key(&provider_id),
+    })
+    .await?;
     let target_wide = to_wide_null(&target_for(&provider_id));
     unsafe {
         match CredDeleteW(PCWSTR(target_wide.as_ptr()), CRED_TYPE_GENERIC, 0) {

@@ -11,6 +11,7 @@
 //! hide-on-blur behaviour below are for.
 
 mod allowed_folders;
+mod consent;
 mod protected_paths;
 mod provider_bindings;
 #[cfg(windows)]
@@ -493,6 +494,7 @@ pub fn run() {
             cloud_intelligence::test_cloud_provider,
             provider_bindings::provider_binding,
             provider_bindings::provider_bind,
+            provider_bindings::provider_add,
             provider_bindings::provider_unbind,
         ])
         .manage(StorageState(std::sync::Mutex::new(())))

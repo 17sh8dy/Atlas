@@ -177,9 +177,9 @@ fn unquoted(path: &str) -> &str {
 /// — the same "a path is a claim, not a fact" rule `platform.rs` applies to
 /// every path arriving from the renderer.
 #[tauri::command]
-pub fn add_allowed_folder(
+pub async fn add_allowed_folder(
     app: tauri::AppHandle,
-    state: tauri::State<crate::storage::StorageState>,
+    state: tauri::State<'_, crate::storage::StorageState>,
     path: String,
 ) -> Result<Vec<String>, String> {
     let canonical = PathBuf::from(unquoted(&path))
@@ -191,6 +191,16 @@ pub fn add_allowed_folder(
     if crate::protected_paths::is_protected(&canonical) {
         return Err("That's one of Atlas's own folders, so it can't be added.".into());
     }
+    // Nothing to ask about when it is already there.
+    if lock().read().map(|g| g.contains(&canonical)).unwrap_or(false) {
+        return Ok(as_strings());
+    }
+    // Widening what Atlas may touch is a durable trust change: the person is asked natively,
+    // with the resolved path, and nothing is written unless they say yes.
+    crate::consent::ask(crate::consent::Request::AddFolder {
+        path: crate::platform::plain_path(&canonical),
+    })
+    .await?;
 
     {
         let mut guard = lock().write().map_err(|_| "Couldn't update the list.".to_string())?;
@@ -208,12 +218,30 @@ pub fn add_allowed_folder(
 /// a "pick a folder" flow that would land anywhere, since every file command
 /// — including the one behind that flow — checks this same list.
 #[tauri::command]
-pub fn remove_allowed_folder(
+pub async fn remove_allowed_folder(
     app: tauri::AppHandle,
-    state: tauri::State<crate::storage::StorageState>,
+    state: tauri::State<'_, crate::storage::StorageState>,
     path: String,
 ) -> Result<Vec<String>, String> {
     let target_canonical = PathBuf::from(path.trim()).canonicalize().ok();
+
+    // Ask only about a change that would really happen, and say which folder it is by the entry
+    // on the list, not by the text the caller sent.
+    let shown = lock().read().ok().and_then(|g| {
+        g.iter()
+            .find(|r| Some(*r) == target_canonical.as_ref() || r.to_string_lossy() == path)
+            .cloned()
+    });
+    let Some(shown) = shown else {
+        return Err("That folder isn't on the list.".into());
+    };
+    if lock().read().map(|g| g.len()).unwrap_or(0) <= 1 {
+        return Err("At least one folder has to stay on the list.".into());
+    }
+    crate::consent::ask(crate::consent::Request::RemoveFolder {
+        path: crate::platform::plain_path(&shown),
+    })
+    .await?;
 
     {
         let mut guard = lock().write().map_err(|_| "Couldn't update the list.".to_string())?;

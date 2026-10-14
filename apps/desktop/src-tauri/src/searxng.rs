@@ -537,9 +537,13 @@ pub fn searxng_config() -> SearxngView {
 /// Save (or, with an empty address, clear) the server. Validated here; the stored value is
 /// what every later search uses. A person operates this from Settings.
 #[tauri::command]
-pub fn searxng_configure(app: AppHandle, url: String, allow_private: bool) -> Result<SearxngView, String> {
-    let state = app.state::<crate::storage::StorageState>();
+pub async fn searxng_configure(app: AppHandle, url: String, allow_private: bool) -> Result<SearxngView, String> {
     if url.trim().is_empty() {
+        let is_set = current().read().map(|s| s.is_some()).unwrap_or(false);
+        if is_set {
+            crate::consent::ask(crate::consent::Request::SearxngClear).await?;
+        }
+        let state = app.state::<crate::storage::StorageState>();
         crate::storage::storage_remove(app.clone(), state, STORAGE_KEY.to_string())?;
         if let Ok(mut slot) = current().write() {
             *slot = None;
@@ -552,6 +556,22 @@ pub fn searxng_configure(app: AppHandle, url: String, allow_private: bool) -> Re
         // Remembered only where it matters: a confirmation for a server that is not private is noise.
         allow_private: allow_private && ep.reach != Reach::ThisMachine,
     };
+    // A different destination for every search is a durable trust change. The question shows the
+    // address as validated here, and how far away it is. An unchanged setting asks nothing.
+    let unchanged = current().read().map(|s| s.as_ref() == Some(&config)).unwrap_or(false);
+    if !unchanged {
+        let reach = match ep.reach {
+            Reach::ThisMachine => "This server is on this computer.",
+            Reach::PrivateNetwork => "This server is on your local network.",
+            Reach::Internet => "This server is on the internet; whoever runs it can see what you search for.",
+        };
+        crate::consent::ask(crate::consent::Request::SearxngSet {
+            url: config.url.clone(),
+            reach: reach.to_string(),
+        })
+        .await?;
+    }
+    let state = app.state::<crate::storage::StorageState>();
     crate::storage::storage_set(
         app.clone(),
         state,

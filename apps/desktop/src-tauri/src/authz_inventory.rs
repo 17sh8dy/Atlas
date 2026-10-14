@@ -213,6 +213,7 @@ pub const COMMANDS: &[(&str, &str, Class)] = &[
     ("screen.rs", "capture_screen", Class::SensitiveRead),
     ("screen.rs", "capture_window", Class::SensitiveRead),
     ("screen.rs", "list_displays", Class::Read),
+    ("provider_bindings.rs", "provider_add", Class::TrustChange),
     ("provider_bindings.rs", "provider_bind", Class::TrustChange),
     ("provider_bindings.rs", "provider_binding", Class::Read),
     ("provider_bindings.rs", "provider_unbind", Class::TrustChange),
@@ -558,6 +559,7 @@ mod tests {
             names,
             [
                 "add_allowed_folder",
+                "provider_add",
                 "provider_bind",
                 "provider_unbind",
                 "remove_allowed_folder",

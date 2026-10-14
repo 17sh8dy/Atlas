@@ -30,10 +30,9 @@ import { Icons, Button, Input, Surface, Switch, cn } from '@atlas/ui';
 import type { CloudProviderConfig, CloudProviderKind, Storage } from '@atlas/core';
 import { writeActiveProvider, writeCloudProviders } from '@atlas/data';
 import {
-  bindProvider,
+  addProviderWithKey,
   deleteProviderSecret,
   readProviderBinding,
-  saveProviderSecret,
   testCloudProviderConnection,
   unbindProvider,
 } from '@atlas/platform';
@@ -132,10 +131,9 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
     setAddError(null);
     try {
       const id = newProviderId();
-      // The destination first: it is what the key will be attached to, and it is validated and
-      // held natively. If the address is refused nothing else is written.
-      await bindProvider(id, preset.kind, trimmedBaseUrl);
-      await saveProviderSecret(id, trimmedKey);
+      // One native question covers both the address the key is bound to and the key. If the
+      // address is refused, or the person says no, nothing is written anywhere.
+      await addProviderWithKey(id, preset.kind, trimmedBaseUrl, trimmedKey);
       const config: CloudProviderConfig = {
         id,
         kind: preset.kind,

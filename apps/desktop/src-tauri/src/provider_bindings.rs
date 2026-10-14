@@ -208,7 +208,7 @@ pub fn provider_binding(provider_id: String) -> Option<BindingView> {
 
 /// Record where this provider's key may be sent. Replaces any earlier binding for the id.
 #[tauri::command]
-pub fn provider_bind(
+pub async fn provider_bind(
     app: AppHandle,
     provider_id: String,
     kind: CloudProviderKind,
@@ -223,6 +223,17 @@ pub fn provider_bind(
     let resolved = validate(kind, &base_url)?;
     let binding = Binding { kind, base_url: resolved };
     let out = view(&binding);
+    let before = get(&provider_id);
+    // Re-binding to the address it already has changes nothing, so asks nothing.
+    if before.as_ref() == Some(&binding) {
+        return Ok(out);
+    }
+    crate::consent::ask(crate::consent::Request::ProviderBind {
+        kind: kind_label(kind).to_string(),
+        host: out.host.clone(),
+        was: before.as_ref().map(|b| host_of(&b.base_url)),
+    })
+    .await?;
     {
         let mut guard = table().write().map_err(|_| "Couldn't update the provider bindings.".to_string())?;
         guard.insert(provider_id, binding);
@@ -231,7 +242,62 @@ pub fn provider_bind(
     Ok(out)
 }
 
-/// Forget a provider's destination (called when the provider is removed).
+fn kind_label(kind: CloudProviderKind) -> &'static str {
+    match kind {
+        CloudProviderKind::OpenaiCompatible => "OpenAI-compatible",
+        CloudProviderKind::Anthropic => "Anthropic",
+        CloudProviderKind::Gemini => "Gemini",
+    }
+}
+
+/// Add a provider in one step: where its key goes **and** the key, behind a single question, so
+/// adding a provider is one decision and not two.
+#[tauri::command]
+pub async fn provider_add(
+    app: AppHandle,
+    provider_id: String,
+    kind: CloudProviderKind,
+    base_url: String,
+    secret: String,
+) -> Result<BindingView, String> {
+    if !valid_id(&provider_id) {
+        return Err("That isn't a valid provider id.".into());
+    }
+    if reserved(&provider_id) {
+        return Err("That id is for a built-in service, not a model provider.".into());
+    }
+    if secret.is_empty() {
+        return Err("That key is empty.".into());
+    }
+    let resolved = validate(kind, &base_url)?;
+    let binding = Binding { kind, base_url: resolved };
+    let out = view(&binding);
+    crate::consent::ask(crate::consent::Request::ProviderAdd {
+        kind: kind_label(kind).to_string(),
+        host: out.host.clone(),
+    })
+    .await?;
+    let before = get(&provider_id);
+    {
+        let mut guard = table().write().map_err(|_| "Couldn't update the provider bindings.".to_string())?;
+        guard.insert(provider_id.clone(), binding);
+    }
+    if let Err(e) = crate::secrets::save_secret_now(provider_id.clone(), secret) {
+        // Put the table back: a destination with no key behind it would be a half-made provider.
+        if let Ok(mut guard) = table().write() {
+            match before {
+                Some(b) => guard.insert(provider_id, b),
+                None => guard.remove(&provider_id),
+            };
+        }
+        return Err(e);
+    }
+    persist(&app)?;
+    Ok(out)
+}
+
+/// Forget a provider's destination (called when the provider is removed). Withdrawing a
+/// destination only makes a saved key less usable, so it asks nothing.
 #[tauri::command]
 pub fn provider_unbind(app: AppHandle, provider_id: String) -> Result<(), String> {
     {

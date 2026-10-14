@@ -41,6 +41,7 @@ export {
   deleteProviderSecret,
   testCloudProviderConnection,
   bindProvider,
+  addProviderWithKey,
   unbindProvider,
   readProviderBinding,
 } from './providers';

@@ -234,11 +234,26 @@ fn check_hwnd(hwnd: HWND) -> Result<(), Blocked> {
 
 /// Keys go to whatever has the keyboard focus.
 pub fn check_foreground() -> Result<(), String> {
+    consent_open()?;
     check_hwnd(unsafe { GetForegroundWindow() }).map_err(|b| b.wire())
+}
+
+/// While a native consent question is on screen nothing Atlas synthesizes may reach any window:
+/// the answer is the person's, and Atlas must not be able to click its own *Yes*.
+fn consent_open() -> Result<(), String> {
+    if crate::consent::is_open() {
+        return Err(blocked(
+            "consent-open",
+            "A confirmation is waiting for you, so Atlas isn't sending input right now.",
+        )
+        .wire());
+    }
+    Ok(())
 }
 
 /// A click goes to the window under the point, not to the foreground one.
 pub fn check_point(x: i32, y: i32) -> Result<(), String> {
+    consent_open()?;
     let hwnd = unsafe {
         let under = WindowFromPoint(POINT { x, y });
         if under.0.is_null() { under } else { GetAncestor(under, GA_ROOT) }
@@ -248,6 +263,7 @@ pub fn check_point(x: i32, y: i32) -> Result<(), String> {
 
 /// A UI Automation action goes to the window it names.
 pub fn check_window_id(id: &str) -> Result<(), String> {
+    consent_open()?;
     let hwnd = crate::window::resolve_hwnd(id)?;
     check_hwnd(hwnd).map_err(|b| b.wire())
 }
