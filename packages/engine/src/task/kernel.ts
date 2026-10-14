@@ -35,6 +35,8 @@ import type {
   Plan,
   PlanOutcome,
   PlanStep,
+  ProbeResult,
+  ProbeSpec,
   Skill,
   SkillArgs,
   Task,
@@ -42,7 +44,14 @@ import type {
   TaskPlan,
   TaskStep,
 } from '@atlas/core';
-import { FINISHED_TASK_STATUSES, HaltedError, classifyFailure, recoveryFor, summarizeTask } from '@atlas/core';
+import {
+  FINISHED_TASK_STATUSES,
+  HaltedError,
+  classifyFailure,
+  recoveryFor,
+  summarizeProbes,
+  summarizeTask,
+} from '@atlas/core';
 import type { EngineIO } from '../engine';
 import type { SkillRegistry } from '../skills/registry';
 import { fingerprintSteps } from '../watch/conditions';
@@ -53,6 +62,12 @@ export interface TaskHost {
   /** `Engine.run`: the validated executor. The only way a step does anything. */
   run(plan: Plan, io: EngineIO, extra: { approvedStep(step: PlanStep): boolean }): Promise<PlanOutcome>;
   mode(): ExecutionMode;
+  /**
+   * Read the machine back (`Engine`'s probe runner). Read-only by construction; absent when the
+   * build has no probe runner, in which case an `expect` is simply not checked and the step is
+   * never called confirmed.
+   */
+  verify?(probes: readonly ProbeSpec[]): Promise<ProbeResult[]>;
   /** The executor's own plan-approval card text, so Plan First reads the same for a task. */
   planApproval(steps: ReadonlyArray<{ label: string; consequential: boolean }>): { question: string; detail: string };
 }
@@ -343,6 +358,7 @@ export class TaskKernel {
         step.message = o.message;
         step.verified = o.verified;
         step.evidence = o.evidence;
+        await this.readBack(step, io);
         return 'done';
       }
 
@@ -382,6 +398,27 @@ export class TaskKernel {
       step.failure = kind;
       return 'failed';
     }
+  }
+
+  /**
+   * The task's own expectation for a finished step, read back through the engine's probe runner.
+   * Combined with whatever the skill itself declared: confirmed only if everything read agrees.
+   */
+  private async readBack(step: TaskStep, io: EngineIO): Promise<void> {
+    if (!step.expect?.length || !this.host.verify) return;
+    let results: ProbeResult[];
+    try {
+      results = await this.host.verify(step.expect);
+    } catch {
+      return; // could not read: the step stays as the skill reported it, never "confirmed"
+    }
+    const own = summarizeProbes(results);
+    if (!own) return;
+    const missed = results.find((r) => r.state === 'contradicted');
+    if (missed) io.say(`⚠️ “${step.label}” reported success, but ${missed.evidence}.`);
+    const bothConfirmed = own.verified === 'confirmed' && step.verified !== 'unconfirmed';
+    step.verified = bothConfirmed ? 'confirmed' : 'unconfirmed';
+    step.evidence = [step.evidence, own.evidence].filter(Boolean).join('; ');
   }
 
   /** A step cut off mid-way: repeatable ones may run again; anything else is unknown. */
@@ -504,6 +541,7 @@ export function describeTask(task: Task): string {
     if (sum.confirmed) parts.push(`${sum.confirmed} confirmed by reading the result back`);
     if (sum.unconfirmed) parts.push(`${sum.unconfirmed} could not be confirmed`);
     if (sum.reportedOnly) parts.push(`${sum.reportedOnly} reported done without a way to check`);
+    if (sum.reads) parts.push(`${sum.reads} read-only (nothing to confirm)`);
     if (parts.length) lines.push(parts.join('; ') + '.');
   }
   lines.push('');
@@ -524,7 +562,9 @@ export function describeTask(task: Task): string {
           ? ` — confirmed${s.evidence ? `: ${s.evidence}` : ''}`
           : s.verified === 'unconfirmed'
             ? ` — done, but I couldn’t confirm it${s.evidence ? `: ${s.evidence}` : ''}`
-            : ''
+            : s.readOnly
+              ? ' — read-only'
+              : ''
         : s.status === 'failed'
           ? ` — ${s.error ?? 'failed'}`
           : s.reason

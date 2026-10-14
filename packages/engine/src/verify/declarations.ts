@@ -61,4 +61,14 @@ export const VERIFY_DECLARATIONS: Readonly<Record<string, Declaration>> = {
 
   // Slow, and sometimes handed off to another process: recorded, never announced.
   'app.open': (a) => (text(a, 'name') ? [{ kind: 'process-running', name: text(a, 'name') }] : []),
+
+  // Ending a program: it should no longer be running. Recorded only: a program can restart itself.
+  // Only when it was asked for by name: a process id says nothing about which program to look for.
+  'system.endProcess': (a) => {
+    const who = text(a, 'process');
+    return who && !/^\d+$/.test(who) ? [{ kind: 'process-stopped', name: who }] : [];
+  },
+
+  // A new project folder is there once created. Announced like any created folder.
+  'project.create': (a) => (text(a, 'path') ? [{ kind: 'path-is-folder', path: text(a, 'path'), announce: true }] : []),
 };

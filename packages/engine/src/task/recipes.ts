@@ -12,6 +12,7 @@
  */
 
 import type { TaskPlan } from '@atlas/core';
+import { join } from '../verify/declarations';
 
 export interface RecipeParam {
   description: string;
@@ -48,10 +49,10 @@ export const RECIPES: readonly Recipe[] = [
         source: 'recipe',
         onFailure: 'continue-independent',
         steps: [
-          { id: 'load', skill: 'system.metrics', args: {}, label: 'Read live CPU, memory, GPU and disk', retry: { max: 1 } },
-          { id: 'errors', skill: 'system.errors', args: { hours }, label: 'Read recent Windows errors', retry: { max: 1 } },
+          { id: 'load', skill: 'system.metrics', args: {}, label: 'Read live CPU, memory, GPU and disk', retry: { max: 1 }, readOnly: true },
+          { id: 'errors', skill: 'system.errors', args: { hours }, label: 'Read recent Windows errors', retry: { max: 1 }, readOnly: true },
           // The report quotes both, so it waits for both; if either read fails it is not attempted.
-          { id: 'report', skill: 'system.report', args: { hours }, label: 'Write the performance report', dependsOn: ['load', 'errors'] },
+          { id: 'report', skill: 'system.report', args: { hours }, label: 'Write the performance report', dependsOn: ['load', 'errors'], readOnly: true },
         ],
       };
     },
@@ -68,10 +69,10 @@ export const RECIPES: readonly Recipe[] = [
         source: 'recipe',
         onFailure: 'continue-independent',
         steps: [
-          { id: 'size', skill: 'storage.folderSize', args: { path }, label: 'Measure the folder' },
+          { id: 'size', skill: 'storage.folderSize', args: { path }, label: 'Measure the folder', readOnly: true },
           // Both listings only make sense once the folder is known to be readable.
-          { id: 'folders', skill: 'storage.largestFolders', args: { path }, label: 'Find its biggest subfolders', dependsOn: ['size'] },
-          { id: 'files', skill: 'storage.largestFiles', args: { path }, label: 'Find its biggest files', dependsOn: ['size'] },
+          { id: 'folders', skill: 'storage.largestFolders', args: { path }, label: 'Find its biggest subfolders', dependsOn: ['size'], readOnly: true },
+          { id: 'files', skill: 'storage.largestFiles', args: { path }, label: 'Find its biggest files', dependsOn: ['size'], readOnly: true },
         ],
       };
     },
@@ -88,9 +89,44 @@ export const RECIPES: readonly Recipe[] = [
         source: 'recipe',
         onFailure: 'continue-independent',
         steps: [
-          { id: 'detect', skill: 'project.detect', args: { path }, label: 'Identify the project' },
-          { id: 'tree', skill: 'project.tree', args: { path }, label: 'Show its layout', dependsOn: ['detect'] },
-          { id: 'git', skill: 'git.status', args: { path }, label: 'Show its git state', dependsOn: ['detect'] },
+          { id: 'detect', skill: 'project.detect', args: { path }, label: 'Identify the project', readOnly: true },
+          { id: 'tree', skill: 'project.tree', args: { path }, label: 'Show its layout', dependsOn: ['detect'], readOnly: true },
+          { id: 'git', skill: 'git.status', args: { path }, label: 'Show its git state', dependsOn: ['detect'], readOnly: true },
+        ],
+      };
+    },
+  },
+  {
+    id: 'starter-folder',
+    title: 'Starter folder',
+    summary:
+      'Create a new folder with a README in it. Each step asks like any file change would, and each is read back: the report says whether the folder and the file were actually seen.',
+    params: { path: { description: 'the full path of the new folder', required: true } },
+    build(params: Record<string, string>): TaskPlan {
+      const path = need(params, 'path', 'the path of the new folder');
+      const name = path.split(/[\\/]/).filter(Boolean).pop() ?? 'project';
+      const readme = join(path, 'README.md');
+      return {
+        goal: `Create a starter folder at ${path}`,
+        source: 'recipe',
+        // A README without its folder is not a thing to attempt, so stop at the first failure.
+        onFailure: 'stop',
+        steps: [
+          {
+            id: 'folder',
+            skill: 'files.createFolder',
+            args: { path },
+            label: 'Create the folder',
+            expect: [{ kind: 'path-is-folder', path }],
+          },
+          {
+            id: 'readme',
+            skill: 'files.create',
+            args: { path: readme, content: `# ${name}\n` },
+            label: 'Add a README',
+            dependsOn: ['folder'],
+            expect: [{ kind: 'path-is-file', path: readme }],
+          },
         ],
       };
     },

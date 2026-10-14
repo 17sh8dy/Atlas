@@ -265,6 +265,7 @@ export class Engine {
     return {
       run: (plan, io, extra) => this.run(plan, io, extra),
       mode: () => this.getExecutionMode(),
+      ...(this.probes ? { verify: (probes) => this.probes!(probes) } : {}),
       planApproval: (steps) => this.phrasing.planApproval(steps),
     };
   }

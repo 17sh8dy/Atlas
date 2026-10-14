@@ -143,7 +143,7 @@ describe('the declarations', () => {
       .filter(([, d]) => d(args, ok).some((s) => s.announce))
       .map(([id]) => id)
       .sort();
-    expect(announced).toEqual(['files.create', 'files.createFolder', 'files.delete']);
+    expect(announced).toEqual(['files.create', 'files.createFolder', 'files.delete', 'project.create']);
   });
 });
 
@@ -223,5 +223,14 @@ describe('through the executor', () => {
     });
     expect(probed).toBe(false);
     expect(out.outcomes[0]!.ok).toBe(false);
+  });
+});
+
+describe('ending a program', () => {
+  test('is read back by name, and a process id declares nothing to look for', () => {
+    const d = VERIFY_DECLARATIONS['system.endProcess']!;
+    expect(d({ process: 'chrome.exe' }, { ok: true })).toEqual([{ kind: 'process-stopped', name: 'chrome.exe' }]);
+    expect(d({ process: '4242' }, { ok: true })).toEqual([]);
+    expect(d({}, { ok: true })).toEqual([]);
   });
 });

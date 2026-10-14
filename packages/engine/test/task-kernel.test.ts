@@ -15,6 +15,7 @@ import { checkGraph, dependentsOf, nextReady, orderedSteps } from '../src/task/g
 import { RECIPES, findRecipe } from '../src/task/recipes';
 import { taskPlanFromPlan, taskViewFromSetupChecks, taskViewFromWatch } from '../src/task/adapters';
 import { createTaskSkills } from '../src/skills/task-skills';
+import type { ProbeRunner } from '../src/verify/probes';
 
 // ── rig ────────────────────────────────────────────────────────────────────
 
@@ -56,7 +57,12 @@ function skill(
 
 function rig(
   build: (ran: string[]) => Skill[],
-  options: { mode?: ExecutionMode; answers?: boolean[]; storage?: ReturnType<typeof memoryStorage> } = {},
+  options: {
+    mode?: ExecutionMode;
+    answers?: boolean[];
+    storage?: ReturnType<typeof memoryStorage>;
+    probes?: ProbeRunner;
+  } = {},
 ): Rig {
   let mode: ExecutionMode = options.mode ?? 'doIt';
   const ran: string[] = [];
@@ -65,7 +71,12 @@ function rig(
   const answers = [...(options.answers ?? [])];
   const registry = new SkillRegistry({ capabilities: () => [] });
   registry.registerMany(build(ran));
-  const engine = new Engine({ skills: registry, grammar: new Grammar(), getExecutionMode: () => mode });
+  const engine = new Engine({
+    skills: registry,
+    grammar: new Grammar(),
+    getExecutionMode: () => mode,
+    ...(options.probes ? { probes: options.probes } : {}),
+  });
   const storage = options.storage ?? memoryStorage();
   let clock = 1_000;
   const newKernel = () =>
@@ -425,6 +436,97 @@ describe('what the report claims', () => {
     expect(text).toMatch(/1 confirmed by reading the result back/);
     expect(text).toMatch(/1 reported done without a way to check/);
     expect(text).toMatch(/t.checked — confirmed: there.txt is there/);
+  });
+});
+
+// ── expectations: confirmed versus reported ────────────────────────────────
+
+describe('a task can say what it expects, and is told whether it saw it', () => {
+  const seen = (present: Record<string, boolean>): ProbeRunner => async (specs) =>
+    specs.map((probe) => {
+      const path = 'path' in probe ? probe.path : '';
+      return present[path]
+        ? { probe, state: 'confirmed' as const, evidence: `${path} is there` }
+        : { probe, state: 'contradicted' as const, evidence: `nothing is at ${path}` };
+    });
+
+  test('an expectation that holds makes the step confirmed, with what was seen', async () => {
+    const r = rig((ran) => [read('t.make')(ran)], { probes: seen({ 'D:\\x\\new': true }) });
+    const task = await r.kernel.run(
+      plan([{ id: 'a', skill: 't.make', args: {}, expect: [{ kind: 'path-exists', path: 'D:\\x\\new' }] }]),
+      r.io,
+    );
+    expect(task.steps[0]!.verified).toBe('confirmed');
+    expect(task.steps[0]!.evidence).toContain('is there');
+    expect(describeTask(task)).toMatch(/1 confirmed by reading the result back/);
+  });
+
+  test('an expectation that does not hold is said aloud and the step is not called confirmed', async () => {
+    const r = rig((ran) => [read('t.make')(ran)], { probes: seen({}) });
+    const task = await r.kernel.run(
+      plan([{ id: 'a', skill: 't.make', args: {}, expect: [{ kind: 'path-exists', path: 'D:\\x\\new' }] }]),
+      r.io,
+    );
+    expect(task.status).toBe('done');
+    expect(task.steps[0]!.verified).toBe('unconfirmed');
+    expect(r.said.join('\n')).toMatch(/reported success, but nothing is at D:\\x\\new/);
+    expect(describeTask(task)).toMatch(/1 could not be confirmed/);
+  });
+
+  test('without a probe runner an expectation is never reported as seen', async () => {
+    const r = rig((ran) => [read('t.make')(ran)]);
+    const task = await r.kernel.run(
+      plan([{ id: 'a', skill: 't.make', args: {}, expect: [{ kind: 'path-exists', path: 'D:\\x\\new' }] }]),
+      r.io,
+    );
+    expect(task.steps[0]!.verified).toBeUndefined();
+    expect(describeTask(task)).toMatch(/1 reported done without a way to check/);
+  });
+
+  test('a read-only step is described as a read, not as something unchecked', async () => {
+    const r = rig((ran) => [read('t.look')(ran)]);
+    const task = await r.kernel.run(plan([{ id: 'a', skill: 't.look', args: {}, readOnly: true }]), r.io);
+    const text = describeTask(task);
+    expect(text).toMatch(/1 read-only \(nothing to confirm\)/);
+    expect(text).not.toMatch(/without a way to check/);
+  });
+
+  test('a failed step is never read back', async () => {
+    let probed = false;
+    const r = rig(() => [skill('t.bad', async () => ({ ok: false, error: 'It is not found.' }))], {
+      probes: async (specs) => {
+        probed = true;
+        return specs.map((probe) => ({ probe, state: 'confirmed' as const, evidence: 'x' }));
+      },
+    });
+    await r.kernel.run(plan([{ id: 'a', skill: 't.bad', args: {}, expect: [{ kind: 'path-exists', path: 'D:\\x' }] }]), r.io);
+    expect(probed).toBe(false);
+  });
+
+  test('the starter-folder recipe states what it expects of both steps', () => {
+    const p = findRecipe('starter-folder')!.build({ path: 'D:\\Dev\\New Thing' });
+    expect(p.steps.map((s) => s.expect?.[0]?.kind)).toEqual(['path-is-folder', 'path-is-file']);
+    expect(p.steps[1]!.expect![0]).toMatchObject({ path: 'D:\\Dev\\New Thing\\README.md' });
+    expect(p.steps[1]!.dependsOn).toEqual(['folder']);
+    expect(p.onFailure).toBe('stop');
+  });
+
+  test('the starter-folder recipe asks like any file change in Confirm Actions, then reports what it saw', async () => {
+    const r = rig(
+      () => [
+        skill('files.createFolder', async () => ({ ok: true }), { risk: 'confirm', params: { path: { type: 'string', required: true, description: 'p' } } }),
+        skill('files.create', async () => ({ ok: true }), {
+          risk: 'confirm',
+          params: { path: { type: 'string', required: true, description: 'p' }, content: { type: 'string', required: false, description: 'c' } },
+        }),
+      ],
+      { mode: 'confirmActions', probes: seen({ 'D:\\Dev\\Thing': true, 'D:\\Dev\\Thing\\README.md': true }) },
+    );
+    const task = await r.kernel.run(findRecipe('starter-folder')!.build({ path: 'D:\\Dev\\Thing' }), r.io);
+    expect(r.asked.length).toBe(2);
+    expect(task.status).toBe('done');
+    expect(task.steps.map((s) => s.verified)).toEqual(['confirmed', 'confirmed']);
+    expect(describeTask(task)).toMatch(/2 confirmed by reading the result back/);
   });
 });
 

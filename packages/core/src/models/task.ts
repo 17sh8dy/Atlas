@@ -13,7 +13,7 @@
 import type { FailureKind } from './failure';
 import type { PlanSource } from './plan';
 import type { SkillArgs } from './skill';
-import type { Verification } from './verify';
+import type { ProbeSpec, Verification } from './verify';
 
 /**
  * Where a task is.
@@ -68,6 +68,15 @@ export interface TaskStepSpec {
   label?: string;
   /** Steps that must be `done` before this one may start. */
   dependsOn?: string[];
+  /**
+   * What must be true once this step has reported success, as read-only probes (`verify.ts`).
+   * Read back after the step, by the same probe runner the executor uses; a miss is said aloud and
+   * the step is recorded as not confirmed. This is how a recipe — or, later, a model's plan —
+   * states the effect it expects, so "done" can be told apart from "done, and I saw it".
+   */
+  expect?: ProbeSpec[];
+  /** The step only reads. There is nothing to confirm about it, and it is reported as such. */
+  readOnly?: boolean;
   /**
    * Try again on failure, at most this many extra times. Honoured only where retrying cannot do
    * more than the first attempt did: a step that is safe to repeat, failing in a way that
@@ -136,8 +145,10 @@ export interface TaskSummary {
   confirmed: number;
   /** Finished steps Atlas tried to read back and could not confirm. */
   unconfirmed: number;
-  /** Finished steps with nothing to read back: reported done by the step, not seen. */
+  /** Finished steps with nothing to read back that change something: reported done, not seen. */
   reportedOnly: number;
+  /** Finished read-only steps: their result is what they returned; there was nothing to confirm. */
+  reads: number;
 }
 
 export function summarizeTask(task: Pick<Task, 'steps'>): TaskSummary {
@@ -154,6 +165,7 @@ export function summarizeTask(task: Pick<Task, 'steps'>): TaskSummary {
     remaining: count('pending') + count('running'),
     confirmed: done.filter((x) => x.verified === 'confirmed').length,
     unconfirmed: done.filter((x) => x.verified === 'unconfirmed').length,
-    reportedOnly: done.filter((x) => !x.verified).length,
+    reportedOnly: done.filter((x) => !x.verified && !x.readOnly).length,
+    reads: done.filter((x) => !x.verified && x.readOnly).length,
   };
 }
