@@ -82,6 +82,8 @@ mod compat;
 mod kokoro;
 #[cfg(windows)]
 mod speech;
+#[cfg(test)]
+mod authz_inventory;
 mod storage;
 #[cfg(windows)]
 mod searxng;
