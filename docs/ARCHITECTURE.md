@@ -346,6 +346,20 @@ time-capped, and an address may not carry a login, query or fragment. A server w
 off (the default) is reported as exactly that, with the fix, under the `misconfigured` failure
 kind. No Docker, WSL or service is installed or started by Atlas.
 
+*Threat-model note (2026-10-14).* Tauri 2 capability files govern plugins and core APIs; they do
+**not** restrict an app's own `#[tauri::command]`s, so any script in the main webview can invoke
+`searxng_configure` exactly as it can `add_allowed_folder` or `fetch_page`. What stands between a
+compromised renderer and these commands is the CSP (`script-src 'self'`, no inline script, no eval),
+not a per-command permission. The CSP's `connect-src` is also not an egress boundary: `fetch_page`,
+`web_search_with` and the cloud-provider commands are native, so they already let the renderer send
+up to a few hundred characters to a host of its choosing. SearXNG adds no new kind of egress. What a
+compromised renderer *does* gain from it is persistence and influence: a saved address keeps
+receiving later searches and can return poisoned results (which are fenced as untrusted and can
+never run anything). A native confirmation dialog would add an independent check on that one change,
+but only as part of a uniform "native confirmation for persistent trust changes" (allowed folders,
+cloud base URLs, secrets, SearXNG), because the other levers would remain open. The `allow_private`
+flag is a UX confirmation, not a boundary against a compromised renderer.
+
 `fetch_page`'s target is untrusted in a way `web_search`'s query isn't — it
 can come from a search result Atlas didn't choose — so it gets an extra guard
 `web_search` doesn't need: `is_safe_fetch_target` blocks loopback, private,
