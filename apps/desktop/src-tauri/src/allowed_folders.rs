@@ -67,7 +67,9 @@ pub fn init(saved: Option<Vec<String>>) -> Vec<String> {
     let mut dropped = Vec::new();
     for raw in saved {
         match PathBuf::from(&raw).canonicalize() {
-            Ok(p) if p.is_dir() => kept.push(p),
+            // Atlas's own folders can never be a root, whatever was saved: a hand-edited or
+            // injected `storage.json` does not get to put them on the list.
+            Ok(p) if p.is_dir() && !crate::protected_paths::is_protected(&p) => kept.push(p),
             _ => dropped.push(raw),
         }
     }
@@ -96,10 +98,43 @@ pub fn is_permitted(path: &Path) -> bool {
 /// The check itself, separate from the global list so it can be tested against
 /// real links without racing the other tests over shared state.
 fn is_within(path: &Path, roots: &[PathBuf]) -> bool {
-    let Ok(canonical) = path.canonicalize() else {
-        return false;
+    resolve_permitted(path, roots).is_some()
+}
+
+/// The resolved path, if it is inside a root and **not** inside Atlas's own folders
+/// (`protected_paths.rs`) — whether by its own location or by a hard link to a file there.
+fn resolve_permitted(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
+    resolve_permitted_with(path, roots, None)
+}
+
+/// `protected: None` means Atlas's real folders; tests pass their own.
+fn resolve_permitted_with(path: &Path, roots: &[PathBuf], protected: Option<&[PathBuf]>) -> Option<PathBuf> {
+    use crate::protected_paths as pp;
+    let canonical = path.canonicalize().ok()?;
+    if !roots.iter().any(|root| canonical.starts_with(root)) {
+        return None;
+    }
+    let blocked = match protected {
+        None => pp::is_protected(&canonical) || pp::hard_linked_into_protected(&canonical),
+        Some(p) => pp::is_protected_in(&canonical, p) || pp::hard_linked_into(&canonical, p),
     };
-    roots.iter().any(|root| canonical.starts_with(root))
+    if blocked {
+        return None;
+    }
+    Some(canonical)
+}
+
+/// May this path be **changed** (renamed, moved, deleted, re-attributed)?
+///
+/// Everything `is_permitted` requires, and in addition the path must not contain one of Atlas's
+/// own folders: renaming or deleting `AppData\Roaming` (or the home folder) would relocate or
+/// remove the protected folder inside it without ever naming it.
+pub fn is_permitted_to_change(path: &Path) -> bool {
+    let Ok(roots) = lock().read() else { return false };
+    match resolve_permitted(path, &roots) {
+        Some(canonical) => !crate::protected_paths::swallows_protected(&canonical),
+        None => false,
+    }
 }
 
 /// The raw roots, for `indexed_roots()` — internal use only. The frontend
@@ -152,6 +187,9 @@ pub fn add_allowed_folder(
         .map_err(|_| "That folder doesn't exist.".to_string())?;
     if !canonical.is_dir() {
         return Err("That isn't a folder.".into());
+    }
+    if crate::protected_paths::is_protected(&canonical) {
+        return Err("That's one of Atlas's own folders, so it can't be added.".into());
     }
 
     {
@@ -320,5 +358,53 @@ mod tests {
         // Not a real "copy as path" case — better to fail canonicalizing with
         // a clear reason than to guess at stripping a mismatched quote.
         assert_eq!(unquoted("\"D:\\Dev\\Atlas"), "\"D:\\Dev\\Atlas");
+    }
+
+    #[test]
+    fn atlas_own_folders_are_unreachable_even_though_they_sit_inside_an_allowed_root() {
+        let s = Scratch::new("own");
+        let home = s.0.join("Home");
+        let data = home.join("AppData").join("Roaming").join("dev.atlas.assistant");
+        let docs = home.join("Documents");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(data.join("storage.json"), "{}").unwrap();
+        std::fs::write(docs.join("note.txt"), "hi").unwrap();
+        let roots = vec![home.canonicalize().unwrap()];
+        let protected = vec![data.canonicalize().unwrap()];
+        let ok = |p: &Path| resolve_permitted_with(p, &roots, Some(&protected)).is_some();
+
+        assert!(ok(&docs.join("note.txt")), "ordinary files in the home folder still work");
+        assert!(ok(&home), "and so does the home folder itself, for listing");
+        assert!(!ok(&data), "the data folder is refused");
+        assert!(!ok(&data.join("storage.json")), "and the store inside it");
+        // `..` and a junction do not get around it.
+        assert!(!ok(&docs.join("..").join("AppData").join("Roaming").join("dev.atlas.assistant").join("storage.json")));
+        let link = docs.join("alias");
+        let made = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(&link).arg(&data).output().unwrap();
+        assert!(made.status.success(), "{made:?}");
+        assert!(!ok(&link.join("storage.json")), "a junction to it is refused");
+        let _ = std::fs::remove_dir(&link);
+        // A hard link to the store, created inside Documents.
+        let alias = docs.join("copy.json");
+        std::fs::hard_link(data.join("storage.json"), &alias).unwrap();
+        assert!(!ok(&alias), "a hard link to it is refused under its other name");
+    }
+
+    #[test]
+    fn a_folder_that_holds_atlas_data_can_be_read_but_not_changed() {
+        let s = Scratch::new("ancestor");
+        let home = s.0.join("Home");
+        let data = home.join("AppData").join("Roaming").join("dev.atlas.assistant");
+        std::fs::create_dir_all(&data).unwrap();
+        let roots = vec![home.canonicalize().unwrap()];
+        let protected = vec![data.canonicalize().unwrap()];
+        let roaming = home.join("AppData").join("Roaming");
+        let readable = resolve_permitted_with(&roaming, &roots, Some(&protected)).unwrap();
+        assert!(crate::protected_paths::swallows_in(&readable, &protected), "renaming it would move the data");
+        let other = home.join("AppData").join("Local");
+        std::fs::create_dir_all(&other).unwrap();
+        let other = resolve_permitted_with(&other, &roots, Some(&protected)).unwrap();
+        assert!(!crate::protected_paths::swallows_in(&other, &protected));
     }
 }

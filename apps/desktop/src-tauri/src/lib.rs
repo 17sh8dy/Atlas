@@ -11,6 +11,7 @@
 //! hide-on-blur behaviour below are for.
 
 mod allowed_folders;
+mod protected_paths;
 #[cfg(windows)]
 mod audio;
 #[cfg(windows)]

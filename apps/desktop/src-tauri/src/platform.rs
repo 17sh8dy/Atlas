@@ -129,7 +129,7 @@ fn is_noise(name: &str) -> bool {
 /// list rather than a hard-coded `%USERPROFILE%`. Kept under this name so
 /// every one of the ~20 call sites across this file and `disk_usage.rs`
 /// needed no change at all.
-pub(crate) use crate::allowed_folders::is_permitted;
+pub(crate) use crate::allowed_folders::{is_permitted, is_permitted_to_change};
 
 #[tauri::command]
 pub fn search_files(query: String, kind: Option<String>, limit: Option<usize>) -> Vec<FileEntry> {
@@ -149,6 +149,7 @@ pub fn search_files(query: String, kind: Option<String>, limit: Option<usize>) -
                     .to_str()
                     .map(is_noise)
                     .unwrap_or(false)
+                    && !crate::protected_paths::is_protected_lenient(e.path())
             })
             .filter_map(Result::ok)
         {
@@ -814,7 +815,7 @@ pub fn create_folder(path: String) -> Result<bool, String> {
 pub fn rename_path(path: String, new_name: String) -> Result<bool, String> {
     crate::halt::global().check()?;
     let p = PathBuf::from(&path);
-    if !is_permitted(&p) {
+    if !is_permitted_to_change(&p) {
         return Err("That path is outside the folders Atlas can touch.".into());
     }
     if !is_bare_filename(&new_name) {
@@ -836,7 +837,7 @@ pub fn move_path(path: String, dest_dir: String) -> Result<bool, String> {
     crate::halt::global().check()?;
     let p = PathBuf::from(&path);
     let dest = PathBuf::from(&dest_dir);
-    if !is_permitted(&p) || !is_permitted(&dest) {
+    if !is_permitted_to_change(&p) || !is_permitted(&dest) {
         return Err("That path is outside the folders Atlas can touch.".into());
     }
     let Some(name) = p.file_name() else {
@@ -860,7 +861,7 @@ pub fn move_path_to(from: String, to: String) -> Result<bool, String> {
     crate::halt::global().check()?;
     let source = PathBuf::from(&from);
     let target = PathBuf::from(&to);
-    if !is_permitted(&source) || !is_permitted_for_create(&target) {
+    if !is_permitted_to_change(&source) || !is_permitted_for_create(&target) {
         return Err("That path is outside the folders Atlas can touch.".into());
     }
     // A name is not a path: a destination whose final component is empty or
@@ -902,7 +903,7 @@ pub fn copy_path(path: String, dest_dir: String) -> Result<bool, String> {
 pub fn delete_path(path: String) -> Result<bool, String> {
     crate::halt::global().check()?;
     let p = PathBuf::from(&path);
-    if !is_permitted(&p) {
+    if !is_permitted_to_change(&p) {
         return Err("That path is outside the folders Atlas can touch.".into());
     }
     // The recycle bin, never a permanent delete — meaningfully safer for a
@@ -955,6 +956,9 @@ pub fn probe_path(path: String) -> Result<PathInfo, String> {
     let p = PathBuf::from(path.trim());
     if !p.is_absolute() {
         return Err("Give me a full path.".into());
+    }
+    if crate::protected_paths::is_protected_lenient(&p) {
+        return Err("No such path.".into());
     }
     let meta = std::fs::metadata(&p).map_err(|_| "No such path.".to_string())?;
     Ok(PathInfo {
