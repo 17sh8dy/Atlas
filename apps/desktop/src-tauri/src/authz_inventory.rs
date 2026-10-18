@@ -371,6 +371,7 @@ pub const KEYS: &[Key] = &[
     Key { key: "reminders.items", trust: Trust::Low,
           consumers: "engine: reminders scheduler. Not atlas.-prefixed" },
     Key { key: "atlas.stats.period", trust: Trust::Low, consumers: "renderer: which period the Stats page last showed" },
+    Key { key: "atlas.review.mode", trust: Trust::Low, consumers: "renderer (browser storage): inline or side-by-side diffs in the review panel" },
     Key { key: "atlas.update.autocheck", trust: Trust::Low, consumers: "renderer: update checker" },
     Key { key: "atlas.update.dismissed", trust: Trust::Low, consumers: "renderer: update banner" },
     Key { key: "atlas.settings.alerts", trust: Trust::Low, consumers: "renderer: alert thresholds" },
