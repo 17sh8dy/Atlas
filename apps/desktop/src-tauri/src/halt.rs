@@ -1018,9 +1018,9 @@ mod tests {
             "account_session_get", "account_session_set", "account_session_clear",
             // Where a provider's key may be sent, set from Settings by the person.
             "provider_binding", "provider_bind", "provider_add", "provider_unbind", "provider_list",
-            "provider_update", "provider_resume", "provider_set_caps",
+            "provider_update", "provider_resume", "provider_set_caps", "provider_set_prices",
             // Local statistics: reading and recording them never acts on the machine.
-            "stats_summary", "stats_record", "stats_info", "stats_reset",
+            "stats_summary", "stats_record", "stats_touch", "stats_info", "stats_reset",
             // The SearXNG address, saved from Settings by the person. It only chooses where
             // Atlas's own search is sent; every address is checked again on each search.
             "searxng_configure",

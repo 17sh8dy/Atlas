@@ -25,6 +25,43 @@ export interface ProviderUsage {
   tokensOut: number;
   failures: number;
   limitHits: number;
+  /** Estimated cost in US dollars, only where the prices were entered for this provider. */
+  estCostUsd: number | null;
+}
+
+/** An ESTIMATE of cloud spending, from the prices the person entered. Never a bill. */
+export interface StatsSpend {
+  /** null until at least one provider has prices to estimate from. */
+  estimateUsd: number | null;
+  pricedProviders: number;
+  unpricedProviders: number;
+  /** Tokens no price covers, so the figure can say how much it leaves out. */
+  unpricedTokens: number;
+}
+
+/** All-time figures: the same whichever period is chosen. */
+export interface StatsLifetime {
+  activeSeconds: number;
+  messages: number;
+  tokens: number;
+  conversations: number;
+  tasksCompleted: number;
+  filesEdited: number;
+  spend: StatsSpend;
+}
+
+export interface StatsStreak {
+  current: number;
+  longest: number;
+  /** The last day of the longest streak, YYYY-MM-DD, or empty. */
+  longestEnded: string;
+  activeToday: boolean;
+}
+
+export interface StatsCalendarDay {
+  day: string;
+  /** 0 = nothing; 1-4 = how much, relative to the busiest day shown. */
+  level: number;
 }
 
 export interface StatsSummary {
@@ -37,6 +74,16 @@ export interface StatsSummary {
   metrics: Record<string, number>;
   providers: ProviderUsage[];
   series: { label: string; value: number }[];
+  /** Active minutes over the same buckets as `series`. */
+  activeSeries: { label: string; value: number }[];
+  /** Estimated spending for the chosen period. */
+  spend: StatsSpend;
+  lifetime: StatsLifetime;
+  streak: StatsStreak;
+  /** The last twelve weeks, one cell a day, oldest first. */
+  calendar: StatsCalendarDay[];
+  /** The first day active time was counted, or empty if it has not been yet. */
+  activeSince: string;
 }
 
 export interface StatsInfo {
@@ -59,6 +106,18 @@ export async function statsRecord(metric: string, count = 1): Promise<void> {
     await invoke<void>('stats_record', { metric, count });
   } catch {
     /* a stats problem is never the user's problem */
+  }
+}
+
+/**
+ * Tell Atlas the person just used it, so active time can be counted. Carries nothing but the fact
+ * that it happened. Never throws.
+ */
+export async function statsTouch(): Promise<void> {
+  try {
+    await invoke<void>('stats_touch');
+  } catch {
+    /* counting must never break what is counted */
   }
 }
 

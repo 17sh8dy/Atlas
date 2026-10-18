@@ -44,6 +44,7 @@ import { Setups } from './settings/Setups';
 import { Notifications } from './settings/Notifications';
 import { Intelligence } from './settings/Intelligence';
 import { Account } from './settings/Account';
+import { AtlasPro } from './settings/AtlasPro';
 import { About } from './settings/About';
 import type { Updater } from '../update/useUpdater';
 
@@ -104,6 +105,8 @@ export const SECTIONS: readonly SettingsSection[] = [
   { id: 'setups', label: 'Setups', icon: Icons.Clapperboard },
   { id: 'notifications', label: 'Notifications', icon: Icons.Bell },
   { id: 'intelligence', label: 'Intelligence', icon: Icons.Brain },
+  /* A preview of future paid benefits. It sells nothing and gates nothing (see AtlasPro.tsx). */
+  { id: 'atlas-pro', label: 'Atlas Pro', icon: Icons.Gem },
   /* Second to last, above About. Atlas is complete signed out, and an account entry near the
      top of a settings rail is how an optional thing starts reading as a required one. */
   { id: 'account', label: 'Account', icon: Icons.UserRound },
@@ -223,6 +226,9 @@ export function Settings({
                 cloudProviders={cloudProviders}
                 onProviderChange={onProviderChange}
               />
+            </TabsContent>
+            <TabsContent value="atlas-pro">
+              <AtlasPro />
             </TabsContent>
             <TabsContent value="account">
               <Account platform={platform} storage={storage} />

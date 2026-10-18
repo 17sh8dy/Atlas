@@ -61,8 +61,9 @@ test('the placeholder tabs are gone and have not come back', () => {
     );
   }
   // 11 since 1.0.3 (Watches and Setups are real pages with real controls, not placeholders);
-  // 12 with Tasks, which is the same kind of page; 13 with Stats (local counts, no account).
-  assert.lengthOf(SECTIONS, 13);
+  // 12 with Tasks, which is the same kind of page; 13 with Stats (local counts, no account);
+  // 14 with Atlas Pro, a no-commitment preview that sells nothing.
+  assert.lengthOf(SECTIONS, 14);
 });
 
 test('the Account tab is optional in the way it claims to be', () => {

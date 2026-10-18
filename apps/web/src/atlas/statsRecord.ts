@@ -26,6 +26,25 @@ export function areaOf(skillId: string): string {
   return 'area.other';
 }
 
+/**
+ * Skills that change what is INSIDE an existing file, and so count as "files edited". Creating a
+ * file, copying, moving and deleting are not edits. Atlas records how many, never which: a count of
+ * edits made, not of distinct files, since no file name is ever kept.
+ */
+const SINGLE_FILE_EDITS = new Set(['code.edit', 'code.write', 'files.append']);
+/** Bulk edits report the files they changed in `data.files`. */
+const BULK_FILE_EDITS = new Set(['code.replaceAll', 'project.recolor']);
+
+/** How many files a successful step edited. */
+export function filesEditedBy(skill: string, data: unknown): number {
+  if (SINGLE_FILE_EDITS.has(skill)) return 1;
+  if (BULK_FILE_EDITS.has(skill)) {
+    const files = (data as { files?: unknown } | null | undefined)?.files;
+    return Array.isArray(files) ? files.length : 1;
+  }
+  return 0;
+}
+
 function add(into: Map<string, number>, name: string, n = 1) {
   if (n > 0) into.set(name, (into.get(name) ?? 0) + n);
 }
@@ -36,6 +55,7 @@ export function metricsForPlan(plan: PlanOutcome): Metric[] {
     if (step.ok) {
       add(m, 'actions.done');
       add(m, areaOf(step.skill));
+      add(m, 'files.edited', filesEditedBy(step.skill, step.data));
     } else if (step.skipped) {
       add(m, 'actions.declined');
     } else if (!plan.halted) {

@@ -76,6 +76,13 @@ pub struct Provider {
     pub cap_requests: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cap_tokens: Option<u64>,
+    /// What the person says a million tokens cost, in thousandths of a US dollar ($0.075 = 75),
+    /// for input and for output. Used ONLY for the "estimated spending" figure on the Stats page;
+    /// it never limits, routes or sends anything, which is why changing it asks nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_in_milli: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_out_milli: Option<u64>,
 }
 
 fn yes() -> bool {
@@ -104,6 +111,8 @@ pub struct ProviderView {
     pub paused: Option<String>,
     pub cap_requests: Option<u64>,
     pub cap_tokens: Option<u64>,
+    pub price_in_milli: Option<u64>,
+    pub price_out_milli: Option<u64>,
     /// This calendar month, from Stats: requests, and tokens (reported by the provider where it
     /// said, otherwise estimated).
     pub month_requests: u64,
@@ -130,6 +139,8 @@ fn view_of(id: &str, p: &Provider) -> ProviderView {
         paused: p.paused.as_ref().map(|x| x.reason.clone()),
         cap_requests: p.cap_requests,
         cap_tokens: p.cap_tokens,
+        price_in_milli: p.price_in_milli,
+        price_out_milli: p.price_out_milli,
         month_requests: crate::stats::month_total(&format!("cloud:{id}:requests")),
         month_tokens: crate::stats::month_total(&format!("cloud:{id}:tokens_in"))
             + crate::stats::month_total(&format!("cloud:{id}:tokens_out")),
@@ -312,6 +323,8 @@ pub(crate) fn plan_migration(current: &Table, legacy: &[Legacy], start_at: u64) 
                 paused: None,
                 cap_requests: None,
                 cap_tokens: None,
+                price_in_milli: None,
+                price_out_milli: None,
             },
         );
         adopted += 1;
@@ -503,6 +516,8 @@ pub async fn provider_add(
         paused: None,
         cap_requests: None,
         cap_tokens: None,
+        price_in_milli: None,
+        price_out_milli: None,
     };
     crate::consent::ask(crate::consent::Request::ProviderAdd {
         kind: kind_label(kind).to_string(),
@@ -662,6 +677,40 @@ pub async fn provider_set_caps(
     Ok(view_of(&provider_id, &updated))
 }
 
+/// What the person says a million tokens cost, for the Stats page's spending ESTIMATE (`None`
+/// clears it). Thousandths of a US dollar per million tokens. It only feeds an estimate: nothing is
+/// limited, routed or sent because of it, so it asks nothing.
+#[tauri::command]
+pub fn provider_set_prices(
+    app: AppHandle,
+    provider_id: String,
+    price_in_milli: Option<u64>,
+    price_out_milli: Option<u64>,
+) -> Result<ProviderView, String> {
+    check_id(&provider_id)?;
+    // $100,000 per million tokens is well past any real price; refuse nonsense, not honest highs.
+    const MAX_MILLI: u64 = 100_000_000;
+    if price_in_milli.is_some_and(|p| p > MAX_MILLI) || price_out_milli.is_some_and(|p| p > MAX_MILLI) {
+        return Err("That price looks too high to be a price per million tokens.".into());
+    }
+    let updated = {
+        let mut guard = table().write().map_err(|_| "Couldn't update the provider list.".to_string())?;
+        let Some(x) = guard.get_mut(&provider_id) else {
+            return Err("That provider isn't on the list.".into());
+        };
+        x.price_in_milli = price_in_milli;
+        x.price_out_milli = price_out_milli;
+        x.clone()
+    };
+    persist(&app)?;
+    Ok(view_of(&provider_id, &updated))
+}
+
+/// The prices the person entered for a provider, for the Stats estimate: `(input, output)`.
+pub fn prices_of(provider_id: &str) -> (Option<u64>, Option<u64>) {
+    get(provider_id).map(|p| (p.price_in_milli, p.price_out_milli)).unwrap_or((None, None))
+}
+
 /// Forget a provider (called when it is removed). Withdrawing a destination only makes a saved
 /// key less usable, so it asks nothing.
 #[tauri::command]
@@ -698,6 +747,8 @@ mod tests {
             paused: None,
             cap_requests: None,
             cap_tokens: None,
+            price_in_milli: None,
+            price_out_milli: None,
         }
     }
 

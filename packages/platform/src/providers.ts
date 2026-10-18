@@ -486,6 +486,9 @@ export interface ProviderStanding {
   paused: string | null;
   capRequests: number | null;
   capTokens: number | null;
+  /** What the person says a million tokens cost, in thousandths of a US dollar; null = not set. */
+  priceInMilli: number | null;
+  priceOutMilli: number | null;
   monthRequests: number;
   monthTokens: number;
   host: string;
@@ -498,6 +501,8 @@ export async function listProviderStanding(): Promise<ProviderStanding[]> {
       paused: string | null;
       capRequests: number | null;
       capTokens: number | null;
+      priceInMilli: number | null;
+      priceOutMilli: number | null;
       monthRequests: number;
       monthTokens: number;
       host: string;
@@ -518,6 +523,18 @@ export async function setProviderCaps(
   capTokens: number | null,
 ): Promise<void> {
   await invoke<unknown>('provider_set_caps', { providerId, capRequests, capTokens });
+}
+
+/**
+ * What a million tokens costs, in thousandths of a US dollar (null clears it). Only feeds the Stats
+ * page's spending ESTIMATE; it limits and routes nothing, so it asks nothing.
+ */
+export async function setProviderPrices(
+  providerId: string,
+  priceInMilli: number | null,
+  priceOutMilli: number | null,
+): Promise<void> {
+  await invoke<unknown>('provider_set_prices', { providerId, priceInMilli, priceOutMilli });
 }
 
 /** Rename, change the model, or enable/disable. None of these can redirect a key, so none asks. */

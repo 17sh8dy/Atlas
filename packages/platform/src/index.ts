@@ -50,13 +50,23 @@ export {
   listProviderStanding,
   resumeProvider,
   setProviderCaps,
+  setProviderPrices,
   updateProvider,
   unbindProvider,
   readProviderBinding,
 } from './providers';
 export type { ProviderBinding, ProviderStanding } from './providers';
-export { statsSummary, statsInfo, statsRecord, statsReset } from './stats';
-export type { StatsPeriod, StatsSummary, StatsInfo, ProviderUsage } from './stats';
+export { statsSummary, statsInfo, statsRecord, statsReset, statsTouch } from './stats';
+export type {
+  StatsPeriod,
+  StatsSummary,
+  StatsInfo,
+  ProviderUsage,
+  StatsSpend,
+  StatsLifetime,
+  StatsStreak,
+  StatsCalendarDay,
+} from './stats';
 
 /** The platform for the current runtime. */
 export function detectPlatform(): Platform {

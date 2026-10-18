@@ -30,6 +30,7 @@ import { Icons, Button, Input, Surface, Switch, cn } from '@atlas/ui';
 import type { CloudProviderConfig, CloudProviderKind, Storage } from '@atlas/core';
 import { readCloudPlanning, writeActiveProvider, writeCloudPlanning } from '@atlas/data';
 import { ROUTING_CHANGED } from '../../../atlas/routingEvents';
+import { formatPriceMilli, parsePriceMilli, priceTextProblem } from './prices';
 import {
   addProviderWithKey,
   deleteProviderSecret,
@@ -37,6 +38,7 @@ import {
   readProviderBinding,
   resumeProvider,
   setProviderCaps,
+  setProviderPrices,
   testCloudProviderConnection,
   unbindProvider,
   updateProvider,
@@ -109,6 +111,8 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
   // Cloud safety: whether a provider is paused, the caps Atlas enforces, and this month's use.
   const [standing, setStanding] = useState<Record<string, ProviderStanding>>({});
   const [capDraft, setCapDraft] = useState<Record<string, { r: string; t: string }>>({});
+  // What the person says a million tokens cost, in dollars as typed, for the Stats estimate.
+  const [priceDraft, setPriceDraft] = useState<Record<string, { i: string; o: string }>>({});
   const [safetyNote, setSafetyNote] = useState<Record<string, string>>({});
 
   const refreshStanding = useCallback(async () => {
@@ -150,6 +154,41 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
       await setProviderCaps(id, num(d.r), num(d.t));
       await refreshStanding();
       setCapDraft((p) => {
+        const next = { ...p };
+        delete next[id];
+        return next;
+      });
+    } catch (err) {
+      setSafetyNote((p) => ({ ...p, [id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePrices(id: string) {
+    const st = standing[id];
+    const d = priceDraft[id] ?? {
+      i: formatPriceMilli(st?.priceInMilli ?? null),
+      o: formatPriceMilli(st?.priceOutMilli ?? null),
+    };
+    const problem = priceTextProblem(d.i) ?? priceTextProblem(d.o);
+    if (problem) {
+      setSafetyNote((p) => ({ ...p, [id]: problem }));
+      return;
+    }
+    const pi = parsePriceMilli(d.i);
+    const po = parsePriceMilli(d.o);
+    // An estimate needs both halves; one alone would quietly price the other at nothing.
+    if ((pi === null) !== (po === null)) {
+      setSafetyNote((p) => ({ ...p, [id]: 'Enter both prices, or leave both empty.' }));
+      return;
+    }
+    setBusy(true);
+    setSafetyNote((p) => ({ ...p, [id]: '' }));
+    try {
+      await setProviderPrices(id, pi, po);
+      await refreshStanding();
+      setPriceDraft((p) => {
         const next = { ...p };
         delete next[id];
         return next;
@@ -418,6 +457,46 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
                     <p className="text-foreground-subtle text-xs leading-relaxed">
                       Atlas stops sending requests to this provider when a limit is reached, on top of
                       whatever your provider enforces. Raising or removing a limit asks you first.
+                    </p>
+                    {(() => {
+                      const pd = priceDraft[config.id] ?? {
+                        i: formatPriceMilli(st.priceInMilli),
+                        o: formatPriceMilli(st.priceOutMilli),
+                      };
+                      return (
+                        <div className="flex flex-wrap items-end gap-2">
+                          <label className="text-foreground-subtle text-xs">
+                            Price per 1M input tokens (USD)
+                            <Input
+                              value={pd.i}
+                              inputMode="decimal"
+                              placeholder="not set"
+                              onChange={(e) =>
+                                setPriceDraft((p) => ({ ...p, [config.id]: { ...pd, i: e.target.value } }))
+                              }
+                            />
+                          </label>
+                          <label className="text-foreground-subtle text-xs">
+                            Price per 1M output tokens (USD)
+                            <Input
+                              value={pd.o}
+                              inputMode="decimal"
+                              placeholder="not set"
+                              onChange={(e) =>
+                                setPriceDraft((p) => ({ ...p, [config.id]: { ...pd, o: e.target.value } }))
+                              }
+                            />
+                          </label>
+                          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void savePrices(config.id)}>
+                            Save prices
+                          </Button>
+                        </div>
+                      );
+                    })()}
+                    <p className="text-foreground-subtle text-xs leading-relaxed">
+                      Optional. Atlas has no price list, so these are your own numbers from your
+                      provider’s pricing page. They are used for one thing: the estimated spending on the
+                      Stats page. They never limit or change what is sent.
                     </p>
                     {safetyNote[config.id] && <p className="text-danger text-xs">{safetyNote[config.id]}</p>}
                   </div>

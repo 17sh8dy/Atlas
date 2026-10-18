@@ -12,20 +12,56 @@
  * One honest caveat is printed on the page and is real: asking a cloud model still sends that
  * request to the provider you chose. Keeping the *statistics* local does not make those requests
  * private from that provider.
+ *
+ * The page is a dashboard in three layers: the all-time headline figures (which do not move with the
+ * period), the activity calendar and streaks, and then the per-period detail the page has always had.
+ * Every figure is read from `stats.rs`; nothing here computes a statistic. What cannot be known is
+ * shown as "—" with the reason beside it, never as a made-up number.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Icons, Surface } from '@atlas/ui';
+import { Button, Icons, Surface, cn } from '@atlas/ui';
 import type { Platform, Storage } from '@atlas/core';
 import { statsInfo, statsReset, statsSummary, isTauri } from '@atlas/platform';
 import type { StatsInfo, StatsPeriod, StatsSummary } from '@atlas/platform';
-import { PERIODS, count, groupsFor, isEmpty, providerLine } from './statsView';
+import { PERIODS, calendarGrid, count, groupsFor, highlightsFor, isEmpty, providerLine } from './statsView';
 
 const PERIOD_KEY = 'atlas.stats.period';
+
+/** Shade for each activity level, 0 (nothing) to 4 (the busiest day shown). */
+const LEVEL_CLASS = ['bg-border/40', 'bg-primary/25', 'bg-primary/45', 'bg-primary/70', 'bg-primary'] as const;
 
 interface Props {
   platform: Platform;
   storage: Storage;
+}
+
+function SectionTitle({ children }: { children: string }) {
+  return <h3 className="text-foreground-subtle mb-2 text-xs font-medium uppercase tracking-wide">{children}</h3>;
+}
+
+/** A row of bars, one per day (or per month for a long period). Scales to the busiest bar. */
+function BarChart({ title, unit, points }: { title: string; unit: string; points: StatsSummary['series'] }) {
+  const max = Math.max(1, ...points.map((p) => p.value));
+  return (
+    <Surface className="mb-3 p-4">
+      <SectionTitle>{title}</SectionTitle>
+      <div className="flex h-20 items-end gap-1" role="img" aria-label={`${title} over the period`}>
+        {points.map((p) => (
+          <div
+            key={p.label}
+            title={`${p.label}: ${count(p.value)}${unit}`}
+            className="bg-primary/70 min-w-[3px] flex-1 rounded-sm"
+            style={{ height: `${Math.max(4, Math.round((p.value / max) * 100))}%` }}
+          />
+        ))}
+      </div>
+      <div className="text-foreground-subtle mt-1 flex justify-between text-[10px]">
+        <span>{points[0]?.label}</span>
+        <span>{points[points.length - 1]?.label}</span>
+      </div>
+    </Surface>
+  );
 }
 
 export function Stats({ storage }: Props) {
@@ -87,7 +123,8 @@ export function Stats({ storage }: Props) {
     }
   };
 
-  const max = Math.max(1, ...(summary?.series.map((p) => p.value) ?? [0]));
+  const weeks = summary ? calendarGrid(summary.calendar) : [];
+  const anyActiveTime = !!summary && summary.activeSeries.some((p) => p.value > 0);
 
   return (
     <section>
@@ -112,6 +149,64 @@ export function Stats({ storage }: Props) {
         </Surface>
       ) : (
         <>
+          {error && <p className="text-danger mb-3 text-xs">{error}</p>}
+
+          {summary && (
+            <>
+              <h3 className="text-foreground-subtle mb-2 text-xs font-medium uppercase tracking-wide">All time</h3>
+              <div
+                className="mb-3 grid gap-2"
+                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(9.5rem, 1fr))' }}
+                aria-label="All-time figures"
+              >
+                {highlightsFor(summary).map((h) => (
+                  <Surface key={h.id} className="min-w-0 p-3" data-highlight={h.id}>
+                    <div className="text-foreground-subtle text-[11px] font-medium uppercase tracking-wide">
+                      {h.label}
+                    </div>
+                    <div className="text-foreground mt-1 break-words text-xl font-semibold tabular-nums">
+                      {h.value}
+                    </div>
+                    <p className="text-foreground-subtle mt-1 text-[11px] leading-snug">{h.note}</p>
+                  </Surface>
+                ))}
+              </div>
+
+              <Surface className="mb-4 p-4">
+                <SectionTitle>Activity, last 12 weeks</SectionTitle>
+                <div
+                  className="grid gap-[3px]"
+                  style={{ gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))` }}
+                  role="img"
+                  aria-label={`Days you used Atlas in the last 12 weeks. Current streak ${summary.streak.current} days.`}
+                >
+                  {weeks.map((week, wi) => (
+                    <div key={wi} className="grid grid-rows-7 gap-[3px]">
+                      {week.map((cell, di) =>
+                        cell ? (
+                          <div
+                            key={cell.day}
+                            title={`${cell.day}${cell.level ? '' : ' · no activity'}`}
+                            className={cn('aspect-square min-w-0 rounded-[3px]', LEVEL_CLASS[cell.level] ?? LEVEL_CLASS[0])}
+                          />
+                        ) : (
+                          <div key={`pad-${wi}-${di}`} className="aspect-square min-w-0" />
+                        ),
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="text-foreground-subtle mt-2 flex items-center justify-end gap-1 text-[10px]">
+                  <span>Less</span>
+                  {LEVEL_CLASS.map((c) => (
+                    <span key={c} className={cn('h-2.5 w-2.5 rounded-[2px]', c)} />
+                  ))}
+                  <span>More</span>
+                </div>
+              </Surface>
+            </>
+          )}
+
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <label className="text-foreground-subtle text-xs font-medium uppercase tracking-wide" htmlFor="stats-period">
               Period
@@ -138,8 +233,6 @@ export function Stats({ storage }: Props) {
             )}
           </div>
 
-          {error && <p className="text-danger mb-3 text-xs">{error}</p>}
-
           {summary && isEmpty(summary) && (
             <Surface className="mb-3 p-4">
               <p className="text-foreground-muted text-sm">
@@ -149,33 +242,16 @@ export function Stats({ storage }: Props) {
           )}
 
           {summary && summary.series.length > 1 && (
-            <Surface className="mb-3 p-4">
-              <h3 className="text-foreground-subtle mb-2 text-xs font-medium uppercase tracking-wide">
-                Activity
-              </h3>
-              <div className="flex h-20 items-end gap-1" role="img" aria-label="Activity over the period">
-                {summary.series.map((p) => (
-                  <div
-                    key={p.label}
-                    title={`${p.label}: ${count(p.value)}`}
-                    className="bg-primary/70 min-w-[3px] flex-1 rounded-sm"
-                    style={{ height: `${Math.max(4, Math.round((p.value / max) * 100))}%` }}
-                  />
-                ))}
-              </div>
-              <div className="text-foreground-subtle mt-1 flex justify-between text-[10px]">
-                <span>{summary.series[0]?.label}</span>
-                <span>{summary.series[summary.series.length - 1]?.label}</span>
-              </div>
-            </Surface>
+            <BarChart title="Activity" unit="" points={summary.series} />
+          )}
+          {summary && summary.activeSeries.length > 1 && anyActiveTime && (
+            <BarChart title="Time using Atlas (minutes)" unit=" min" points={summary.activeSeries} />
           )}
 
           {summary &&
             groupsFor(summary).map((group) => (
               <Surface key={group.id} className="mb-3 p-4">
-                <h3 className="text-foreground-subtle mb-2 text-xs font-medium uppercase tracking-wide">
-                  {group.title}
-                </h3>
+                <SectionTitle>{group.title}</SectionTitle>
                 <dl className="divide-border divide-y">
                   {group.rows.map((row) => (
                     <div key={row.label} className="flex items-baseline justify-between gap-4 py-1.5">
@@ -192,9 +268,7 @@ export function Stats({ storage }: Props) {
 
           {summary && summary.providers.length > 0 && (
             <Surface className="mb-3 p-4">
-              <h3 className="text-foreground-subtle mb-2 text-xs font-medium uppercase tracking-wide">
-                By cloud provider
-              </h3>
+              <SectionTitle>By cloud provider</SectionTitle>
               <ul className="divide-border divide-y">
                 {summary.providers.map((p) => (
                   <li key={p.id} className="py-1.5">

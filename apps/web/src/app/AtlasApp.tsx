@@ -56,6 +56,7 @@ import { useActivity } from '../atlas/useActivity';
 import { Settings } from '../pages/Settings';
 import { VoiceScreen, type VoicePhase } from '../pages/VoiceScreen';
 import { useAtlas } from '../atlas/useAtlas';
+import { useActivityPulse } from '../atlas/useActivityPulse';
 import { withAlerts } from '../atlas/alerts';
 import { useSpeech } from '../speech/useSpeech';
 import { useListening } from '../speech/useListening';
@@ -284,6 +285,9 @@ function Ready({
     () => (inVoiceScreen ? { ...speech, enabled: true } : speech),
     [inVoiceScreen, speech],
   );
+
+  // Counts time spent using Atlas, not time it is left open (see useActivityPulse).
+  useActivityPulse();
 
   const atlas = useAtlas(
     platform,
