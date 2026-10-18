@@ -68,3 +68,33 @@ verbatim when given, then scope each (size, risk, which phase) before building._
 - B: NovaLegal wording drafted on local branch `atlas-2.0-legal` (NOT pushed; main auto-deploys).
   NovaHelp `sync` scope left alone.
 - F: Brandon's extra ideas still to be given.
+
+## Verification pass 2026-10-18 (release build, real app)
+
+Release build = `pnpm bundle` output (`Atlas_2.0.0_x64-setup.exe` / `target/release/atlas-desktop.exe`), driven
+over CDP with real mouse events (synthetic `.click()` does not trigger the Settings tabs - harness quirk, not a bug).
+
+- **All 13 Settings pages** inspected at the 560px minimum window width, no console errors.
+  Found + FIXED (839bb16): Notifications sound picker overflowed (the 6th option "Windows" was fully clipped);
+  Setups header squeezed its text; the cloud provider's "sends to <host>" line was truncated.
+- **Spend-limit-paused state** verified: provider returns 402 `insufficient_quota` -> chat shows
+  "Cloud AI Limit Reached", Atlas answers itself, Settings shows the paused banner + Resume, request
+  counted, nothing switched. Mock provider on loopback.
+- **Persistence** verified across a HARD KILL and a normal close + relaunch: execution mode, name, role,
+  notification sound, monthly cap, provider (and its paused state), theme, chat transcript, the finished
+  task ("Done 3 of 3 steps"), and statistics (counts incl. a message sent seconds before closing).
+  Stats are flushed every 15 s and on close, so a crash can lose at most the last ~15 s of counts.
+- **Migration on a real 1.0.10 data folder** worked: 1 cloud provider adopted with label/model/address kept,
+  session moved out of storage.json.
+- **Consent boxes**: default button is No; an explicit No saves nothing; Stats counts approved/declined correctly.
+- Still NOT done: updater end to end against a real signed release; Gemini function calling; the signing-key
+  backup (Brandon must run `scripts/signing-key-backup.mjs backup` himself - it needs a passphrase typed
+  into his own terminal).
+
+### Test-harness trap (read before driving the real app)
+Tauri ignores an `APPDATA`/`LOCALAPPDATA` override: the app ALWAYS uses the real
+`%APPDATA%\dev.atlas.assistant`. Launching the release build for a test touches the person's real data
+(first launch migrates it and creates `storage.json.pre-2.0-providers.bak`). Snapshot first, run on a clean
+`{}` store, restore byte-for-byte, delete any `Atlas:cloudProvider:*` credentials the test created (keep the
+real ones), and answer the native consent boxes with a script (`answer-dialog.ps1`) - otherwise the box pops
+up on the person's screen and they may click Yes themselves.
