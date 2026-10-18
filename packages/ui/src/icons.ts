@@ -76,6 +76,7 @@ export {
   ChevronDown,
   Scissors,
   Gamepad2,
+  Star,
   // Nova switcher's "View all" row, and the close button on the full-screen view it opens
   ArrowRight,
   // the capability browser's Developer section (project/git/code/build/test)

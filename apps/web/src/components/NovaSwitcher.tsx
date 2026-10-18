@@ -99,6 +99,14 @@ const SITES: NovaProduct[] = [
     kind: 'site',
     url: 'https://nova-legal.shadylabs.workers.dev/',
   },
+  {
+    id: 'nova-review',
+    label: 'Nova.Review',
+    tagline: 'Reviews and suggestions',
+    icon: Icons.Star,
+    kind: 'site',
+    url: 'https://nova-review.shadylabs.workers.dev/',
+  },
   { id: 'nova-cut-site', label: 'Nova Cut Website', tagline: 'Nova Cut’s download site', icon: Icons.Scissors, kind: 'soon' },
 ];
 
