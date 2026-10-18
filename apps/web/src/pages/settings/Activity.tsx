@@ -20,6 +20,7 @@ import type { EpisodicEvent, EpisodeOutcome, Memory } from '@atlas/core';
 import { episodeOutcome, episodeVerification } from '@atlas/core';
 import { Button, Icons, Modal, cn } from '@atlas/ui';
 import { timeAgo } from '../../lib/timeAgo';
+import { useReview } from '../../components/review/ReviewProvider';
 
 interface Props {
   memory: Memory;
@@ -86,8 +87,26 @@ export function Activity({ memory }: Props) {
     }
   }, [memory, reload]);
 
+  const review = useReview();
+
   return (
     <div>
+      {/* The edits Atlas has made to files: what changed, and the way back. Opens the same review
+          panel a card in the conversation does. */}
+      <section className="border-border mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3">
+        <div className="min-w-[14rem] flex-1">
+          <h2 className="text-foreground mb-0.5 text-sm font-medium">Code changes</h2>
+          <p className="text-foreground-muted text-xs leading-relaxed">
+            Every edit Atlas makes to one of your files keeps a copy of how it was before, so you can see exactly
+            what changed and put it back. Undo only works on a file that still holds what Atlas wrote.
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => review.open()} disabled={!review.platform?.listChanges}>
+          <Icons.FileDiff className="h-3.5 w-3.5" />
+          Review code changes
+        </Button>
+      </section>
+
       <section className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-foreground mb-1 text-sm font-medium">Recent activity</h2>

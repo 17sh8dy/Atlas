@@ -407,7 +407,8 @@ export function createTauriPlatform(): Platform {
     listChanges: (limit) => invoke<ChangeMeta[]>('change_list', { limit: limit ?? null }),
     revertChange: (id) => invoke<ChangeOutcome>('change_revert', { id }),
     keepChange: (id) => invoke<ChangeOutcome>('change_keep', { id }),
-    editChange: (id, content) => invoke<ChangeOutcome>('change_edit', { id, content }),
+    editChange: (id, content, counts) =>
+      invoke<ChangeOutcome>('change_edit', { id, content, added: counts.added, removed: counts.removed }),
 
     allowedFolders: () => invoke<string[]>('allowed_folders'),
     addAllowedFolder: (path) => invoke<string[]>('add_allowed_folder', { path }),

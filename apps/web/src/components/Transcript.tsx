@@ -19,6 +19,7 @@ import { CapabilityBrowser } from './CapabilityBrowser';
 import { RevealText } from './RevealText';
 import type { ActivityRun, ClarifyAnswer } from '@atlas/core';
 import { LatticeRow } from './LatticeRow';
+import { ReviewBlock } from './review/ReviewBlock';
 
 /** An entry this new was just said; anything older was already read. */
 const FRESH_MS = 1500;
@@ -258,6 +259,8 @@ function EntryView({
             <Reply entry={entry} onProgress={onReveal} />
           )}
         </div>
+        {/* An edit that was WRITTEN: what changed, whether it is still in place, review and undo. */}
+        {entry.review && <ReviewBlock review={entry.review} context="result" />}
         {!entry.streaming && <MessageActions text={entry.text ?? ''} onCopy={onCopy} />}
       </div>
     );
@@ -320,6 +323,9 @@ function EntryView({
                 {entry.detail}
               </p>
             )}
+
+            {/* An edit that has NOT been written: the diff, so the answer is an informed one. */}
+            {entry.review && <ReviewBlock review={entry.review} context="proposal" answered={answered} />}
 
             {answered ? (
               <p className="text-foreground-subtle mt-2 text-xs">

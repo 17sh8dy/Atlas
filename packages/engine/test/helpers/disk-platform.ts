@@ -58,7 +58,7 @@ export function changeStore() {
       [...records.values()]
         .sort((a, b) => b.at - a.at)
         .slice(0, limit)
-        .map(({ before: _b, after: _a, ...meta }) => meta),
+        .map((r) => ({ id: r.id, path: r.path, name: r.name, at: r.at, status: r.status, added: r.added, removed: r.removed, source: r.source, ...(r.edited ? { edited: true } : {}) })),
     keepChange: async (id: string) => {
       const r = records.get(id);
       if (!r) return outcome(false, 'unknown', "I don't have that change any more.");

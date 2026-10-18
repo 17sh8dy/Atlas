@@ -57,6 +57,7 @@ import { Settings } from '../pages/Settings';
 import { VoiceScreen, type VoicePhase } from '../pages/VoiceScreen';
 import { useAtlas } from '../atlas/useAtlas';
 import { useActivityPulse } from '../atlas/useActivityPulse';
+import { ReviewProvider } from '../components/review/ReviewProvider';
 import { withAlerts } from '../atlas/alerts';
 import { useSpeech } from '../speech/useSpeech';
 import { useListening } from '../speech/useListening';
@@ -787,6 +788,7 @@ function Ready({
   }, [platform.id]);
 
   return (
+    <ReviewProvider platform={platform}>
     <div className="bg-background text-foreground flex h-full flex-col">
       <TitleBar
         platform={platform}
@@ -1017,6 +1019,7 @@ function Ready({
         onPick={startShare}
       />
     </div>
+    </ReviewProvider>
   );
 }
 

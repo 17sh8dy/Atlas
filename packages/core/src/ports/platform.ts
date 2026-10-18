@@ -841,7 +841,7 @@ export interface Platform {
    * file still holds exactly what Atlas wrote. The ORIGINAL text stays the checkpoint, so undo still
    * restores what the file was before Atlas touched it.
    */
-  editChange?(id: string, content: string): Promise<ChangeOutcome>;
+  editChange?(id: string, content: string, counts: { added: number; removed: number }): Promise<ChangeOutcome>;
 
   /**
    * The allowed-folders list — not gated by a `CapabilityName`, because it

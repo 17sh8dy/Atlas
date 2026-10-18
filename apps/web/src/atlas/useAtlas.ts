@@ -100,6 +100,7 @@ import {
   createOrganizeSkills,
   withFileJournal,
   createDevToolsSkills,
+  compactReview,
   createAppScaffoldSkills,
   createRecolorSkills,
   createProjectToolSkills,
@@ -134,7 +135,7 @@ import {
   type FileJournal,
   type JournalBatch,
 } from '@atlas/engine';
-import type { CapabilityName, ConfirmOptions } from '@atlas/core';
+import type { CapabilityName, ConfirmOptions, ReviewPayload } from '@atlas/core';
 
 const FILE_JOURNAL_KEY = 'atlas.file-journal';
 
@@ -153,6 +154,12 @@ export interface Entry {
   detail?: string;
   /** `halted`: the emergency stop ended the plan while this card was open. */
   answered?: 'yes' | 'no' | 'halted';
+  /**
+   * What an edit changed (`@atlas/core` `ReviewPayload`). On a confirmation entry it is a PROPOSAL,
+   * nothing written; on an `atlas` entry it is what WAS written. Saved in the conversation without
+   * its lines (the lines are read back from the checkpoint).
+   */
+  review?: ReviewPayload;
   /** Confirmation entries: button wording and the note once answered (see `ConfirmOptions`). */
   yesLabel?: string;
   noLabel?: string;
@@ -408,6 +415,9 @@ export function useAtlas(
           ...(e.text ? { text: redactSecrets(e.text) } : {}),
           ...(e.detail ? { detail: redactSecrets(e.detail) } : {}),
           ...(e.question ? { question: redactSecrets(e.question) } : {}),
+          // The lines of a diff are not kept in the saved conversation: counts and status are, and
+          // the lines come back from the checkpoint by id when someone opens it.
+          ...(e.review ? { review: compactReview(e.review) } : {}),
         }));
       storage.set(TRANSCRIPT_KEY, keep.slice(-TRANSCRIPT_LIMIT)).catch(() => {});
     }, TRANSCRIPT_SAVE_DELAY_MS);
@@ -995,7 +1005,7 @@ export function useAtlas(
   const io = useMemo<EngineIO>(
     () => ({
       say: (text, options) => {
-        push({ kind: 'atlas', text });
+        push({ kind: 'atlas', text, ...(options?.review ? { review: options.review } : {}) });
         // `aloud: false` is a skill saying its answer is for the eyes — a
         // password, a hash, a page of statistics. Still shown, still
         // copyable, just not read out.

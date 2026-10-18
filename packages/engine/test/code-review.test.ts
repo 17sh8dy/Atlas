@@ -300,7 +300,8 @@ describe('when a checkpoint cannot be kept', () => {
     const { root } = project();
     const file = join(root, 'a.ts');
     const base = diskPlatform();
-    const { recordChange: _drop, ...noCheckpoints } = base as Platform & { recordChange?: unknown };
+    const noCheckpoints = { ...base } as Platform & { recordChange?: unknown };
+    delete noCheckpoints.recordChange;
     const { seen, run } = setup({ platform: noCheckpoints as Platform, mode: 'doItPlus' });
     const out = await run([edit(file, 'sum += i', 'sum += 7')]);
     expect(out.ok).toBe(true);

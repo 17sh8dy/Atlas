@@ -57,7 +57,7 @@ function myers(a: readonly string[], b: readonly string[], maxD: number): Op[] |
   const m = b.length;
   const max = Math.min(n + m, maxD);
   const offset = max + 1;
-  let v = new Int32Array(2 * max + 3);
+  const v = new Int32Array(2 * max + 3);
   const trace: Int32Array[] = [];
   let found = -1;
 
