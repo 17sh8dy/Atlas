@@ -50,6 +50,7 @@ const PRODUCTS: NovaProduct[] = [
     icon: Icons.Gamepad2,
     kind: 'app',
     appIds: ['replaygg'],
+    getUrl: 'https://replay-gg-site.shadylabs.workers.dev/',
   },
   {
     id: 'atlas',
