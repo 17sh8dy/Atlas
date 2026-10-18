@@ -73,8 +73,13 @@ function readHidden(prompt) {
           process.stdout.write('\n');
           process.exit(130);
         }
-        if (ch === '\u007f' || ch === '\b') value = value.slice(0, -1);
-        else value += ch;
+        if (ch === '\u007f' || ch === '\b') {
+          if (value.length) process.stdout.write('\b \b');
+          value = value.slice(0, -1);
+        } else if (ch >= ' ') {
+          value += ch;
+          process.stdout.write('*');
+        }
       }
     };
     stdin.on('data', onData);
