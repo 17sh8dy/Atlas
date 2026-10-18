@@ -156,7 +156,7 @@ export function Stats({ storage }: Props) {
               <h3 className="text-foreground-subtle mb-2 text-xs font-medium uppercase tracking-wide">All time</h3>
               <div
                 className="mb-3 grid gap-2"
-                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(9.5rem, 1fr))' }}
+                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(8.25rem, 1fr))' }}
                 aria-label="All-time figures"
               >
                 {highlightsFor(summary).map((h) => (

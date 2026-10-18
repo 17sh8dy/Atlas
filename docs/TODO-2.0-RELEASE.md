@@ -98,3 +98,29 @@ Tauri ignores an `APPDATA`/`LOCALAPPDATA` override: the app ALWAYS uses the real
 `{}` store, restore byte-for-byte, delete any `Atlas:cloudProvider:*` credentials the test created (keep the
 real ones), and answer the native consent boxes with a script (`answer-dialog.ps1`) - otherwise the box pops
 up on the person's screen and they may click Yes themselves.
+
+## Final additions 2026-10-18 (all local, nothing pushed)
+
+Built on atlas-2.0, verified in the REAL release build over CDP with a mock Ollama on a throwaway file:
+
+- **Atlas Pro** (Settings -> Atlas Pro): a no-commitment preview, seven planned features marked "Planned", a
+  disabled "Coming Soon" button, "everything Atlas does today stays free". No payment code; a test bans
+  "unlimited"/"guarantee"/checkout words.
+- **Stats dashboard** (same Stats page): nine all-time figures, 12-week activity calendar, streaks (days with
+  real use), active time (native; counts only while there is input in the last minute and the window is on
+  screen), conversations (30-minute gap), files edited (edits made, never file names), estimated spending
+  ("-" until the person enters prices in Settings -> Intelligence; Atlas ships NO price list).
+- **Code review**: `code.edit` / `code.write` confirmation cards show a red/green diff marked PROPOSED (nothing
+  written); a written edit is reported APPLIED with Review / Keep / Undo; checkpoints in
+  `%APPDATA%\dev.atlas.assistant\changes\` (native, protected from Atlas's own file tools); undo / edit only if
+  the file still holds exactly what Atlas wrote (otherwise "changed since Atlas edited it", file untouched);
+  a whole-file write refuses if the file changed while its card was open; `code.undo`, `code.changes`
+  ("show me what you changed"); Settings -> Activity -> "Review code changes".
+  Real-app checks passed: proposal shown before write, approve, applied card, panel inline + side by side,
+  Edit then Undo restores the ORIGINAL in one step, conflict refused, restart keeps cards and the diff is
+  re-read from the checkpoint, "show me what you changed", Activity entry point.
+- Known limits: Plan First shows no per-file diffs on its plan card; files over 256 KB get no checkpoint and no
+  undo (said plainly); bulk `code.replaceAll` keeps its own `.atlas-backup` undo, which does NOT check for later
+  edits (pre-existing, not changed); editing a proposal BEFORE approving is not built (edit after applying is).
+- Still to do before final review: updater end to end against a real signed release, key backup copied off
+  this PC, site + NovaLegal text (held on local branch atlas-2.0-legal), merge main (1 commit behind).
