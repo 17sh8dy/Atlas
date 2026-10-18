@@ -57,7 +57,7 @@ import {
   HaltedError,
   untilHalted,
 } from '@atlas/core';
-import type { HaltSignal } from '@atlas/core';
+import type { HaltSignal, ReviewPayload } from '@atlas/core';
 import { describeProviderFailure } from './cloud-limits';
 import { ModelGateway } from './gateway/plan';
 import { Bus } from './bus';
@@ -113,7 +113,7 @@ export interface EngineIO {
    * `aloud: false` means show it but do not read it out — see
    * `SkillResult.aloud`. Surfaces that cannot speak may ignore it entirely.
    */
-  say(text: string, options?: { aloud?: boolean }): void;
+  say(text: string, options?: { aloud?: boolean; review?: ReviewPayload }): void;
   confirm(question: string, detail?: string, options?: ConfirmOptions): Promise<boolean>;
   /** See `SkillContext.offerFolder`. */
   offerFolder?(args: SkillArgs): Promise<boolean>;
@@ -620,7 +620,7 @@ export class Engine {
   private context(io: EngineIO, signal: HaltSignal): SkillContext {
     return {
       signal,
-      say: (t: string, options?: { aloud?: boolean }) => io.say(t, options),
+      say: (t: string, options?: { aloud?: boolean; review?: ReviewPayload }) => io.say(t, options),
       confirm: (q: string, d?: string, o?: ConfirmOptions) => io.confirm(q, d, o),
       offerFolder: io.offerFolder ? (args) => io.offerFolder!(args) : undefined,
       clarify: io.clarify ? (question) => io.clarify!(question) : undefined,

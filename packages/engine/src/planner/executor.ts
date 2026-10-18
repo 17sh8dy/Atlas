@@ -653,7 +653,12 @@ export class Executor {
           const { question, detail } = said
             ? this.phrasing.confirmPrompt(said)
             : this.phrasing.confirmPrompt(skill.description, argsDetail);
-          const approved = await wait(ctx.confirm(question, detail));
+          // A skill that edits files may show WHAT it would change. Read-only, consulted only now,
+          // when this card is about to be shown anyway, so it never changes whether one is asked.
+          const review = await wait(
+            skill.reviewDetail ? skill.reviewDetail(step.args, ctx).catch(() => undefined) : Promise.resolve(undefined),
+          );
+          const approved = await wait(ctx.confirm(question, detail, review ? { review } : undefined));
           if (!approved) {
             report('skipped', 'You said no.');
             outcomes.push({ skill: step.skill, ok: false, skipped: true, error: 'Cancelled.' });
@@ -724,7 +729,10 @@ export class Executor {
           // can actually keep quiet about it.
           // The skill's declaration is the default; a single result may
           // override it.
-          ctx.say(result.message, { aloud: result.aloud ?? skill.aloud });
+          ctx.say(result.message, {
+            aloud: result.aloud ?? skill.aloud,
+            ...(result.review ? { review: result.review } : {}),
+          });
         }
       } else {
         ctx.say(this.phrasing.failed(result.error ?? "That didn't work."));

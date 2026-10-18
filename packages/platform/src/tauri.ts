@@ -18,6 +18,9 @@ import type {
   BrightnessInfo,
   ChangedFile,
   LargestSubfolders,
+  ChangeMeta,
+  ChangeOutcome,
+  ChangeRecord,
   MediaResult,
   MediaInfo,
   Specs,
@@ -399,6 +402,12 @@ export function createTauriPlatform(): Platform {
     writeTextFile: (path, content) => invoke<boolean>('write_text_file', { path, content }),
     patchTextFile: (path, find, replace, replaceAll) =>
       invoke<string>('patch_text_file', { path, find, replace, replaceAll: replaceAll ?? null }),
+    recordChange: (change) => invoke<string>('change_record', { ...change }),
+    getChange: (id) => invoke<ChangeRecord | null>('change_get', { id }),
+    listChanges: (limit) => invoke<ChangeMeta[]>('change_list', { limit: limit ?? null }),
+    revertChange: (id) => invoke<ChangeOutcome>('change_revert', { id }),
+    keepChange: (id) => invoke<ChangeOutcome>('change_keep', { id }),
+    editChange: (id, content) => invoke<ChangeOutcome>('change_edit', { id, content }),
 
     allowedFolders: () => invoke<string[]>('allowed_folders'),
     addAllowedFolder: (path) => invoke<string[]>('add_allowed_folder', { path }),

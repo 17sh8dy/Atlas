@@ -14,6 +14,7 @@
  */
 
 export * from './models/skill';
+export * from './models/review';
 export { redactSecrets, KEY_HIDDEN } from './redact';
 export * from './models/elevation';
 export * from './models/plan';

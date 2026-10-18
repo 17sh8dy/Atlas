@@ -51,6 +51,7 @@
 
 import type { DepManager, DevTool, Platform, Skill } from '@atlas/core';
 import { diagnoseOutput, describeIssue, formatDiagnosis } from './build-diagnose';
+import { createCodeReviewSkills, proposeEdit, readBefore, recordApplied, staleProposal } from './code-review';
 
 function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -853,11 +854,23 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
       path: { type: 'string', required: true, description: 'full path of the file' },
       content: { type: 'string', required: true, description: 'the new, complete file contents' },
     },
+    // What the overwrite would change, for the confirmation card. Read-only; see `Skill.reviewDetail`.
+    reviewDetail: (args) => proposeEdit(platform, 'code.write', args),
     async run(args) {
       const path = String(args.path);
+      // The text from before, kept so the edit can be reviewed and undone. null = too large to keep.
+      const before = await readBefore(platform, path);
+      const stale = staleProposal('code.write', args, before);
+      if (stale) return { ok: false, error: stale };
       try {
         await platform.writeTextFile!(path, String(args.content));
-        return { ok: true, message: `Wrote ${basename(path)}.` };
+        const applied = await recordApplied(platform, path, before, 'code.write');
+        return {
+          ok: true,
+          message: `Wrote ${basename(path)}.${applied.warning ? ` ${applied.warning}` : ''}`,
+          ...(applied.review ? { review: applied.review } : {}),
+          ...(applied.undo ? { undo: applied.undo } : {}),
+        };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : `I couldn't write ${path}.` };
       }
@@ -883,8 +896,14 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
         description: 'replace every occurrence, not just the unique one',
       },
     },
+    // What the edit would change, for the confirmation card. Read-only; see `Skill.reviewDetail`.
+    reviewDetail: (args) => proposeEdit(platform, 'code.edit', args),
     async run(args) {
       const path = String(args.path);
+      // The text from before, kept so the edit can be reviewed and undone. null = too large to keep.
+      const before = await readBefore(platform, path);
+      const stale = staleProposal('code.edit', args, before);
+      if (stale) return { ok: false, error: stale };
       try {
         const message = await platform.patchTextFile!(
           path,
@@ -892,7 +911,13 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
           String(args.replace),
           args.replaceAll === true,
         );
-        return { ok: true, message: `${message} (${basename(path)})` };
+        const applied = await recordApplied(platform, path, before, 'code.edit');
+        return {
+          ok: true,
+          message: `${message} (${basename(path)})${applied.warning ? ` ${applied.warning}` : ''}`,
+          ...(applied.review ? { review: applied.review } : {}),
+          ...(applied.undo ? { undo: applied.undo } : {}),
+        };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : `I couldn't edit ${path}.` };
       }
@@ -927,6 +952,9 @@ export function createDevToolsSkills(platform: Platform): Skill[] {
         : { ok: false, error: `I couldn't open ${path}.` };
     },
   });
+
+  // Reviewing and undoing the edits above: `code.undo` and `code.changes` (see code-review.ts).
+  skills.push(...createCodeReviewSkills(platform));
 
   return skills;
 }

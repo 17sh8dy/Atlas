@@ -13,6 +13,7 @@ import type { HaltSignal } from './halt';
 import type { ActivityReporter } from './activity';
 import type { Clarification, ClarifyAnswer, ClarifyNeed } from './clarify';
 import type { ProbeSpec } from './verify';
+import type { ReviewPayload } from './review';
 
 /**
  * How much damage a skill could do if invoked wrongly.
@@ -95,6 +96,12 @@ export interface SkillResult<T = unknown> {
   /** Structured payload for callers that want the data, not the sentence. */
   data?: T;
   /**
+   * What an edit to a file changed, for a surface that can show it (see `models/review.ts`). Only a
+   * skill that has already WRITTEN something sets this, with `status: 'applied'`; a proposal travels
+   * on the confirmation card instead, never here.
+   */
+  review?: ReviewPayload;
+  /**
    * How to put this back — one step that undoes what just happened ("set the
    * volume back to 40"). Offered for reversible settings only; the engine keeps
    * the latest one so "undo that" can run it, through the same checks as any
@@ -110,7 +117,7 @@ export interface SkillResult<T = unknown> {
  */
 export interface SkillContext {
   /** Say something to the user. */
-  say(text: string, options?: { aloud?: boolean }): void;
+  say(text: string, options?: { aloud?: boolean; review?: ReviewPayload }): void;
   /** Ask for approval. Resolves false if declined. */
   confirm(question: string, detail?: string, options?: ConfirmOptions): Promise<boolean>;
   /**
@@ -168,6 +175,11 @@ export interface SkillContext {
  * folder is "Add It? / Not Now". Only the words change; a yes is still a yes.
  */
 export interface ConfirmOptions {
+  /**
+   * What the action would change, shown on the card as a diff. This is a PROPOSAL: nothing has been
+   * written, and declining leaves every file as it was (`models/review.ts`).
+   */
+  review?: ReviewPayload;
   yesLabel?: string;
   noLabel?: string;
   /** Shown once answered. */
@@ -363,6 +375,18 @@ export interface Skill<T = unknown> {
    * `confirm`.
    */
   preview?(args: SkillArgs, ctx: SkillContext): Promise<SkillPreview>;
+  /**
+   * What this call would change in the files it names, so the ordinary confirmation card can show
+   * it as a diff. Unlike `preview` it never replaces the card, never skips one and never changes
+   * when one is asked: the executor calls it only when it is ABOUT to show the generic card anyway,
+   * so a mode that runs the step without asking (Do It +, a folder you allowed) still runs it
+   * without asking, and an applied edit is reported afterwards with the same payload and an undo.
+   *
+   * ⚠️ Contract, the same as `preview`: **read-only.** It runs before the person has said yes, so it
+   * may read a file and compute, and must never write, create, move or delete anything. Return
+   * `undefined` when there is nothing useful to show; the card is then the plain one.
+   */
+  reviewDetail?(args: SkillArgs, ctx: SkillContext): Promise<ReviewPayload | undefined>;
   /**
    * Look at what *this* call is aimed at and say whether it turns out to be
    * consequential — for a skill that is `safe` as a mechanism but whose effect

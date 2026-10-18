@@ -21,6 +21,7 @@ mod cloud_intelligence;
 mod diagnostics;
 mod redact;
 mod stats;
+mod changes;
 mod cloud_safety;
 #[cfg(windows)]
 mod devtools;
@@ -510,6 +511,12 @@ pub fn run() {
             stats::stats_summary,
             stats::stats_record,
             stats::stats_touch,
+            changes::change_record,
+            changes::change_get,
+            changes::change_list,
+            changes::change_keep,
+            changes::change_revert,
+            changes::change_edit,
             stats::stats_info,
             stats::stats_reset,
             provider_bindings::provider_unbind,
@@ -577,6 +584,8 @@ pub fn run() {
             secrets::adopt_legacy_session(&handle);
             // Counting starts here: local file, no network, no account (stats.rs).
             stats::init(&handle);
+            // Checkpoints for file edits, in Atlas's own folder (changes.rs).
+            changes::init(&handle);
 
             let dropped = allowed_folders::init(saved);
             if !dropped.is_empty() {

@@ -194,3 +194,5 @@ export { WorkingMemory } from './working-memory';
 export { recordEpisodes } from './episodic';
 
 export { SimpleIntelligenceRegistry } from './intelligence-registry';
+
+export * from './review/diff';

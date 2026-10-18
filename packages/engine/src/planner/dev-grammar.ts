@@ -69,6 +69,33 @@ export function createDevGrammar(): GrammarRule[] {
     },
 
     {
+      // "show me what you changed", "review the recent code changes", "what did you edit" — the
+      // edits ATLAS made to files (reviewable and undoable), as opposed to git's view of the
+      // project, which is what "git diff" and "what did I change" already mean. The qualifier
+      // ("code", "you", "Atlas") is required so this never takes "show my changes" from git.
+      name: 'codeChanges',
+      order: -11.4585,
+      pathSafe: true,
+      questionSafe: ['code-changes'],
+      test(_lower, raw) {
+        const asked = new RegExp(
+          String.raw`^\s*(?:please\s+)?(?:` +
+            String.raw`(?:show|list|see|open|review)\s+(?:me\s+)?(?:the\s+|my\s+|your\s+)?(?:last\s+|recent\s+|latest\s+)?code\s+(?:changes|edits)` +
+            String.raw`|(?:show|list|see|open|review)\s+(?:me\s+)?(?:the\s+|my\s+|your\s+)?(?:last\s+|recent\s+|latest\s+)?(?:changes|edits)\s+(?:you|atlas)\s+(?:made|did)` +
+            String.raw`|review\s+(?:atlas['’]?s|your)\s+(?:recent\s+|latest\s+)?(?:changes|edits)` +
+            String.raw`|(?:show|tell)\s+me\s+what\s+(?:you|atlas)\s+(?:changed|edited|modified)` +
+            // "what did you change" is NOT here: it already means the file-organising history
+            // (files.history) and must keep meaning that. "edit" and "modify" are unambiguous.
+            String.raw`|what\s+(?:did|have)\s+(?:you|atlas)\s+(?:edit|edited|modify|modified)(?:\s+(?:so\s+far|today|just\s+now|recently))?` +
+            String.raw`|what\s+have\s+(?:you|atlas)\s+changed(?:\s+(?:so\s+far|today|just\s+now|recently))?` +
+            String.raw`)\s*[?.!]*$`,
+          'i',
+        ).test(raw);
+        return asked ? plan(step('code.changes', {}), 'code-changes') : null;
+      },
+    },
+
+    {
       name: 'gitCommit',
       order: -11.455,
       pathSafe: true,

@@ -23,6 +23,7 @@
  */
 
 import type { SpeechOptions, SpeechVoice } from '../models/speech';
+import type { ChangeMeta, ChangeOutcome, ChangeRecord } from '../models/review';
 import type { Transcript } from '../models/listening';
 import type { HaltEvent, HaltStatus } from '../models/halt';
 import type { NetworkAdapter, WifiStatus } from '../models/network';
@@ -808,6 +809,39 @@ export interface Platform {
     replace: string,
     replaceAll?: boolean,
   ): Promise<string>;
+
+  /**
+   * Keep both sides of an edit Atlas just wrote — the checkpoint that makes it reviewable and
+   * undoable. Held natively, in Atlas's own folder, never in the project; a file too large to keep
+   * both sides of is simply not recorded (the caller says so). Returns the change's id.
+   */
+  recordChange?(change: {
+    path: string;
+    before: string;
+    after: string;
+    /** Which skill wrote it, e.g. `code.edit`. */
+    source: string;
+    added: number;
+    removed: number;
+  }): Promise<string>;
+  /** One recorded change with both sides, or null if it is gone. */
+  getChange?(id: string): Promise<ChangeRecord | null>;
+  /** Recent changes, newest first, without their text. */
+  listChanges?(limit?: number): Promise<ChangeMeta[]>;
+  /**
+   * Put a change back. Only if the file still holds exactly what Atlas wrote: a file that has been
+   * edited since is `conflict` and is left untouched, because Atlas will not overwrite work it did
+   * not do.
+   */
+  revertChange?(id: string): Promise<ChangeOutcome>;
+  /** Mark a change as reviewed and kept. Touches no file. */
+  keepChange?(id: string): Promise<ChangeOutcome>;
+  /**
+   * Replace what Atlas wrote with the person's own version. Same rule as `revertChange`: only if the
+   * file still holds exactly what Atlas wrote. The ORIGINAL text stays the checkpoint, so undo still
+   * restores what the file was before Atlas touched it.
+   */
+  editChange?(id: string, content: string): Promise<ChangeOutcome>;
 
   /**
    * The allowed-folders list — not gated by a `CapabilityName`, because it
