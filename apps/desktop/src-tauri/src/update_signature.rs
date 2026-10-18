@@ -21,7 +21,7 @@
 //!
 //! ## Key provisioning
 //!
-//! `PUBLIC_KEY_HEX` is empty until the release owner generates a signing key
+//! `PUBLIC_KEY_HEX` is the release key (atlas-release-1); its private half is kept off this repo
 //! (`node scripts/update-signing.mjs keygen --out <private key file outside the repo>`) and pastes
 //! the printed public key here. While it is empty **no manifest verifies**: an unprovisioned
 //! build fails closed and tells the person to reinstall from the website. `scripts/release.mjs`
@@ -42,7 +42,7 @@ use base64::Engine as _;
 use serde_json::Value;
 
 /// The release-signing public key: 32 bytes, 64 hex characters. **Empty = unprovisioned.**
-pub const PUBLIC_KEY_HEX: &str = "";
+pub const PUBLIC_KEY_HEX: &str = "bd9280f1507c55bd453b7580693fa147d35aa2e76f5fbace16d0b82881689e18";
 /// Which key signed it, for the day there are two.
 pub const KEY_ID: &str = "atlas-release-1";
 

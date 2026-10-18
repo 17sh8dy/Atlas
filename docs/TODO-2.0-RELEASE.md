@@ -52,3 +52,19 @@ verbatim when given, then scope each (size, risk, which phase) before building._
 
 1.
 2.
+
+## Status 2026-10-18 (decision: NOT pushing yet; working the to-do and fixing bugs first)
+
+- A1 done locally: key generated (`atlas-release-1`), public half pasted into `update_signature.rs`.
+  **The private key is `C:\Users\Brandon\.atlas-signing\atlas-release-1.pem` and has no backup yet.**
+- A2 resolved by reading 1.0.10's `packages/updater/src/manifest.ts`: it parses a signed manifest
+  (`ed25519` + string keyId + string value is accepted) and ignores the signature, so a 1.0.x install
+  should be offered 2.0 in-app (it still checks SHA-256, size, product name and version). Code-read,
+  not run end to end. The in-app note stays; the site should say "first signed version", not "manual".
+- A4 done locally: version 2.0.0 in `tauri.conf.json`, `package.json`, `Cargo.toml`;
+  `release-notes/2.0.0.txt` written. Site (Atlas-Site `script.js` VERSION) NOT bumped.
+- A5: typecheck, lint, `pnpm test` all green; `cargo test --lib` 445 passed, 0 failed (38 ignored).
+  Final release-build real-app pass still to do.
+- B: NovaLegal wording drafted on local branch `atlas-2.0-legal` (NOT pushed; main auto-deploys).
+  NovaHelp `sync` scope left alone.
+- F: Brandon's extra ideas still to be given.
