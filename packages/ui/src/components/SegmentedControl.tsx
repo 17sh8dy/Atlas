@@ -26,7 +26,7 @@ export function SegmentedControl<T extends string>({
   return (
     <div
       role="radiogroup"
-      className={cn('inline-flex gap-1 rounded-lg border border-border bg-surface p-1', className)}
+      className={cn('inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-border bg-surface p-1', className)}
     >
       {options.map((option) => (
         <button

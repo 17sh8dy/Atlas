@@ -34,8 +34,8 @@ export function Setups({ setups }: Props) {
 
   return (
     <div>
-      <section className="mb-6 flex items-start justify-between gap-4">
-        <div>
+      <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-[16rem] flex-1">
           <h2 className="text-foreground mb-1 text-sm font-medium">Setups</h2>
           <p className="text-foreground-muted text-xs leading-relaxed">
             What “get my PC ready for …” means to you. Atlas opens and closes apps, arranges

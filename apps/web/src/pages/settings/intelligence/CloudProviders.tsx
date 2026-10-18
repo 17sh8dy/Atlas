@@ -325,7 +325,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
                       </span>
                     )}
                   </div>
-                  <p className="text-foreground-subtle mt-0.5 truncate text-xs">
+                  <p className="text-foreground-subtle mt-0.5 break-words text-xs">
                     {config.kind} · {config.model}
                     {hosts[config.id] ? ` · sends to ${hosts[config.id]}` : ' · address not confirmed'}
                   </p>
