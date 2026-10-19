@@ -187,3 +187,95 @@ controls through UIA, every step through the same executor and confirmations.
 5. Terminal output for full-screen programs would need a pseudo-console (ConPTY); a larger change with its own
    security review.
 6. A Settings page listing saved workflows (the store has `subscribe` for it).
+
+---
+
+## 10. Round 2 (after the first review): automatic routing, real model, accuracy
+
+Still local on `atlas-2.0.2`; nothing pushed, released, deployed or version-bumped.
+
+### What changed
+
+* **Automatic offer of the universal agent** (`universal/router.ts`, `Engine.offerToSolve`). Asked only after every
+  rule and the one-shot model planner declined. The router is deterministic: not a question, not a writing/explaining
+  ask, reads like a job, names something on the PC, and the capability index finds real matches (every part, for a
+  chained request). A "yes" only earns a **card** ("Work this out step by step?"), shown in every execution mode; the
+  agent then runs **cautious** (every action asks, whatever the mode). "Figure out how to…" still works and now
+  outranks every other rule.
+* **Believability check** (`trustPlan`): a chained request is only trusted when the plan has a step for each part and
+  each step's skill is one the capability index also finds for that part; a catch-all rule that took non-names
+  ("the running programs", "the volume down to 10") is not believed; "all/every" with a one-at-a-time file skill is
+  not believed. It applies to rule plans **and to a model's one-shot plan**. With a model available the request moves
+  on; with none, the understood part runs and the rest is said out loud.
+* **Honesty in the agent's report**: "What actually ran: …" from the executor's record, and a warning when the
+  request had more parts than succeeded actions (the model once reported a move it never attempted).
+* **Destructive actions must be grounded in the request** (`vetDestructive`): enum choices of removing/ending skills
+  must be something the request's *words* (not paths) talk about.
+* **Terminal screen reading** (`terminal_screen`, Win32 console API, read-only, only a console Atlas opened and only by
+  the pid its own launcher wrote): full-screen programs are no longer a blank. Tested against a real hidden console.
+* **`project.startServer`**: command read from the project (`dev`/`start`/`serve`/`preview` script, `cargo run`,
+  `dotnet run`), shown and fingerprinted like `terminal.open`.
+* Saved-workflow labels no longer show raw flags; phrasing rows for ~60 more everyday requests (files, git, text,
+  network, system) and `phrasing-round2-grammar.ts`.
+
+### Accuracy (engine-faithful: believability check on) — see `CAPABILITY-COVERAGE.md`
+
+| Set | Status | ok | wrong | not understood |
+|---|---|---|---|---|
+| B (63) | tuned by round 2 | 82.5% | 3.2% | 14.3% |
+| C (114) | tuned: rows added from it | 93.9% | 1.8% | 4.4% |
+| D (97) | tuned: rows added from it | 96.9% | 3.1% | 0.0% |
+| E (104) | 3 wrong answers shaped one guard | 80.8% | 1.0% | 18.3% |
+| **F (64)** | **never tuned** | **92.2%** | **0.0%** | 7.8% |
+
+Before round 2, unseen set B was 81.0% ok / 7.9% wrong / 11.1% miss. The honest reading: **correctly understood
+unfamiliar sentences stay around 81–92%** (they do not climb much by adding rules), while **wrong-skill answers fell
+from ~8% to 0–3%** because doubtful readings are now handed to the model/agent instead of being run. "Conversation,
+not a task" sentences (63 across C–F) are left alone, one exception that is arguably a real feature. Registered
+skills reached by at least one measured sentence: **122 of 335 (36%)**, up from 74 of 334. That is test coverage of
+phrasings, not a claim that the other 213 skills do not work; they have exact phrasings (advertised-examples test)
+and unit tests.
+
+Router (deterministic, no model): on 36 labeled requests it offered the agent for **0 of 24** conversation/writing
+asks and caught **11 of 12** real multi-part jobs on the set written after calibration.
+
+### Real local model (qwen3.5:9b via Ollama, the real Tauri release build, real cards)
+
+Calls took 1–3 s each on this machine's Ollama (the 34 s seen once was a first, cold plan).
+
+| Request | Result |
+|---|---|
+| "find the largest files in <dir> and then tell me how big the biggest one is" | model's one-shot plan ran correctly (largest file, 2.9 MB) |
+| "create a folder called reports … and then move big.log into it" (auto-offered) | card → yes → create-folder card → yes → move card → yes: **folder created and big.log moved**, ~60 s, with the evidence line. A second identical run created the folder and then stopped, saying the move was "pending"; the report flagged "asked for 2 things, 1 succeeded". |
+| same, second card declined | nothing created, "Stopped there, as asked" |
+| "… move nothere.log into it" (file does not exist) | folder created; the model **claimed the move was implied/complete**; nothing was moved. Now caught by the evidence line, but the model still reasons badly here. |
+| read-only chain (biggest file, how many files) | ran 3 read steps, answered |
+| "write a short poem about my cat and the sea" | plain chat, no card |
+| "delete all the old log files in <dir>" | **the model chose `cleanup.clean(temp)`** (wrong tool). First run: card showed "459 files, 433 MB" and my script declined. |
+
+**Incident (mine, to be plain about it):** on a repeat of the delete request my test driver auto-approved every
+card, including that cleanup card, because the new grounding check was fooled by the test folder living under
+`...\AppData\Local\Temp`. **459 old files (433 MB) were removed from the real Windows temp folders** (they included
+ffplay/ffmpeg/ffprobe copies). Temp scratch files are normally regenerated, but they were not mine to delete. Fixed:
+the grounding check now ignores words inside paths (regression test added); the driver must never auto-approve
+destructive cards (saved as a working rule).
+
+### Remaining limitations
+
+* A 9B model plans multi-step jobs inconsistently: it sometimes stops after step one or assumes a step happened.
+  The guards (cards per action, evidence line, grounding) bound the damage but do not make it reliable.
+* Understanding unfamiliar phrasing plateaus around 81–92%; the tail needs the model.
+* The router and trust check are heuristics tuned on small sets; they are measured, not proven.
+* Only `qwen3.5:9b` was tested; no cloud model, no larger local model.
+* Terminal-screen reading was tested on a hidden console, not on a real coding-assistant TUI.
+* `cleanup.clean` and similar self-confirming skills still show their own card; the agent cannot be stopped from
+  *proposing* them, only from proposing them for a request that never mentions them.
+
+### Recommendation
+
+**Not ready to release as a 2.0.2 that advertises the universal agent.** The deterministic layer and the safety
+fences are in good shape and well tested, and the auto-offer worked end to end with a real model. But the real-model
+runs showed unreliable multi-step planning and one wrong-tool destructive proposal (caught only by a card), and I
+made a real-file mistake while testing. Suggested path: release the safe, measurable parts (phrasing, trust check,
+terminal, workflows, startServer, screen reading) with the agent offer **off by default or behind a Settings toggle**,
+and keep testing the agent against a stronger model before turning it on.
