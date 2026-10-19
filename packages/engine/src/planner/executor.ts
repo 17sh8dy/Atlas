@@ -110,6 +110,7 @@ import type { HaltSignal } from '@atlas/core';
 import type { SkillRegistry } from '../skills/registry';
 import { createPhrasing, type Phrasing } from '../phrasing';
 import { refusalFor, screenPlan } from '../safety/content-policy';
+import { operationSeal } from '../safety/operation-seal';
 
 /** The native side's refusal for a path outside Allowed Folders. */
 const OUTSIDE_FOLDERS = /outside the folders Atlas can touch/i;
@@ -542,6 +543,10 @@ export class Executor {
 
       if (step.say) ctx.say(step.say);
 
+      // Sealed before anything is shown or asked: what runs must be exactly what was put in front of the person
+      // (`safety/operation-seal.ts`). Checked again just before the step runs.
+      const sealed = operationSeal(step.skill, step.args);
+
       // Refused outright, before anything is drawn. The registry checks this
       // too and that check is the guarantee; this one exists so that a card
       // never appears in front of an action that would then be declined —
@@ -667,6 +672,17 @@ export class Executor {
             break;
           }
         }
+      }
+
+      // The details must be the ones that were shown. If anything changed them while a card was open, a preview was
+      // being built or a reply was being read, the approval no longer covers this and the step does not run.
+      if (operationSeal(step.skill, step.args) !== sealed) {
+        const why = 'The details of this step changed after you were asked, so I did not run it. Ask me again and I will show you the new details.';
+        report('failed', why);
+        outcomes.push({ skill: step.skill, ok: false, error: why, failure: 'refused' });
+        ctx.say(why);
+        aborted = true;
+        break;
       }
 
       // Announced only once every gate has passed, so a step the user is

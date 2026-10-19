@@ -183,3 +183,13 @@ describe('the Universal Agent switch (off means off)', () => {
     expect(r.cards.filter((c) => /step by step/.test(c))).toEqual([]);
   });
 });
+
+describe('the agent never inherits a permissive execution mode', () => {
+  test('even in Do It +, an action the agent chose asks first (explicit request)', async () => {
+    const r = rig({ model: true, mode: 'doItPlus', agentReplies: ['{"skill":"files.delete","args":{"path":"C:/x/old.txt"}}', '{"done":true,"summary":"x"}'], confirmAnswers: [false] });
+    await r.engine.ask('figure out how to delete the old file C:/x/old.txt', r.io);
+    // Do It + lets the explicit hand-over start without a card, but the DELETE the model chose still asks.
+    expect(r.cards.length).toBeGreaterThanOrEqual(1);
+    expect(r.ran).not.toContain('files.delete');
+  });
+});

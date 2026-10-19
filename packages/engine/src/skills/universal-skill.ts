@@ -49,7 +49,9 @@ export function createUniversalAgentSkill(options: UniversalAgentSkillOptions): 
     // Refused before any card is drawn, so an explicit "figure out how to…" does nothing while the feature is off.
     guard: () => (options.isEnabled() ? null : UNIVERSAL_AGENT_OFF),
     async run(args, ctx) {
-      const run: AgentDeps = args.cautious === true ? { ...deps, getExecutionMode: () => 'confirmActions' } : deps;
+      // Always every action asks: a model chose these actions, so no execution mode may pre-approve them. (`cautious`
+      // is still accepted for callers that pass it; it no longer changes anything because this is now the only mode.)
+      const run: AgentDeps = { ...deps, getExecutionMode: () => 'confirmActions' };
       const report = await runUniversalTask(String(args.goal ?? ''), run, ctx);
       return { ok: report.ok, message: report.message, spoken: true, data: report };
     },
