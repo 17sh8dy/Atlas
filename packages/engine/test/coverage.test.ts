@@ -17,7 +17,11 @@
 import { describe, expect, test } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { measure, tally, grammar, type Result } from './coverage/measure';
+import { measure, tally, grammar, engineTrust, type Result } from './coverage/measure';
+import { HELD_OUT_C } from './coverage/heldout-c';
+import { HELD_OUT_D } from './coverage/heldout-d';
+import { HELD_OUT_E } from './coverage/heldout-e';
+import { HELD_OUT_F } from './coverage/heldout-f';
 import { HELD_OUT, HELD_OUT_B, type Held } from './coverage/heldout';
 import { understand } from './helpers/chain';
 import { everySkill } from './helpers/every-skill';
@@ -31,7 +35,10 @@ interface HeldResult extends Held {
 function runHeld(set: readonly Held[]): HeldResult[] {
   const g = grammar();
   return set.map((c) => {
-    const got = understand(g, c.text).plan?.steps[0]?.skill ?? null;
+    // With the engine's believability check on, as the engine runs it when a model is available.
+    const got = understand(g, c.text, true, engineTrust()).plan?.steps[0]?.skill ?? null;
+    // `none` = must not be claimed by a skill (conversation, writing): staying silent is the right answer.
+    if (c.skill === 'none') return { ...c, got, verdict: got === null ? 'ok' : 'wrong' };
     return { ...c, got, verdict: got === null ? 'miss' : c.skill.split('|').includes(got) ? 'ok' : 'wrong' };
   });
 }
@@ -42,6 +49,11 @@ const pct = (n: number, d: number) => (d ? `${((n / d) * 100).toFixed(1)}%` : 'n
 const main = measure();
 const heldA = runHeld(HELD_OUT);
 const heldB = runHeld(HELD_OUT_B);
+const heldC = runHeld(HELD_OUT_C);
+const heldD = runHeld(HELD_OUT_D);
+const heldE = runHeld(HELD_OUT_E);
+const heldF = runHeld(HELD_OUT_F);
+const allHeld = [...heldA, ...heldB, ...heldC, ...heldD, ...heldE, ...heldF];
 
 describe('floors (a change that makes understanding worse fails here)', () => {
   const plain = main.filter((r) => r.wrapper === 'plain');
@@ -64,6 +76,18 @@ describe('floors (a change that makes understanding worse fails here)', () => {
     expect(count(heldB, 'wrong') / heldB.length).toBeLessThanOrEqual(0.1);
   });
 
+  test('held-out F (never tuned against): few wrong answers, and silence on conversation', () => {
+    expect(count(heldF, 'ok') / heldF.length).toBeGreaterThanOrEqual(0.88);
+    expect(count(heldF, 'wrong') / heldF.length).toBeLessThanOrEqual(0.03);
+    expect(heldF.filter((r) => r.skill === 'none' && r.verdict !== 'ok')).toEqual([]);
+  });
+
+  test('every set: wrong answers stay rare once the believability check is on', () => {
+    for (const [name, set] of [['B', heldB], ['C', heldC], ['D', heldD], ['E', heldE], ['F', heldF]] as const) {
+      expect(count(set, 'wrong') / set.length, name).toBeLessThanOrEqual(0.07);
+    }
+  });
+
   test('held-out A', () => {
     expect(count(heldA, 'ok') / heldA.length).toBeGreaterThanOrEqual(0.9);
   });
@@ -72,7 +96,7 @@ describe('floors (a change that makes understanding worse fails here)', () => {
 describe('what is reached', () => {
   const all = everySkill();
   const reached = new Set<string>();
-  for (const r of [...main, ...heldA, ...heldB]) if (r.verdict === 'ok' && r.got) reached.add(r.got);
+  for (const r of [...main, ...allHeld]) if (r.verdict === 'ok' && r.got) reached.add(r.got);
   const registered = all.map((s) => s.id);
 
   test('the registry is much larger than what the measured phrasings reach, and the report says so', () => {
@@ -87,7 +111,7 @@ test('writes docs/CAPABILITY-COVERAGE.md when asked', () => {
   const all = everySkill();
   const registered = new Set(all.map((s) => s.id));
   const reached = new Set<string>();
-  for (const r of [...main, ...heldA, ...heldB]) if (r.verdict === 'ok' && r.got) reached.add(r.got);
+  for (const r of [...main, ...allHeld]) if (r.verdict === 'ok' && r.got) reached.add(r.got);
 
   const byArea = tally(main, (r) => r.area);
   const byWrapper = tally(main, (r) => r.wrapper);
@@ -130,11 +154,17 @@ a count of sentences that were actually run.
 | Main corpus, plain wording | ${plain.length} | ${count(plain, 'ok')} (${pct(count(plain, 'ok'), plain.length)}) | ${count(plain, 'wrong')} | ${count(plain, 'miss')} |
 | Main corpus, all wrappers | ${main.length} | ${count(main, 'ok')} (${pct(count(main, 'ok'), main.length)}) | ${count(main, 'wrong')} | ${count(main, 'miss')} |
 ${heldLine('Held-out A (since used for fixes)', heldA)}
-${heldLine('**Held-out B (never tuned against)**', heldB)}
+${heldLine('Held-out B (tuned in round 2 by the trust check)', heldB)}
+${heldLine('Held-out C (tuned: rows added from it)', heldC)}
+${heldLine('Held-out D (tuned: rows added from it)', heldD)}
+${heldLine('Held-out E (3 wrong answers shaped the plausibility guard)', heldE)}
+${heldLine('**Held-out F (never tuned against)**', heldF)}
 
-**The number to trust is held-out B.** The main corpus and set A were iterated against, so they overstate how
-Atlas handles sentences it was not shaped around. Set B was written after those fixes and has informed none of
-them.
+**The number to trust is held-out F (and E for the harder tail).** Every other set was iterated against and
+overstates how Atlas handles sentences it was not shaped around. Set F was written last and has informed no fix.
+F is an easier mix than E (more everyday phrasings); the honest range for unfamiliar-but-ordinary sentences is
+therefore about 81% to 92% understood correctly, with the rest falling through to the model rather than
+being run as the wrong thing. All held-out numbers are measured with the engine's believability check on.
 
 Skills: **${registered.size} registered**, **${reached.size} reached** by at least one measured sentence
 (${pct(reached.size, registered.size)}); ${unreached.length} registered skills have no measured plain-language route yet
@@ -154,11 +184,11 @@ ${Object.entries(byWrapper).map(([k, t]) => row(k, t)).join('\n')}
 
 ## Known misreadings (the 'wrong' column)
 
-${[...wrongs(main), ...wrongs(heldA), ...wrongs(heldB)].map((r) => `- \`${r.text}\` → **${r.got}** (should be ${r.skill})`).join('\n') || '- none'}
+${[...wrongs(main), ...wrongs(heldA), ...wrongs(heldB), ...wrongs(heldC), ...wrongs(heldD), ...wrongs(heldE), ...wrongs(heldF)].map((r) => `- \`${r.text}\` → **${r.got}** (should be ${r.skill})`).join('\n') || '- none'}
 
 ## Not understood without a model ('miss')
 
-${[...misses(main), ...misses(heldA), ...misses(heldB)].map((r) => `- \`${r.text}\` (should reach ${r.skill})`).join('\n') || '- none'}
+${[...misses(main), ...misses(heldA), ...misses(heldB), ...misses(heldC), ...misses(heldD), ...misses(heldE), ...misses(heldF)].map((r) => `- \`${r.text}\` (should reach ${r.skill})`).join('\n') || '- none'}
 
 ## Registered skills with no measured plain-language route yet
 

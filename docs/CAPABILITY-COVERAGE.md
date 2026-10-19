@@ -8,7 +8,7 @@ a count of sentences that were actually run.
 
 | Term | Meaning |
 |---|---|
-| **Registered** | A skill exists in the registry (334 skills built in test). It says nothing about whether plain language reaches it. |
+| **Registered** | A skill exists in the registry (335 skills built in test). It says nothing about whether plain language reaches it. |
 | **Reached** | At least one measured sentence was understood as that skill, with no model. |
 | **ok** | The sentence was understood as the skill it should be. |
 | **wrong** | Understood as a different skill. Listed by name below; these are bugs, not misses. |
@@ -19,16 +19,22 @@ a count of sentences that were actually run.
 | Measurement | Sentences | ok | wrong | miss |
 |---|---|---|---|---|
 | Main corpus, plain wording | 130 | 130 (100.0%) | 0 | 0 |
-| Main corpus, all wrappers | 1005 | 1003 (99.8%) | 2 | 0 |
+| Main corpus, all wrappers | 1005 | 1004 (99.9%) | 1 | 0 |
 | Held-out A (since used for fixes) | 106 | 96 (90.6%) | 4 (3.8%) | 6 (5.7%) |
-| **Held-out B (never tuned against)** | 63 | 51 (81.0%) | 5 (7.9%) | 7 (11.1%) |
+| Held-out B (tuned in round 2 by the trust check) | 63 | 52 (82.5%) | 2 (3.2%) | 9 (14.3%) |
+| Held-out C (tuned: rows added from it) | 114 | 107 (93.9%) | 2 (1.8%) | 5 (4.4%) |
+| Held-out D (tuned: rows added from it) | 97 | 94 (96.9%) | 3 (3.1%) | 0 (0.0%) |
+| Held-out E (3 wrong answers shaped the plausibility guard) | 104 | 84 (80.8%) | 1 (1.0%) | 19 (18.3%) |
+| **Held-out F (never tuned against)** | 64 | 59 (92.2%) | 0 (0.0%) | 5 (7.8%) |
 
-**The number to trust is held-out B.** The main corpus and set A were iterated against, so they overstate how
-Atlas handles sentences it was not shaped around. Set B was written after those fixes and has informed none of
-them.
+**The number to trust is held-out F (and E for the harder tail).** Every other set was iterated against and
+overstates how Atlas handles sentences it was not shaped around. Set F was written last and has informed no fix.
+F is an easier mix than E (more everyday phrasings); the honest range for unfamiliar-but-ordinary sentences is
+therefore about 81% to 92% understood correctly, with the rest falling through to the model rather than
+being run as the wrong thing. All held-out numbers are measured with the engine's believability check on.
 
-Skills: **334 registered**, **74 reached** by at least one measured sentence
-(22.2%); 260 registered skills have no measured plain-language route yet
+Skills: **335 registered**, **122 reached** by at least one measured sentence
+(36.4%); 215 registered skills have no measured plain-language route yet
 (they are still reachable through the model, the UI, or an exact phrase the grammar has but this corpus does not use).
 
 ## Main corpus by area
@@ -37,7 +43,7 @@ Skills: **334 registered**, **74 reached** by at least one measured sentence
 |---|---|---|---|---|
 | apps | 71 | 71 (100.0%) | 0 | 0 |
 | files | 99 | 99 (100.0%) | 0 | 0 |
-| system | 153 | 151 (98.7%) | 2 | 0 |
+| system | 153 | 152 (99.3%) | 1 | 0 |
 | network | 61 | 61 (100.0%) | 0 | 0 |
 | web | 99 | 99 (100.0%) | 0 | 0 |
 | text-math | 137 | 137 (100.0%) | 0 | 0 |
@@ -60,22 +66,24 @@ Skills: **334 registered**, **74 reached** by at least one measured sentence
 | could-you | 97 | 97 (100.0%) | 0 | 0 |
 | i-need | 97 | 97 (100.0%) | 0 | 0 |
 | go-ahead | 97 | 97 (100.0%) | 0 | 0 |
-| shouting | 130 | 128 (98.5%) | 2 | 0 |
+| shouting | 130 | 129 (99.2%) | 1 | 0 |
 | question-mark | 33 | 33 (100.0%) | 0 | 0 |
 
 ## Known misreadings (the 'wrong' column)
 
-- `SET THE VOLUME TO 30!` → **environment.set** (should be system.volumeSet)
 - `SET THE BRIGHTNESS TO 60!` → **environment.set** (should be system.brightness)
 - `pull up spotify` → **web.open** (should be app.open)
 - `launch my browser` → **web.openBrowser** (should be app.open)
 - `what changed in my repo` → **files.recent** (should be git.status)
 - `what did i copy` → **clipboard.history** (should be clipboard.read)
 - `pop open task manager` → **system.openTool** (should be app.open)
-- `bring the volume down to 10` → **app.open** (should be system.volumeSet)
-- `list running programs` → **files.list** (should be system.processes)
 - `look up ada lovelace on wikipedia` → **web.search** (should be web.searchWikipedia)
-- `list my open windows` → **files.list** (should be window.list)
+- `make a copy of notes.txt in documents` → **files.duplicate** (should be files.copy)
+- `commit my changes with the message fix typo` → **git.add** (should be git.commit)
+- `bring up the task manager please` → **system.openTool** (should be app.open)
+- `fire up the terminal` → **project.terminal** (should be app.open)
+- `commit everything with the message initial commit` → **git.add** (should be git.commit)
+- `what does your name mean` → **web.search** (should be none)
 
 ## Not understood without a model ('miss')
 
@@ -87,25 +95,56 @@ Skills: **334 registered**, **74 reached** by at least one measured sentence
 - `which files are taking the most space` (should reach storage.largestFiles)
 - `secure my computer` (should reach system.lock)
 - `lock it down` (should reach system.lock)
+- `list running programs` (should reach system.processes)
 - `check my download speed` (should reach net.speedTest)
 - `whats the time` (should reach time.now)
 - `take a note that rent is due friday` (should reach notes.add)
 - `build this project` (should reach build.run)
+- `list my open windows` (should reach window.list)
 - `what is open right now` (should reach window.list)
+- `compare my two photo folders` (should reach files.compareFolders)
+- `what is different between folder a and folder b` (should reach files.compareFolders)
+- `change my wallpaper` (should reach system.wallpaper)
+- `set my desktop background` (should reach system.wallpaper)
+- `how many characters in hello world` (should reach text.count)
+- `i need chrome open` (should reach app.open)
+- `set my speakers to 35` (should reach system.volumeSet)
+- `make it 60 percent volume` (should reach system.volumeSet)
+- `how much juice is left` (should reach system.battery|system.info)
+- `list the running programs` (should reach system.processes)
+- `when was my last reboot` (should reach system.uptime)
+- `check how fast my internet is` (should reach net.speedTest)
+- `search online for used cars` (should reach web.search|research.search)
+- `what is the current time` (should reach time.now)
+- `note to self: the code is 4412` (should reach notes.add)
+- `write a note: call the vet` (should reach notes.add)
+- `find my passport scan` (should reach files.find)
+- `where did i save my thesis` (should reach files.find)
+- `show me my latest files` (should reach files.recent)
+- `what did i work on recently` (should reach files.recent)
+- `find the largest files on my D drive` (should reach storage.largestFiles)
+- `show me the repo status` (should reach git.status)
+- `what were the last commits` (should reach git.log)
+- `play pause` (should reach media.control)
+- `lock my laptop` (should reach system.lock)
+- `how charged is my laptop` (should reach system.battery|system.info)
+- `what is my external ip` (should reach net.ip)
+- `take a note that the meeting moved to 4` (should reach notes.add)
+- `show all open windows` (should reach window.list)
 
 ## Registered skills with no measured plain-language route yet
 
 - **apps** (6): app.list, app.runAsAdmin, apps.install, apps.uninstall, apps.update, apps.updates
-- **atlas** (10): atlas.hide, engine.advise, engine.help, engine.list, engine.searchSkills, engine.selfTest, plugin.list, plugin.openFolder, plugin.reload, security.status
-- **files** (37): cleanup.clean, cleanup.review, files.append, files.attributes, files.batchRename, files.compare, files.compareFolders, files.copy, files.copyPath, files.create, files.createShortcut, files.delete, files.duplicate, files.findEmpty, files.hash, files.info, files.list, files.listArchive, files.mergeText, files.move, files.open, files.openAlias, files.openKnown, files.peek, files.print, files.readDocument, files.readText, files.recycleBin, files.rename, files.restore, files.reveal, files.search, files.searchContent, files.unzip, files.verify, storage.emptyFolder, storage.largestFolders
-- **media** (9): media.compress, media.convert, media.edit, media.frame, media.info, media.playOn, media.resizeImage, media.shuffle, media.trim
-- **memory-tasks** (35): calendar.add, clipboard.append, clipboard.clearHistory, clipboard.copy, clipboard.history, clipboard.restore, clipboard.save, clipboard.transform, mail.compose, memory.forget, memory.list, memory.remember, notes.clear, notify.send, reminder.cancel, routine.cancel, routine.create, routine.list, routine.resume, setup.delete, setup.list, setup.run, setup.save, stopwatch, todo.done, todo.list, watch.answer, watch.cancel, watch.create, watch.list, watch.pause, watch.resume, workflow.forget, workflow.last, workflow.replay
-- **network** (6): net.adapters, net.dnsLookup, net.savedNetworks, net.traceroute, net.usage, net.wifi
-- **system** (39): environment.delete, environment.deleteSystem, environment.get, environment.list, environment.set, environment.setSystem, registry.read, service.list, service.restart, service.start, service.status, service.stop, system.appVolume, system.audioDevices, system.drivers, system.endProcess, system.errors, system.explorerOption, system.firmware, system.metrics, system.micLevel, system.micMute, system.mouseSpeed, system.openTool, system.power, system.powerPlan, system.printers, system.processInfo, system.projectDisplay, system.radio, system.report, system.restartExplorer, system.settingsPage, system.shutdownCancel, system.shutdownIn, system.software, system.startupApps, system.volume, system.wallpaper
-- **terminal-dev** (35): build.configure, build.diagnose, builder.change, builder.revert, builder.status, code.changes, code.edit, code.search, code.undo, code.write, dependency.install, git.add, git.checkout, git.commit, git.diff, git.discardChanges, git.init, git.merge, git.push, git.releaseNotes, git.stash, git.tag, git.tags, git.unstage, powershell.run, project.check, project.create, project.deploy, project.detect, project.launch, project.scaffold, project.tree, script.node, script.python, terminal.list
-- **text-math** (34): math.aspect, math.average, math.bytes, math.fraction, math.interest, math.primes, math.tip, text.case, text.count, text.dedupe, text.extract, text.frequency, text.lorem, text.pronounce, text.replace, text.reverse, text.slug, text.sortLines, text.spell, text.trim, time.age, time.between, time.unix, time.weekday, time.zoneDiff, util.base64, util.color, util.hash, util.hex, util.json, util.jwt, util.random, util.roman, util.urlEncode
-- **web** (7): docs.notes, docs.read, docs.research, research.open, web.openBrowser, web.searchImages, web.searchSite
-- **windows-ui** (42): input.click, input.cursorPosition, input.drag, input.holdKey, input.hotkey, input.moveMouse, input.pressKey, input.scroll, input.typeText, kbm.click, kbm.click_element, kbm.double_click, kbm.drag, kbm.get_active_window, kbm.get_cursor_position, kbm.get_ui_elements, kbm.hotkey, kbm.key_sequence, kbm.middle_click, kbm.move_mouse, kbm.press_key, kbm.right_click, kbm.scroll, kbm.type_text, screen.captureWindow, screen.listDisplays, uia.collapse, uia.expand, uia.focusedElement, uia.invoke, uia.setValue, uia.tree, uia.typeInto, window.await, window.focus, window.maximize, window.minimize, window.move, window.pin, window.place, window.restore, window.unpin
+- **atlas** (9): atlas.hide, engine.advise, engine.list, engine.searchSkills, engine.selfTest, plugin.list, plugin.openFolder, plugin.reload, security.status
+- **files** (27): cleanup.clean, cleanup.review, files.append, files.attributes, files.batchRename, files.compare, files.compareFolders, files.copyPath, files.create, files.createShortcut, files.duplicate, files.findEmpty, files.list, files.listArchive, files.mergeText, files.openAlias, files.openKnown, files.peek, files.print, files.readDocument, files.readText, files.recycleBin, files.restore, files.search, files.searchContent, files.verify, storage.emptyFolder
+- **media** (8): media.compress, media.convert, media.edit, media.frame, media.info, media.resizeImage, media.shuffle, media.trim
+- **memory-tasks** (29): clipboard.append, clipboard.clearHistory, clipboard.restore, clipboard.save, clipboard.transform, mail.compose, memory.forget, memory.list, memory.remember, notes.clear, notify.send, routine.cancel, routine.create, routine.list, routine.resume, setup.delete, setup.list, setup.run, setup.save, stopwatch, watch.answer, watch.cancel, watch.create, watch.list, watch.pause, watch.resume, workflow.forget, workflow.last, workflow.replay
+- **network** (3): net.adapters, net.savedNetworks, net.usage
+- **system** (31): environment.delete, environment.deleteSystem, environment.get, environment.list, environment.set, environment.setSystem, registry.read, service.list, service.restart, service.start, service.status, service.stop, system.appVolume, system.drivers, system.errors, system.explorerOption, system.firmware, system.metrics, system.micLevel, system.micMute, system.mouseSpeed, system.openTool, system.power, system.processInfo, system.projectDisplay, system.radio, system.report, system.restartExplorer, system.shutdownCancel, system.volume, system.wallpaper
+- **terminal-dev** (28): build.configure, build.diagnose, builder.change, builder.revert, builder.status, code.changes, code.edit, code.undo, code.write, dependency.install, git.add, git.discardChanges, git.init, git.merge, git.releaseNotes, git.tag, git.tags, git.unstage, powershell.run, project.check, project.create, project.deploy, project.detect, project.launch, project.scaffold, script.node, script.python, terminal.list
+- **text-math** (28): math.aspect, math.average, math.bytes, math.fraction, math.interest, math.primes, math.tip, text.dedupe, text.extract, text.frequency, text.lorem, text.pronounce, text.replace, text.reverse, text.slug, text.sortLines, text.spell, text.trim, time.age, time.unix, time.zoneDiff, util.color, util.hash, util.hex, util.jwt, util.random, util.roman, util.urlEncode
+- **web** (6): docs.notes, docs.read, docs.research, research.open, web.openBrowser, web.searchSite
+- **windows-ui** (40): input.click, input.cursorPosition, input.drag, input.holdKey, input.hotkey, input.moveMouse, input.pressKey, input.scroll, input.typeText, kbm.click, kbm.click_element, kbm.double_click, kbm.drag, kbm.get_active_window, kbm.get_cursor_position, kbm.get_ui_elements, kbm.hotkey, kbm.key_sequence, kbm.middle_click, kbm.move_mouse, kbm.press_key, kbm.right_click, kbm.scroll, kbm.type_text, screen.listDisplays, uia.collapse, uia.expand, uia.focusedElement, uia.invoke, uia.setValue, uia.tree, uia.typeInto, window.await, window.focus, window.maximize, window.minimize, window.move, window.pin, window.restore, window.unpin
 
 ## How to extend this honestly
 

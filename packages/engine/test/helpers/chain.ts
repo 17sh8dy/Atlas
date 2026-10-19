@@ -19,7 +19,17 @@ export interface Understood {
   text: string;
 }
 
-export function understand(g: Grammar, raw: string, withParaphrase = true): Understood {
+/**
+ * `trust` is the engine's step 1e (universal/router.ts `trustPlan`): when given, a reading it does not believe
+ * counts as NOT understood, which is what the engine does when a model is available to take the request.
+ */
+export function understand(g: Grammar, raw: string, withParaphrase = true, trust?: (plan: Plan, text: string) => boolean): Understood {
+  const first = understandRaw(g, raw, withParaphrase);
+  if (first.plan && trust && !trust(first.plan, first.text)) return { plan: null, via: 'none', text: raw };
+  return first;
+}
+
+function understandRaw(g: Grammar, raw: string, withParaphrase = true): Understood {
   let plan = g.parse(raw);
   const normalized = normalizeRequest(raw);
   const didNormalize = normalized.length > 0 && normalized !== raw;

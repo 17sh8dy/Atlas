@@ -108,7 +108,36 @@ export interface Trust {
  * "check how much space downloads uses and then clean the temp files" being answered with just the first
  * half, and "install the dependencies and then run the build" ending in "open an app called the build".
  */
-export function trustPlan(plan: { steps: Array<{ skill: string }> }, text: string, index: CapabilityIndex): Trust {
+/**
+ * Catch-all rules ("find X", "list X", "open X") will take almost any words as their X. When the "name" they
+ * took is plainly not a name, the rule has been fooled by the sentence's shape and the reading is wrong:
+ * "list the running programs" is not a folder called "the running programs", and "bring the volume down to 10"
+ * is not an app. Deliberately small and specific; it only ever says "do not trust this", never what to do.
+ */
+const NOT_A_NAME: Record<string, RegExp> = {
+  'files.find': /^(?:the\s+|my\s+)?(?:largest|biggest|latest|newest|oldest|smallest|recent|most\s+recent)\b/i,
+  'files.list': /\b(?:running|programs|processes|windows|apps|largest|biggest|recent|latest)\b/i,
+  'files.openAlias': /\b(?:running|programs|processes|largest|biggest|recent|latest|folders?\s+use)\b/i,
+  'app.open': /\b(?:volume|brightness|percent|down\s+to|up\s+to|the\s+build|the\s+tests?|running\s+programs)\b/i,
+};
+const NAME_ARGS = ['query', 'path', 'subject', 'name', 'target'];
+
+function foolishName(step: { skill: string; args?: unknown }): string | null {
+  const rule = NOT_A_NAME[step.skill];
+  if (!rule) return null;
+  const args = (step.args ?? {}) as Record<string, unknown>;
+  for (const k of NAME_ARGS) {
+    const v = args[k];
+    if (typeof v === 'string' && rule.test(v.trim())) return v.trim();
+  }
+  return null;
+}
+
+export function trustPlan(plan: { steps: Array<{ skill: string; args?: unknown }> }, text: string, index: CapabilityIndex): Trust {
+  for (const st of plan.steps) {
+    const bad = foolishName(st);
+    if (bad) return { trust: false, reason: `${st.skill} took "${bad}" as a name, which it is not` };
+  }
   const clauses = chainClauses(text);
   if (clauses.length < 2) {
     if (plan.steps.length === 1 && ONE_AT_A_TIME.has(plan.steps[0]!.skill) && MANY.test(text)) {

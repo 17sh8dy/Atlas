@@ -8,6 +8,24 @@ import { createExtraGrammar } from '../../src/planner/extra-grammar';
 import { WorkingMemory } from '../../src/working-memory';
 import { understand } from '../helpers/chain';
 import { expand, type Case } from './corpus';
+import { SkillRegistry } from '../../src/skills/registry';
+import { CapabilityIndex } from '../../src/capabilities';
+import { trustPlan } from '../../src/universal/router';
+import { everySkill } from '../helpers/every-skill';
+
+/** The engine's believability check, over the real catalog (built once). */
+let cached: ((plan: import('@atlas/core').Plan, text: string) => boolean) | null = null;
+export function engineTrust() {
+  if (!cached) {
+    const all = everySkill();
+    const needs = [...new Set(all.flatMap((s) => s.needs ?? []))] as never[];
+    const reg = new SkillRegistry({ capabilities: () => needs });
+    reg.registerMany(all);
+    const index = new CapabilityIndex(reg);
+    cached = (plan, text) => trustPlan(plan, text, index).trust;
+  }
+  return cached;
+}
 
 export type Verdict = 'ok' | 'wrong' | 'miss';
 
@@ -27,7 +45,7 @@ export function grammar(): Grammar {
 export function measure(withParaphrase = true): Result[] {
   const g = grammar();
   return expand().map((c) => {
-    const u = understand(g, c.text, withParaphrase);
+    const u = understand(g, c.text, withParaphrase, engineTrust());
     const got = u.plan?.steps[0]?.skill ?? null;
     const verdict: Verdict = got === null ? 'miss' : c.skill.split('|').includes(got) ? 'ok' : 'wrong';
     return { ...c, verdict, got, via: u.via };
