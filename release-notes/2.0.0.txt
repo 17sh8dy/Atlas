@@ -1,5 +1,5 @@
 # What the update prompt says. One plain-language line per change; the first four are shown.
-New: Atlas 2.0 checks that an update really came from Atlas before it installs - updates are now signed. Because older versions cannot check this, 2.0 itself is a one-time manual install.
+New: Atlas 2.0 checks that an update really came from Atlas before it installs - updates are now signed. Older versions cannot check this themselves, so 2.0 is the first update protected this way.
 New: safer by design - Atlas's own folders are protected from its own file tools, changes to which folders and cloud providers it trusts need your OK in a Windows box, and cloud keys never leave the address you chose.
 New: Atlas can tell when something did not really happen - after creating, deleting or changing things it reads the result back and says "Confirmed" or "Not confirmed", and multi-step tasks (Settings, Tasks) can be stopped with F8 and picked up again.
 New: Settings, Stats shows what Atlas has done and what cloud AI has cost, kept only on this PC, with spend limits that pause cloud AI before it surprises you.
