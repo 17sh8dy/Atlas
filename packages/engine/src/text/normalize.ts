@@ -32,7 +32,7 @@ const LEADING_FILLER =
  * real verb, so removing the wrapper leaves the instruction intact.
  */
 const POLITE_PREFIX =
-  /^\s*(?:(?:i\s+(?:want|need|would like|wanna)\s+(?:you\s+)?to|can|could|would|will|can you please|could you please)\s+(?:you\s+|u\s+)?(?:please\s+)?|(?:please|pls|plz)\s+)/i;
+  /^\s*(?:(?:i\s+(?:want|need|would like|wanna)\s+(?:you\s+)?to|can|could|would|will|can you please|could you please)\s+(?:you\s+|u\s+)?(?:please\s+)?|(?:please|pls|plz)\s+|go\s+ahead\s+and\s+)/i;
 
 /**
  * A named mechanism wrapping an instruction — "use keyboard and mouse
@@ -64,7 +64,7 @@ const MECHANISM_PREFIX = new RegExp(
 
 /** Trailing courtesies. */
 const TRAILING_FILLER =
-  /[\s,]*(?:\b(?:please|pls|plz|for me|thanks|thank you|thx|ty|mate|man|dude|bro)\b[\s,.!]*)+$/i;
+  /[\s,]*(?:\b(?:please|pls|plz|for me|thanks|thank you|thx|ty|mate|man|dude|bro)\b[\s,.!?]*)+$/i;
 
 /** A conjunction left stranded at the front once a greeting is removed. */
 const STRANDED_CONJUNCTION = /^\s*(?:and|then|also|but)\s+/i;

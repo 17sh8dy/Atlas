@@ -75,6 +75,7 @@ export function paraphraseCandidates(text: string): string[] {
   const indirect = [
     /^(?:would|do|could)\s+you\s+mind\s+(\w+ing)\s+(.+)$/i,
     /^(?:can\s+you\s+(?:try\s+to|go\s+ahead\s+and))\s+(.+)$/i,
+    /^(?:go\s+ahead\s+and|just|now)\s+(.+)$/i,
     /^(?:how|what)\s+about\s+(\w+ing)\s+(.+)$/i,
     /^(?:i(?:'|’)?d|i\s+would)\s+like\s+(?:you\s+)?to\s+(.+)$/i,
     /^(?:i(?:'|’)?d|i\s+would)\s+like\s+(.+?)\s+(open|running|started|launched|closed)$/i,

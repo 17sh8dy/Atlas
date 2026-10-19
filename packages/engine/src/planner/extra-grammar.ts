@@ -19,6 +19,8 @@ import { createAppGrammar } from './app-grammar';
 import { createTerminalGrammar } from './terminal-grammar';
 import { createWorkflowMemoryGrammar } from './workflow-memory-grammar';
 import { createUniversalGrammar } from './universal-grammar';
+import { createPhrasingGrammar } from './phrasing-grammar';
+import { createSimplePhrasingGrammar } from './phrasing-simple-grammar';
 import { createHealthGrammar } from './health-grammar';
 import { createAssistGrammar } from './assist-grammar';
 import { createTimeGrammar } from './time-grammar';
@@ -78,6 +80,10 @@ export function createExtraGrammar(): GrammarRule[] {
 
     // "figure out how to…" hands a goal to the universal agent (explicit request only).
     ...createUniversalGrammar(),
+
+    // Everyday phrasings the coverage corpus showed missing or misread (2.0.2).
+    ...createPhrasingGrammar(),
+    ...createSimplePhrasingGrammar(),
 
     // PC health, file intelligence, build diagnosis, release notes (read-only, 1.0.8).
     ...createHealthGrammar(),

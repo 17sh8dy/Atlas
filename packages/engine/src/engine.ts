@@ -434,6 +434,17 @@ export class Engine {
     //     sentence behaves.
     const normalized = normalizeRequest(raw);
     const didNormalize = normalized.length > 0 && normalized !== raw;
+    // 1a. (2.0.2) When the raw text matched one skill but the same request WITHOUT its manners matches a
+    //     different one, the cleaner reading wins: "list my reminders please" was read as a folder called
+    //     "reminders please", and "hey atlas, what time is it in tokyo" as plain "what time is it". Only
+    //     manners and greetings come off (see text/normalize.ts); a repeat ("again") is never touched.
+    if (matched && !repeated && didNormalize) {
+      const cleaner = this.grammar.parse(normalized);
+      if (cleaner && cleaner.steps[0]?.skill !== matched.steps[0]?.skill) {
+        matched = cleaner;
+        understood = normalized;
+      }
+    }
     if (!matched && didNormalize) {
       const retry = this.grammar.parse(normalized);
       if (retry) {

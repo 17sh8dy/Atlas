@@ -21,9 +21,14 @@ export interface Understood {
 
 export function understand(g: Grammar, raw: string, withParaphrase = true): Understood {
   let plan = g.parse(raw);
-  if (plan) return { plan, via: 'grammar', text: raw };
   const normalized = normalizeRequest(raw);
   const didNormalize = normalized.length > 0 && normalized !== raw;
+  if (plan && didNormalize) {
+    // Engine step 1a: the cleaner reading wins when it is a different skill.
+    const cleaner = g.parse(normalized);
+    if (cleaner && cleaner.steps[0]?.skill !== plan.steps[0]?.skill) return { plan: cleaner, via: 'filler-stripped', text: normalized };
+  }
+  if (plan) return { plan, via: 'grammar', text: raw };
   if (didNormalize) {
     plan = g.parse(normalized);
     if (plan) return { plan, via: 'filler-stripped', text: normalized };

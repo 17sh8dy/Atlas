@@ -148,7 +148,7 @@ export function createDevGrammar(): GrammarRule[] {
       pathSafe: true,
       test(_lower, raw) {
         const pull = new RegExp(
-          String.raw`^\s*(?:please\s+)?(?:git\s+pull|pull(?:\s+(?:down|in))?\s+(?:the\s+)?(?:latest|newest|changes|updates|everything)|pull\s+(?:from|the\s+latest\s+from)\s+(?:github|origin|remote|upstream|git)|update\s+(?:my\s+)?(?:repo|repository|project)\s+from\s+(?:github|origin|remote)|pull)${WHERE}\s*[?.!]*$`,
+          String.raw`^\s*(?:please\s+)?(?:git\s+pull|pull(?:\s+(?:down|in))?\s+(?:the\s+)?(?:latest|newest|changes|updates|everything)(?:\s+(?:changes|updates|commits|code))?|pull\s+(?:from|the\s+latest\s+from)\s+(?:github|origin|remote|upstream|git)|update\s+(?:my\s+)?(?:repo|repository|project)\s+from\s+(?:github|origin|remote)|pull)${WHERE}\s*[?.!]*$`,
           'i',
         ).exec(raw);
         if (pull) return plan(step('git.pull', withPath({}, pull[1])), 'git-pull');

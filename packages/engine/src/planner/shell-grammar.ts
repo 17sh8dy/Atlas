@@ -19,7 +19,7 @@ function tidy(s: string): string {
 
 /** Words that mean "the speakers / the mic", never an app — so "mute the sound" stays where it was. */
 const NOT_AN_APP =
-  /^(?:it|this|that|the\s+sound|sound|volume|audio|everything|all|my\s+mic(?:rophone)?|the\s+mic(?:rophone)?|mic(?:rophone)?|notifications|me|up|down|the\s+music|music)$/i;
+  /^(?:the|my|set|turn|change|put|make|a|an|it|this|that|the\s+sound|sound|volume|audio|everything|all|my\s+mic(?:rophone)?|the\s+mic(?:rophone)?|mic(?:rophone)?|notifications|me|up|down|the\s+music|music)$/i;
 
 /** Spoken name → page id for `system.settingsPage`. Longest first, so "night light" wins over "light". */
 const PAGES: Array<[RegExp, string]> = [
@@ -87,7 +87,7 @@ export function createShellGrammar(): GrammarRule[] {
           return plan(step('system.appVolume', { app: set[1]!.trim(), level: Number(set[2]) }), 'app-volume');
         }
         const mute = lower.match(/^\s*(?:please\s+)?(mute|unmute)\s+(?:the\s+)?([a-z][a-z0-9 .+-]*?)\s*[?.!]*$/);
-        if (mute && !NOT_AN_APP.test(mute[2]!.trim()) && !/\b(?:mic|microphone|sound|volume|audio|notifications?)\b/.test(mute[2]!)) {
+        if (mute && !NOT_AN_APP.test(mute[2]!.trim()) && !/\b(?:mic|microphone|sound|volume|audio|notifications?|computer|pc|laptop|speakers?|system)\b/.test(mute[2]!)) {
           return plan(step('system.appVolume', { app: mute[2]!.trim(), state: mute[1]! }), 'app-volume');
         }
         return null;
