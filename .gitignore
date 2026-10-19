@@ -33,3 +33,6 @@ apps/desktop/Atlas.exe
 
 # Built installers dropped into apps/ are release artifacts, not source (GitHub rejects files over 100 MB)
 /apps/*.exe
+
+# Disposable folders for real-app tests (scripts/e2e)
+.e2e-sandbox/

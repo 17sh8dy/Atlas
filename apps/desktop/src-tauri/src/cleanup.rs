@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
+use tauri::{AppHandle, Manager};
 use walkdir::WalkDir;
 
 const MAX_WALK: usize = 400_000;
@@ -142,7 +143,38 @@ pub async fn cleanup_scan(kind: String) -> Result<CleanupScan, String> {
         .map_err(|e| format!("The scan failed: {e}"))?
 }
 
-fn clean_blocking(kind: &str, expected_files: u64, expected_bytes: u64) -> Result<CleanupDone, String> {
+/// Where the record of one cleanup goes: Atlas's own folder, one text file per run, never inside what is cleaned.
+fn manifest_path(app: &AppHandle, kind: &str) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?.join("cleanup-log");
+    fs::create_dir_all(&dir).ok()?;
+    let at = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    Some(dir.join(format!("{at}-{kind}.txt")))
+}
+
+/// One line per file actually removed (and a header saying what was approved), appended as it happens, so even a
+/// run that is stopped halfway leaves an exact account. A cleanup that deletes for good must be able to say what
+/// it deleted.
+struct Manifest(Option<fs::File>);
+
+impl Manifest {
+    fn open(path: Option<PathBuf>, kind: &str, plan: &Plan, files: u64, bytes: u64) -> Manifest {
+        use std::io::Write;
+        let file = path.and_then(|p| fs::File::create(p).ok());
+        let mut m = Manifest(file);
+        if let Some(f) = m.0.as_mut() {
+            let _ = writeln!(f, "# Atlas cleanup record\n# kind: {kind}\n# folder: {}\n# recoverable (Recycle Bin): {}\n# approved after review of about {files} files, {bytes} bytes\n# one line per file removed: size<TAB>path", crate::platform::plain_path(&plan.root), plan.recoverable);
+        }
+        m
+    }
+    fn removed(&mut self, path: &Path, size: u64) {
+        use std::io::Write;
+        if let Some(f) = self.0.as_mut() {
+            let _ = writeln!(f, "{size}\t{}", crate::platform::plain_path(path));
+        }
+    }
+}
+
+fn clean_blocking(kind: &str, expected_files: u64, expected_bytes: u64, manifest: Option<PathBuf>) -> Result<CleanupDone, String> {
     let plan = plan_for(kind)?;
     let (found, _) = walk(&plan);
     let files = found.len() as u64;
@@ -155,6 +187,7 @@ fn clean_blocking(kind: &str, expected_files: u64, expected_bytes: u64) -> Resul
         return Err("There's noticeably more here than when you reviewed it, so I haven't touched anything. Review it again first.".into());
     }
     let mut done = CleanupDone { kind: kind.to_string(), removed_files: 0, removed_bytes: 0, skipped_files: 0, recoverable: plan.recoverable };
+    let mut record = Manifest::open(manifest, kind, &plan, files, bytes);
     for (i, (path, size)) in found.into_iter().enumerate() {
         if i % 50 == 0 && crate::halt::global().check().is_err() {
             return Err(format!("Stopped after removing {} files.", done.removed_files));
@@ -166,6 +199,7 @@ fn clean_blocking(kind: &str, expected_files: u64, expected_bytes: u64) -> Resul
         }
         let ok = if plan.recoverable { trash::delete(&path).is_ok() } else { fs::remove_file(&path).is_ok() };
         if ok {
+            record.removed(&path, size);
             done.removed_files += 1;
             done.removed_bytes += size;
         } else {
@@ -177,9 +211,10 @@ fn clean_blocking(kind: &str, expected_files: u64, expected_bytes: u64) -> Resul
 
 /// Remove what was reviewed, if it hasn't grown. See the module docs for what each kind does.
 #[tauri::command]
-pub async fn cleanup_clean(kind: String, expected_files: u64, expected_bytes: u64) -> Result<CleanupDone, String> {
+pub async fn cleanup_clean(app: AppHandle, kind: String, expected_files: u64, expected_bytes: u64) -> Result<CleanupDone, String> {
     crate::halt::global().check()?;
-    tauri::async_runtime::spawn_blocking(move || clean_blocking(&kind, expected_files, expected_bytes))
+    let manifest = manifest_path(&app, &kind);
+    tauri::async_runtime::spawn_blocking(move || clean_blocking(&kind, expected_files, expected_bytes, manifest))
         .await
         .map_err(|e| format!("The cleanup failed: {e}"))?
 }
@@ -221,6 +256,32 @@ mod tests {
         let expected_files = 10u64;
         assert!(found.len() as u64 > expected_files + expected_files / 10 + 5);
         let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn every_removed_file_is_written_to_the_record() {
+        let base = std::env::temp_dir().join(format!("atlas-cleanup-record-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let target = base.join("scratch");
+        fs::create_dir_all(&target).unwrap();
+        for i in 0..3 {
+            fs::write(target.join(format!("a{i}.dmp")), b"xxxx").unwrap();
+        }
+        let plan = Plan { root: target.clone(), recursive: false, min_age: Duration::ZERO, exts: Some(&["dmp"]), recoverable: false };
+        let (found, _) = walk(&plan);
+        assert_eq!(found.len(), 3);
+        let log = base.join("record.txt");
+        let mut record = Manifest::open(Some(log.clone()), "crashdumps", &plan, 3, 12);
+        for (p, s) in &found {
+            fs::remove_file(p).unwrap();
+            record.removed(p, *s);
+        }
+        drop(record);
+        let text = fs::read_to_string(&log).unwrap();
+        assert!(text.contains("# kind: crashdumps"), "{text}");
+        assert_eq!(text.lines().filter(|l| !l.starts_with('#')).count(), 3, "{text}");
+        assert!(text.contains("a0.dmp") && text.contains("a1.dmp") && text.contains("a2.dmp"));
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]
