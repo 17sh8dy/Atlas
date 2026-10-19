@@ -36,10 +36,14 @@ export function createUniversalAgentSkill(options: UniversalAgentSkillOptions): 
       'Work out a goal that needs several different steps, one at a time, choosing each next tool from everything Atlas can do and deciding from what actually happened. Each step is checked and asked about exactly as if you had requested it. Needs an AI model; ends when done, blocked, declined, stopped, or out of steps.',
     risk: 'confirm',
     examples: ['figure out how to free up space on my D drive', 'work out how to see which program is slowing my PC'],
-    params: { goal: { type: 'string', required: true, description: 'what to accomplish' } },
+    params: {
+      goal: { type: 'string', required: true, description: 'what to accomplish' },
+      cautious: { type: 'boolean', required: false, description: 'ask before every action whatever the execution mode (set when Atlas offered this itself)' },
+    },
     summarize: (args) => `work out: ${String(args.goal ?? '').slice(0, 80)}`,
     async run(args, ctx) {
-      const report = await runUniversalTask(String(args.goal ?? ''), deps, ctx);
+      const run: AgentDeps = args.cautious === true ? { ...deps, getExecutionMode: () => 'confirmActions' } : deps;
+      const report = await runUniversalTask(String(args.goal ?? ''), run, ctx);
       return { ok: report.ok, message: report.message, spoken: true, data: report };
     },
   };

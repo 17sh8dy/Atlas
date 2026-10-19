@@ -78,6 +78,8 @@ import { buildSentenceFor, isBuildItRedirect, openTargetOf } from './text/build-
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
 import { paraphraseCandidates } from './planner/paraphrase';
+import { CapabilityIndex } from './capabilities';
+import { chainClauses, shouldRouteToAgent, trustPlan } from './universal/router';
 import { reporterFor, type ActivityEvent } from './planner/executor';
 import { allTemplates } from './templates';
 
@@ -253,6 +255,7 @@ export class Engine {
   private readonly live = new Set<HaltController>();
   /** The last plan that ran, for "do that again". Never a repeat or an undo itself. */
   private lastPlan: Plan | null = null;
+  private capIndex: CapabilityIndex | null = null;
   /** How to put the last reversible change back, for "undo that". Cleared by anything else. */
   private lastUndo: { skill: string; args: SkillArgs; label: string } | null = null;
   /** What the previous request asked to open ("Nova.Play"), so "there is no app, build it" has a subject. */
@@ -494,6 +497,25 @@ export class Engine {
       }
     }
 
+    // 1e. (2.0.2) Is the reading believable? A request that chains several jobs is trusted only when the plan
+    //     has a step for each AND each step is a skill the capability index also finds for that part of the
+    //     sentence ("check the space and then clean the temp files" must not be answered with just the first
+    //     half, nor "run the build" with "open an app called the build"). A single request a rule matched is
+    //     never second-guessed. With a model to hand the request goes on to the planner / agent; with none, the
+    //     part that was understood still runs and what was not is said out loud afterwards.
+    let notDone: string[] = [];
+    if (matched && !repeated) {
+      const verdict = trustPlan(matched, understood, this.index());
+      if (!verdict.trust) {
+        if (this.modelAllowed()) {
+          this.bus.emit('engine:distrusted', { reason: verdict.reason });
+          matched = null;
+        } else {
+          notDone = chainClauses(understood).slice(matched.steps.length);
+        }
+      }
+    }
+
     // 2. Content policy. Placed here, between understanding the request and
     //    executing anything, because a refusal has to happen before the first
     //    keystroke reaches a search box — not after the browser is already
@@ -523,6 +545,7 @@ export class Engine {
       this.bus.emit('engine:done', { mode: 'command', plan: matched, outcome });
       if (outcome.halted) throw new HaltedError();
       this.remember(matched, outcome);
+      if (notDone.length) io.say(`I only did the first part. I haven't done: ${notDone.map((c) => `“${c}”`).join(', ')}.`);
       const next = this.followUpOf(outcome);
       if (next) return this.followUp(next, io, signal, options);
       return { ok: outcome.ok, mode: 'command', plan: matched, outcome };
@@ -540,6 +563,14 @@ export class Engine {
         this.remember(proposed, outcome);
         return { ok: outcome.ok, mode: 'command', plan: proposed, outcome };
       }
+    }
+
+    // 3a. (2.0.2) A job made of things Atlas can do, that no rule and no one-shot plan covered: offer to work it
+    //     out step by step. Never automatic: it is a card the person must accept, and what follows is confirmed
+    //     per action whatever the execution mode. See universal/router.ts for what qualifies.
+    if (!this.isQuestion(raw)) {
+      const solved = await this.offerToSolve(understood, ctx, io, signal);
+      if (solved) return solved;
     }
 
     // 3b. An instruction Atlas understood the shape of but could not resolve.
@@ -582,6 +613,44 @@ export class Engine {
 
     // 4. Conversation.
     return this.converse(understood, io, ctx, signal, instruction, options.thinkLonger === true);
+  }
+
+  private index(): CapabilityIndex {
+    this.capIndex ??= new CapabilityIndex(this.skills);
+    return this.capIndex;
+  }
+
+  /** A model may be asked to plan: one is connected, and a cloud one only if the person allows cloud planning. */
+  private modelAllowed(): boolean {
+    const provider = this.intelligence?.active();
+    if (!provider) return false;
+    return provider.isLocal() || !this.routing.cloudPlanning || this.routing.cloudPlanning();
+  }
+
+  /**
+   * Offer the universal agent for a request nothing else could take. Returns null when it does not apply, so
+   * the caller carries on exactly as before. The card is shown in every execution mode, and the agent then
+   * runs with every action confirmed (`cautious`), so a loose request is never turned into unattended work.
+   */
+  private async offerToSolve(text: string, ctx: SkillContext, io: EngineIO, signal: HaltSignal): Promise<AskOutcome | null> {
+    if (!this.modelAllowed() || !this.skills.get('agent.solve') || !this.skills.available().some((k) => k.id === 'agent.solve')) return null;
+    const decision = shouldRouteToAgent(text, this.index());
+    if (!decision.route) return null;
+    this.bus.emit('engine:agent-offered', { reason: decision.reason });
+    const yes = await ctx.confirm(
+      '🧩 Work this out step by step?',
+      `I don't have a ready-made way to do this:\n“${text.trim().slice(0, 300)}”\n\nI can try, one step at a time, choosing from what I can do and asking before each action. Nothing happens unless you say yes.`,
+    );
+    if (!yes) {
+      io.say('Okay, I won’t.');
+      return { ok: false, mode: 'chat', error: 'declined' };
+    }
+    const plan: Plan = { source: 'ai', intent: 'agent-solve', steps: [{ skill: 'agent.solve', args: { goal: text.trim(), cautious: true } }], confidence: 0.6 };
+    // The card above WAS the approval for starting; the agent's own steps ask for themselves.
+    const outcome = await this.executor.run(plan, ctx, { ...this.executorOptions(signal), approvedStep: (st) => st.skill === 'agent.solve' });
+    this.bus.emit('engine:done', { mode: 'command', plan, outcome });
+    if (outcome.halted) throw new HaltedError();
+    return { ok: outcome.ok, mode: 'command', plan, outcome };
   }
 
   /** Question-shaped, and therefore conversation rather than an instruction. */
