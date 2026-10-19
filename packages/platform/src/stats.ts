@@ -44,6 +44,12 @@ export interface StatsLifetime {
   activeSeconds: number;
   messages: number;
   tokens: number;
+  /** Tokens used by models that run on this PC. Free, and a different thing from cloud tokens. */
+  localTokens: number;
+  /** How much of `localTokens` the model server counted itself; the rest is Atlas's estimate. */
+  localTokensReported: number;
+  /** Tokens sent to cloud providers, as Atlas counted them. Never authoritative: the provider is. */
+  cloudTokens: number;
   conversations: number;
   tasksCompleted: number;
   filesEdited: number;

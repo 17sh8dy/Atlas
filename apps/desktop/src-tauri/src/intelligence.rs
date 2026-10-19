@@ -185,14 +185,26 @@ struct ChatLine {
     error: Option<String>,
     /// Tool calls the model proposed in this line (`message.tool_calls`), as the server sent them.
     tool_calls: Vec<serde_json::Value>,
+    /// What the SERVER counted for this request, `(prompt tokens, reply tokens)`: Ollama reports it
+    /// on the final line (`prompt_eval_count` / `eval_count`). Absent on every other line, and on a
+    /// server that does not say; the Stats page then falls back to an estimate and labels it one.
+    reported: Option<(u64, u64)>,
 }
 
 fn parse_chat_line(line: &str) -> Option<ChatLine> {
     let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
     if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
-        return Some(ChatLine { delta: String::new(), done: true, error: Some(err.to_string()), tool_calls: Vec::new() });
+        return Some(ChatLine { delta: String::new(), done: true, error: Some(err.to_string()), tool_calls: Vec::new(), reported: None });
     }
+    let reported = match (
+        v.get("prompt_eval_count").and_then(|n| n.as_u64()),
+        v.get("eval_count").and_then(|n| n.as_u64()),
+    ) {
+        (Some(p), Some(e)) => Some((p, e)),
+        _ => None,
+    };
     Some(ChatLine {
+        reported,
         delta: v
             .pointer("/message/content")
             .and_then(|c| c.as_str())
@@ -389,15 +401,27 @@ pub async fn ask_local_model_stream(
     format: Option<serde_json::Value>,
 ) -> Result<String, String> {
     let tokens_in = crate::stats::estimate_tokens(&prompt);
-    let result = crate::halt::global()
+    let raced = crate::halt::global()
         .race(ask_local_model_unraced(app, base_url, model, prompt, think, stream_id, num_ctx, tools, format))
         .await;
-    // Counted for the Stats page, on this machine only. Token figures are estimates.
-    match &result {
-        Ok(text) => crate::stats::model_request("model.local", None, tokens_in, crate::stats::estimate_tokens(text), true),
-        Err(_) => crate::stats::model_request("model.local", None, tokens_in, 0, false),
+    // Counted for the Stats page, on this machine only. A local model has no bill: the figure is
+    // what the model server itself counted when it said so (and `model.local.tokens_reported`
+    // records how much of the total that is), otherwise an estimate the page labels as one.
+    match raced {
+        Ok((text, Some((prompt_tokens, reply_tokens)))) => {
+            crate::stats::model_request("model.local", None, prompt_tokens, reply_tokens, true);
+            crate::stats::bump("model.local.tokens_reported", prompt_tokens + reply_tokens);
+            Ok(text)
+        }
+        Ok((text, None)) => {
+            crate::stats::model_request("model.local", None, tokens_in, crate::stats::estimate_tokens(&text), true);
+            Ok(text)
+        }
+        Err(e) => {
+            crate::stats::model_request("model.local", None, tokens_in, 0, false);
+            Err(e)
+        }
     }
-    result
 }
 
 async fn ask_local_model_unraced(
@@ -410,7 +434,7 @@ async fn ask_local_model_unraced(
     num_ctx: Option<u32>,
     tools: Option<serde_json::Value>,
     format: Option<serde_json::Value>,
-) -> Result<String, String> {
+) -> Result<(String, Option<(u64, u64)>), String> {
     check_constraints(tools.as_ref(), format.as_ref())?;
     let constrained = tools.is_some() || format.is_some();
     // Chat uses the fixed size (Ollama reloads a model whenever it changes). A task that asked for more gets it, within
@@ -463,6 +487,7 @@ async fn ask_local_model_unraced(
     let mut filter = ThinkFilter::new();
     let mut answer = String::new();
     let mut finished = false;
+    let mut reported: Option<(u64, u64)> = None;
 
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| format!("The model's stream was interrupted: {e}"))?;
@@ -485,6 +510,9 @@ async fn ask_local_model_unraced(
                 let _ = app.emit(&channel, &piece);
             }
             tool_calls.extend(parsed.tool_calls);
+            if parsed.reported.is_some() {
+                reported = parsed.reported;
+            }
             if parsed.done {
                 finished = true;
             }
@@ -509,7 +537,7 @@ async fn ask_local_model_unraced(
     if answer.is_empty() && tool_calls.is_empty() {
         return Err("The model didn't return any text.".into());
     }
-    Ok(answer)
+    Ok((answer, reported))
 }
 
 /// Append a network chunk to `buffer` without splitting a multi-byte character.
@@ -970,6 +998,16 @@ mod tests {
     fn a_thinking_only_line_yields_no_text() {
         let line = r#"{"message":{"role":"assistant","content":"","thinking":"hmm"},"done":false}"#;
         assert_eq!(parse_chat_line(line).unwrap().delta, "");
+    }
+
+    #[test]
+    fn the_servers_own_token_counts_are_read_from_the_final_line() {
+        let done = r#"{"model":"qwen3:8b","message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":12,"eval_count":34}"#;
+        assert_eq!(parse_chat_line(done).unwrap().reported, Some((12, 34)));
+        // Not reported on an ordinary line, nor when only half of the pair is there.
+        assert_eq!(parse_chat_line(r#"{"message":{"content":"hi"},"done":false}"#).unwrap().reported, None);
+        assert_eq!(parse_chat_line(r#"{"message":{"content":""},"done":true,"eval_count":5}"#).unwrap().reported, None);
+        assert_eq!(parse_chat_line(r#"{"error":"model not found"}"#).unwrap().reported, None);
     }
 
     #[test]

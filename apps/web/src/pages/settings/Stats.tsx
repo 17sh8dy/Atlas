@@ -24,7 +24,7 @@ import { Button, Icons, Surface, cn } from '@atlas/ui';
 import type { Platform, Storage } from '@atlas/core';
 import { statsInfo, statsReset, statsSummary, isTauri } from '@atlas/platform';
 import type { StatsInfo, StatsPeriod, StatsSummary } from '@atlas/platform';
-import { PERIODS, calendarGrid, count, groupsFor, highlightsFor, isEmpty, providerLine } from './statsView';
+import { CLOUD_AUTHORITY, PERIODS, calendarGrid, count, groupsFor, highlightsFor, isEmpty, providerLine } from './statsView';
 
 const PERIOD_KEY = 'atlas.stats.period';
 
@@ -279,7 +279,7 @@ export function Stats({ storage }: Props) {
               </ul>
               <p className="text-foreground-subtle mt-2 text-xs leading-relaxed">
                 Requests to these providers go to the provider you chose. Keeping these counts on this PC
-                does not make those requests private from that provider.
+                does not make those requests private from that provider. {CLOUD_AUTHORITY}
               </p>
             </Surface>
           )}

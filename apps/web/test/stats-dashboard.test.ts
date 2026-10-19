@@ -11,6 +11,8 @@ import {
   providerLine,
   spendNote,
   usd,
+  CLOUD_AUTHORITY,
+  localTokensValue,
 } from '../src/pages/settings/statsView';
 import { formatPriceMilli, parsePriceMilli, priceTextProblem } from '../src/pages/settings/intelligence/prices';
 import { PULSE_EVENTS, PULSE_EVERY_MS, shouldPulse } from '../src/atlas/useActivityPulse';
@@ -35,6 +37,9 @@ function summary(over: Partial<StatsSummary> = {}): StatsSummary {
       activeSeconds: 0,
       messages: 0,
       tokens: 0,
+      localTokens: 0,
+      localTokensReported: 0,
+      cloudTokens: 0,
       conversations: 0,
       tasksCompleted: 0,
       filesEdited: 0,
@@ -50,13 +55,14 @@ function summary(over: Partial<StatsSummary> = {}): StatsSummary {
 const byId = (s: StatsSummary) => Object.fromEntries(highlightsFor(s).map((h) => [h.id, h]));
 
 describe('the dashboard headline figures', () => {
-  test('are the nine the page promises, in order', () => {
+  test('are the ten the page promises, in order', () => {
     expect(highlightsFor(summary()).map((h) => h.id)).toEqual([
       'active-time',
       'streak-current',
       'streak-longest',
       'messages',
-      'tokens',
+      'local-tokens',
+      'cloud-tokens',
       'conversations',
       'tasks',
       'files',
@@ -71,6 +77,9 @@ describe('the dashboard headline figures', () => {
         activeSeconds: 3 * 3600 + 12 * 60,
         messages: 1234,
         tokens: 2_500_000,
+        localTokens: 2_000_000,
+        localTokensReported: 2_000_000,
+        cloudTokens: 500_000,
         conversations: 40,
         tasksCompleted: 7,
         filesEdited: 19,
@@ -81,7 +90,8 @@ describe('the dashboard headline figures', () => {
     const h = byId(s);
     expect(h['active-time']!.value).toBe('3 h 12 min');
     expect(h['messages']!.value).toBe('1,234');
-    expect(h['tokens']!.value).toBe('≈ 2.5M');
+    expect(h['local-tokens']!.value).toBe('2.0M');
+    expect(h['cloud-tokens']!.value).toBe('≈ 500.0k');
     expect(h['conversations']!.value).toBe('40');
     expect(h['tasks']!.value).toBe('7');
     expect(h['files']!.value).toBe('19');
@@ -97,7 +107,7 @@ describe('the dashboard headline figures', () => {
     expect(h['active-time']!.note).toMatch(/not while it sits open/i);
     expect(h['conversations']!.note).toMatch(/30 minutes/);
     expect(h['files']!.note).toMatch(/never records file names/i);
-    expect(h['tokens']!.note).toMatch(/estimated/i);
+    expect(h['cloud-tokens']!.note).toMatch(/never a guarantee/i);
   });
 
   test('never invent history: a fresh install is zeros and "—", with the reason', () => {
@@ -122,6 +132,47 @@ describe('the dashboard headline figures', () => {
     expect(byId(summary({ streak: { current: 1, longest: 1, longestEnded: '', activeToday: true } }))['streak-current']!.value).toBe(
       '1 day',
     );
+  });
+});
+
+describe('local tokens and cloud tokens are different things', () => {
+  const withTokens = (local: number, reported: number, cloud: number) =>
+    byId(summary({ lifetime: { ...summary().lifetime, localTokens: local, localTokensReported: reported, cloudTokens: cloud } }));
+
+  test('local tokens say whether the model server counted them or Atlas estimated', () => {
+    expect(withTokens(10_000, 10_000, 0)['local-tokens']!.note).toMatch(/counted by your model server/i);
+    expect(withTokens(10_000, 0, 0)['local-tokens']!.note).toMatch(/estimated/i);
+    expect(withTokens(10_000, 4_000, 0)['local-tokens']!.note).toMatch(/partly counted/i);
+    expect(withTokens(0, 0, 0)['local-tokens']!.note).toMatch(/costs nothing/i);
+  });
+
+  test('a count the server gave is shown plainly; an estimate keeps its ≈', () => {
+    expect(localTokensValue(34_100, 34_100)).toBe('34.1k');
+    expect(localTokensValue(34_100, 0)).toBe('≈ 34.1k');
+    expect(localTokensValue(0, 0)).toBe('≈ 0');
+  });
+
+  test('local use is free and is never mixed into the cloud figure', () => {
+    const h = withTokens(5_000_000, 0, 120);
+    expect(h['local-tokens']!.value).not.toBe(h['cloud-tokens']!.value);
+    expect(h['cloud-tokens']!.value).toBe('≈ 120');
+    expect(h['local-tokens']!.note).toMatch(/costs nothing/i);
+  });
+
+  test('every cloud figure says the provider, not Atlas, is the authority', () => {
+    const everywhere = [
+      byId(summary())['cloud-tokens']!.note,
+      byId(summary())['spend']!.note,
+      spendNote({ estimateUsd: 1, pricedProviders: 1, unpricedProviders: 0, unpricedTokens: 0 }, true),
+      CLOUD_AUTHORITY,
+      ...groupsFor(summary()).flatMap((g) => g.rows).filter((r) => /^Cloud (model requests|tokens)$/.test(r.label)).map((r) => r.note ?? ''),
+    ];
+    // ("No cloud AI use to estimate" is the absence of a figure, not a figure.)
+    for (const text of everywhere.filter((t) => /cloud|provider|spending/i.test(t) && !/no cloud ai use/i.test(t))) {
+      expect(text, text).toMatch(/provider/i);
+    }
+    expect(CLOUD_AUTHORITY).toMatch(/not a guarantee/i);
+    expect(spendNote({ estimateUsd: 1, pricedProviders: 1, unpricedProviders: 0, unpricedTokens: 0 }, true)).toMatch(/only real figure/i);
   });
 });
 

@@ -409,6 +409,14 @@ pub struct Lifetime {
     pub active_seconds: u64,
     pub messages: u64,
     pub tokens: u64,
+    /// Tokens used by models that run on this PC (Ollama, Nova Intelligence). They cost nothing and
+    /// are a different thing from cloud tokens, so they are never added into one headline figure.
+    pub local_tokens: u64,
+    /// How much of `local_tokens` the model SERVER counted itself; the rest is Atlas's estimate.
+    pub local_tokens_reported: u64,
+    /// Tokens sent to cloud providers, as Atlas counted them (or as the provider reported where it
+    /// said). NOT authoritative: the provider's own dashboard and bill are the only real figures.
+    pub cloud_tokens: u64,
     pub conversations: u64,
     pub tasks_completed: u64,
     pub files_edited: u64,
@@ -631,6 +639,12 @@ fn summarise_with(
             .iter()
             .map(|g| m(&format!("{g}.tokens_in")) + m(&format!("{g}.tokens_out")))
             .sum(),
+        local_tokens: ["model.local", "model.nova"]
+            .iter()
+            .map(|g| m(&format!("{g}.tokens_in")) + m(&format!("{g}.tokens_out")))
+            .sum(),
+        local_tokens_reported: m("model.local.tokens_reported"),
+        cloud_tokens: m("model.cloud.tokens_in") + m("model.cloud.tokens_out"),
         conversations: m("chat.conversations"),
         tasks_completed: m("tasks.completed"),
         files_edited: m("files.edited"),
@@ -1119,5 +1133,50 @@ mod dashboard_tests {
         assert!(PAGE_METRICS.contains(&"files.edited"));
         assert!(!PAGE_METRICS.contains(&"app.active_seconds"), "active time is measured natively, never reported");
         assert!(!PAGE_METRICS.contains(&"chat.conversations"), "conversations are derived natively, never reported");
+    }
+}
+
+/// Tokens on this PC and tokens at a provider are different things and are never one number.
+#[cfg(test)]
+mod token_split_tests {
+    use super::*;
+
+    fn store_with(rows: &[(&str, &str, u64)]) -> Store {
+        let mut s = Store { version: VERSION, created_at: 1_700_000_000_000, ..Default::default() };
+        for (day, metric, n) in rows {
+            s.days.entry((*day).to_string()).or_default().insert((*metric).to_string(), *n);
+        }
+        s
+    }
+
+    #[test]
+    fn local_and_cloud_tokens_are_kept_apart_and_nova_counts_as_local() {
+        let s = store_with(&[
+            ("2026-10-18", "model.local.tokens_in", 1_000),
+            ("2026-10-18", "model.local.tokens_out", 4_000),
+            ("2026-10-18", "model.local.tokens_reported", 3_000),
+            ("2026-10-18", "model.nova.tokens_in", 50),
+            ("2026-10-18", "model.cloud.tokens_in", 200),
+            ("2026-10-18", "model.cloud.tokens_out", 100),
+        ]);
+        let l = summarise(&s, "today", (2026, 10, 18), &|_| String::new()).unwrap().lifetime;
+        assert_eq!(l.local_tokens, 5_050, "Ollama + Nova Intelligence both run on this PC");
+        assert_eq!(l.local_tokens_reported, 3_000, "how much the model server counted itself");
+        assert_eq!(l.cloud_tokens, 300);
+        assert_eq!(l.tokens, l.local_tokens + l.cloud_tokens, "the combined figure still adds up");
+    }
+
+    #[test]
+    fn local_use_never_enters_the_spending_estimate() {
+        let s = store_with(&[("2026-10-18", "model.local.tokens_in", 9_000_000), ("2026-10-18", "model.local.tokens_out", 9_000_000)]);
+        let sm = summarise(&s, "lifetime", (2026, 10, 18), &|_| String::new()).unwrap();
+        assert_eq!(sm.lifetime.spend, Spend::default());
+        assert_eq!(sm.lifetime.cloud_tokens, 0);
+    }
+
+    #[test]
+    fn nothing_used_is_zero_everywhere() {
+        let sm = summarise(&Store { version: VERSION, ..Default::default() }, "lifetime", (2026, 10, 18), &|_| String::new()).unwrap();
+        assert_eq!((sm.lifetime.local_tokens, sm.lifetime.local_tokens_reported, sm.lifetime.cloud_tokens), (0, 0, 0));
     }
 }

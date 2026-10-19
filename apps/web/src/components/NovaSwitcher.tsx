@@ -91,6 +91,14 @@ const SITES: NovaProduct[] = [
     kind: 'site',
     url: 'https://atlas-website.shadylabs.workers.dev/',
   },
+  {
+    id: 'replay-gg-site',
+    label: 'Replay.GG Website',
+    tagline: 'Download and learn about Replay.gg',
+    icon: Icons.Gamepad2,
+    kind: 'site',
+    url: 'https://replay-gg-site.shadylabs.workers.dev/',
+  },
   { id: 'nova', label: 'Nova', tagline: 'The Nova home page', icon: Icons.Globe, kind: 'site', url: NOVA_HOME_URL },
   {
     id: 'nova-legal',

@@ -429,7 +429,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
                     <p className="text-foreground-subtle text-xs">
                       This month: {st.monthRequests.toLocaleString('en-US')} request
                       {st.monthRequests === 1 ? '' : 's'} · {tokens} tokens (estimated unless the provider
-                      reported them)
+                      reported them). Your provider’s dashboard has the real figures.
                     </p>
                     <div className="flex flex-wrap items-end gap-2">
                       <label className="text-foreground-subtle text-xs">

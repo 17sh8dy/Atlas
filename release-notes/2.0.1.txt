@@ -1,0 +1,4 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+New: Stats now counts tokens for models that run on your PC separately from cloud models. Using Atlas with a local model is free, so it never counts toward spending, and it shows your model server's own counts when it reports them.
+Improved: every cloud figure in Stats is labelled as Atlas's own count, not a guarantee. Your provider's dashboard and bill are the real numbers for tokens, requests and cost.
+New: the Replay.GG website is now in the product switcher.

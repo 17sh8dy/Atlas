@@ -62,6 +62,25 @@ export function days(n: number): string {
   return `${count(n)} day${n === 1 ? '' : 's'}`;
 }
 
+/** Local tokens, said honestly: counted by the model server, estimated, or a mixture. */
+export function localTokensNote(total: number, reported: number): string {
+  const free = 'Runs on this PC and costs nothing.';
+  if (total === 0) return `Models that run on this PC. ${free}`;
+  if (reported >= total) return `Counted by your model server. ${free}`;
+  if (reported <= 0) return `Estimated (about 4 characters to a token): your model server did not report counts. ${free}`;
+  return `Partly counted by your model server, partly estimated. ${free}`;
+}
+
+/** The count itself: exact words when the server counted every token, otherwise with a ≈. */
+export function localTokensValue(total: number, reported: number): string {
+  const compact = tokens(total).replace('≈ ', '');
+  return total > 0 && reported >= total ? compact : tokens(total);
+}
+
+/** The line that keeps the record straight about cloud numbers, wherever they appear. */
+export const CLOUD_AUTHORITY =
+  'These are Atlas’s own counts, not a guarantee. Your provider’s dashboard and bill are the real figures.';
+
 /** Tokens are shown as ≈ because Atlas counts about four characters to a token unless told. */
 export function tokens(n: number): string {
   if (n >= 1_000_000) return `≈ ${(n / 1_000_000).toFixed(1)}M`;
@@ -89,7 +108,7 @@ export function spendNote(spend: StatsSpend, hasCloudUse: boolean): string {
     spend.unpricedTokens > 0
       ? ` Leaves out ${tokens(spend.unpricedTokens)} tokens from ${count(spend.unpricedProviders)} provider${spend.unpricedProviders === 1 ? '' : 's'} with no price set.`
       : '';
-  return `An estimate from the prices you entered, not a bill.${left}`;
+  return `An estimate from the prices you entered, not a bill. Your provider’s bill is the only real figure.${left}`;
 }
 
 /**
@@ -124,7 +143,18 @@ export function highlightsFor(s: StatsSummary): Highlight[] {
       s.streak.longest > 0 && s.streak.longestEnded ? `Ended ${s.streak.longestEnded}.` : 'Days you used Atlas in a row.',
     ),
     h('messages', 'Messages sent', count(l.messages), 'Everything you have typed or said to Atlas.'),
-    h('tokens', 'Tokens', tokens(l.tokens), 'Estimated, unless the provider reported its own.'),
+    h(
+      'local-tokens',
+      'Local model tokens',
+      localTokensValue(l.localTokens, l.localTokensReported),
+      localTokensNote(l.localTokens, l.localTokensReported),
+    ),
+    h(
+      'cloud-tokens',
+      'Cloud tokens (Atlas’s count)',
+      tokens(l.cloudTokens),
+      'Atlas’s own count, never a guarantee. Your provider’s dashboard is the authority.',
+    ),
     h('conversations', 'Conversations', count(l.conversations), 'Messages less than 30 minutes apart count as one.'),
     h('tasks', 'Tasks completed', count(l.tasksCompleted), 'Multi-step tasks that finished.'),
     h('files', 'Files edited', count(l.filesEdited), 'Edits made, not distinct files. Atlas never records file names.'),
@@ -187,9 +217,13 @@ export function groupsFor(s: StatsSummary): StatGroup[] {
     ]),
     g('models', 'Models', [
       r('Local model requests', count(m('model.local.requests')), 'On this PC; nothing leaves it.'),
-      r('Local tokens', tokens(modelTokens('model.local')), 'Estimated.'),
-      r('Cloud model requests', count(m('model.cloud.requests')), 'Sent to the provider you chose.'),
-      r('Cloud tokens', tokens(modelTokens('model.cloud')), 'As the provider reported, otherwise estimated.'),
+      r(
+        'Local tokens',
+        localTokensValue(modelTokens('model.local'), m('model.local.tokens_reported')),
+        localTokensNote(modelTokens('model.local'), m('model.local.tokens_reported')),
+      ),
+      r('Cloud model requests', count(m('model.cloud.requests')), 'Sent to the provider you chose. Counted by Atlas; your provider’s records are the authority.'),
+      r('Cloud tokens', tokens(modelTokens('model.cloud')), 'Atlas’s count (the provider’s number where it gave one). Not a guarantee: your provider’s dashboard is the authority.'),
       r('Cloud requests that failed', count(m('model.cloud.failures'))),
       r('Times a cloud limit was reached', count(m('model.cloud.limit_hits'))),
       r('Nova Intelligence requests', count(m('model.nova.requests'))),
