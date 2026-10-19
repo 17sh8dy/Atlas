@@ -1,0 +1,5 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+New: Atlas understands far more everyday requests in plain words, including files, git, text and network jobs, and can run and read a terminal window for you.
+New: Atlas can remember a workflow you did ("remember that as...") and replay it later. Every replayed step still asks first, and passwords are never saved.
+New: an optional, experimental Universal Agent in Settings that works a multi-step job out one step at a time. It is off by default and asks before every action. It may do things you did not ask for, so use it with care.
+Improved: Atlas checks its own work and says plainly what ran, what it confirmed and what is not done, instead of trusting what a model claims.

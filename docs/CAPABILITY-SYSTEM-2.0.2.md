@@ -273,9 +273,22 @@ destructive cards (saved as a working rule).
 
 ### Recommendation
 
-**Not ready to release as a 2.0.2 that advertises the universal agent.** The deterministic layer and the safety
-fences are in good shape and well tested, and the auto-offer worked end to end with a real model. But the real-model
-runs showed unreliable multi-step planning and one wrong-tool destructive proposal (caught only by a card), and I
-made a real-file mistake while testing. Suggested path: release the safe, measurable parts (phrasing, trust check,
-terminal, workflows, startServer, screen reading) with the agent offer **off by default or behind a Settings toggle**,
-and keep testing the agent against a stronger model before turning it on.
+**Round 3 outcome (supersedes the round 2 recommendation above, which was: not ready to release as a 2.0.2 that
+advertises the universal agent).** The safe, measurable parts ship (phrasing, trust check, terminal, workflows,
+startServer, screen reading). The universal agent ships **OFF by default**, for new installs and for upgrades, behind
+a Settings switch (Settings -> Intelligence -> Universal Agent). Switching it on for the first time shows a one-time
+"Experimental Feature" warning (it may perform unintended actions or tasks the person did not request); it is shown
+once and the person can decline. Explicit requests ("figure out how to...") are also disabled while it is off, and an
+agent Atlas offered itself asks before every single action whatever the execution mode.
+
+Small agent upgrades in this release, all inside the existing fences (every action still goes through the registry,
+the executor, Allowed Folders, confirmations; the deny list is unchanged): a job-aware tool shelf (research goals
+always see `research.search`/`research.open`, coding goals the code/build/test tools), a progress tally of the
+request's parts from Atlas's own record, advice after steps, and "done" checked per kind of job (a web question needs
+a search; a research one needs an opened page; changed code needs a build, test or check). The tool list now follows
+the first part of the request nothing has covered yet.
+
+**Still NOT verified:** these upgrades are unit-tested and run through the loop with a scripted model, not with a real
+model, and the keyword patterns that classify a goal as research or coding are heuristics. Only `qwen3.5:9b` has been
+tried; no cloud model or larger local model. Keep testing the agent against a stronger model before ever turning it
+on by default.
