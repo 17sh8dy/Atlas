@@ -1023,7 +1023,7 @@ mod tests {
             "stats_summary", "stats_record", "stats_touch", "stats_info", "stats_reset",
             // Checkpoint history: reading it and marking a change as reviewed act on nothing. The
             // commands that write to a file or record one check the stop themselves.
-            "change_get", "change_list", "change_keep",
+            "change_get", "change_list", "change_keep", "terminal_read", "terminal_list",
             // The SearXNG address, saved from Settings by the person. It only chooses where
             // Atlas's own search is sent; every address is checked again on each search.
             "searxng_configure",

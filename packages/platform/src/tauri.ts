@@ -87,6 +87,10 @@ import type {
   GitStatus,
   ProjectInfo,
   SearchMatch,
+  TerminalInfo,
+  TerminalRead,
+  TerminalSummary,
+  ToolProbe,
   ToolResult,
   TreeEntry,
   EngineInfo,
@@ -394,6 +398,11 @@ export function createTauriPlatform(): Platform {
       invoke<ToolResult>('run_devtool', { cwd, tool, arg: arg ?? null }),
     runPowerShell: (script, cwd) =>
       invoke<ToolResult>('run_powershell', { script, cwd: cwd ?? null }),
+    openTerminal: (script, opts) =>
+      invoke<TerminalInfo>('terminal_open', { script, cwd: opts?.cwd ?? null, watch: opts?.watch ?? null, title: opts?.title ?? null }),
+    readTerminal: (id, tailChars) => invoke<TerminalRead>('terminal_read', { id, tailChars: tailChars ?? null }),
+    listTerminals: () => invoke<TerminalSummary[]>('terminal_list'),
+    probeDevTools: (names) => invoke<ToolProbe[]>('dev_tools_probe', { names: names ?? [] }),
     gameEngines: () => invoke<EngineInfo[]>('game_engines'),
     pluginManifests: () => invoke<PluginFolder[]>('plugin_manifests'),
     openPluginsFolder: () => invoke<string>('open_plugins_folder'),

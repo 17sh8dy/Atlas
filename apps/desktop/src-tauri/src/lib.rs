@@ -21,6 +21,7 @@ mod cloud_intelligence;
 mod diagnostics;
 mod redact;
 mod stats;
+mod terminal;
 mod changes;
 mod cloud_safety;
 #[cfg(windows)]
@@ -517,6 +518,10 @@ pub fn run() {
             changes::change_keep,
             changes::change_revert,
             changes::change_edit,
+            terminal::terminal_open,
+            terminal::terminal_read,
+            terminal::terminal_list,
+            terminal::dev_tools_probe,
             stats::stats_info,
             stats::stats_reset,
             provider_bindings::provider_unbind,

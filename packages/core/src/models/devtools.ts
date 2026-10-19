@@ -87,6 +87,38 @@ export interface ToolResult {
   truncated: boolean;
 }
 
+/** A visible terminal window Atlas opened. */
+export interface TerminalInfo {
+  id: string;
+  title: string;
+}
+
+/** What a terminal's log says. `started` false means the launcher has not run yet (or never will). */
+export interface TerminalRead {
+  id: string;
+  started: boolean;
+  running: boolean;
+  exitCode: number | null;
+  text: string;
+  truncated: boolean;
+}
+
+export interface TerminalSummary {
+  id: string;
+  at: number;
+  started: boolean;
+  running: boolean;
+  exitCode: number | null;
+}
+
+/** One developer tool and whether it is installed. */
+export interface ToolProbe {
+  name: string;
+  found: boolean;
+  version: string | null;
+  path: string | null;
+}
+
 /**
  * The package managers `installDependency` knows how to drive — a closed
  * set, exactly like `DevTool` above. There is no variant that takes a raw

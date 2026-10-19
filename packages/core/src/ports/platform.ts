@@ -50,6 +50,10 @@ import type {
   GitStatus,
   ProjectInfo,
   SearchMatch,
+  TerminalInfo,
+  TerminalRead,
+  TerminalSummary,
+  ToolProbe,
   ToolResult,
   TreeEntry,
 } from '../models/devtools';
@@ -767,6 +771,16 @@ export interface Platform {
    * Allowed Folders on its own account. `cwd`, if given, must be an allowed folder.
    */
   runPowerShell?(script: string, cwd?: string): Promise<ToolResult>;
+  /**
+   * Open a VISIBLE terminal that runs this script and stays open, logging to a file Atlas can read.
+   * Same refusals and Allowed Folders as `runPowerShell`; the engine shows the whole script first.
+   * `watch: false` for full-screen programs (their screen cannot be logged).
+   */
+  openTerminal?(script: string, opts?: { cwd?: string; watch?: boolean; title?: string }): Promise<TerminalInfo>;
+  readTerminal?(id: string, tailChars?: number): Promise<TerminalRead>;
+  listTerminals?(): Promise<TerminalSummary[]>;
+  /** Which well-known developer tools are installed (a fixed list; empty `names` = all). */
+  probeDevTools?(names?: string[]): Promise<ToolProbe[]>;
   /** Game engine editors (Unreal, Unity, Godot) that are really installed. Read-only discovery. */
   gameEngines?(): Promise<EngineInfo[]>;
   /** The plugin.json text of every folder under Atlas's plugins folder. Plugins are data, never code. */

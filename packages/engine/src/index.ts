@@ -110,6 +110,7 @@ export { createAppScaffoldSkills } from './skills/app-scaffold-skills';
 export { createRecolorSkills } from './skills/recolor-skills';
 export { createProjectToolSkills } from './skills/project-tools-skills';
 export { createPowerShellSkills } from './skills/powershell-skills';
+export { createTerminalSkills } from './skills/terminal-skills';
 export { createPluginSkills, engineAdvice } from './skills/plugin-skills';
 export { loadPlugins, pluginReport } from './plugins/host';
 export { parseManifest, manifestTemplates } from './plugins/manifest';

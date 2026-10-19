@@ -105,6 +105,7 @@ import {
   createRecolorSkills,
   createProjectToolSkills,
   createPowerShellSkills,
+  createTerminalSkills,
   createPluginSkills,
   loadPlugins,
   ProjectContext,
@@ -761,6 +762,8 @@ export function useAtlas(
     skills.registerMany(withCurrentProject(createProjectToolSkills(platform, projectContext), projectContext, platform, memory));
     // The last resort: a PowerShell script, shown in full and approved every time.
     skills.registerMany(createPowerShellSkills(platform));
+    // The same fences, but a window the person can see and keep using, read back to confirm it started.
+    skills.registerMany(createTerminalSkills(platform));
     // Plugins add project templates (data only, validated); engines are found, never started.
     skills.registerMany(createPluginSkills(platform));
     void loadPlugins(platform).catch(() => undefined);

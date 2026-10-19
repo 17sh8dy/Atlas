@@ -51,6 +51,12 @@ describe('paraphraseCandidates', () => {
     }
   });
 
+  test('a question about ability is never turned into a command', () => {
+    for (const t of ['are you able to run commands for me?', 'is it possible to open steam', 'are you able to delete files']) {
+      expect(paraphraseCandidates(t).filter((c) => /^(?:run|open|delete)/i.test(c)), t).toEqual([]);
+    }
+  });
+
   test('does not guess a target that was not given', () => {
     expect(paraphraseCandidates('I want to play on steam, open it')).not.toContain('open it');
     expect(paraphraseCandidates('get it running')).not.toContain('open');
@@ -79,7 +85,7 @@ describe('measured against the grammar (the same chain the engine uses)', () => 
   const STEAM = [
     'Open Steam.', 'Launch Steam.', 'Start Steam.', 'Can you open Steam for me?', 'please open steam', 'fire up steam',
     'get steam running', 'boot up steam', 'run steam', 'open the steam app', 'could you launch steam', 'would you mind opening steam',
-    "I'd like steam open", 'okay so, open steam', 'load steam', 'how about opening steam', 'is it possible to open steam',
+    "I'd like steam open", 'okay so, open steam', 'load steam', 'how about opening steam',
     'can you please launch steam?', 'hey atlas, start steam for me', 'go ahead and open steam', 'steam, open it up',
   ];
 

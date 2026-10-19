@@ -69,11 +69,12 @@ export function paraphraseCandidates(text: string): string[] {
   const stripped = bare(original);
   add(stripped);
 
-  // 2. Indirect requests: "would you mind opening X", "is it possible to open X", "how about opening X",
-  //    "I'd like to open X", "I'd like X open".
+  // 2. Indirect requests: "would you mind opening X", "how about opening X",
+  //    "I'd like to open X", "I'd like X open". ("Are you able to…" / "is it possible to…" ask about ABILITY, so
+  //    they are left to the conversation and never turned into a command.)
   const indirect = [
     /^(?:would|do|could)\s+you\s+mind\s+(\w+ing)\s+(.+)$/i,
-    /^(?:is\s+it\s+possible\s+to|are\s+you\s+able\s+to|can\s+you\s+(?:try\s+to|go\s+ahead\s+and))\s+(.+)$/i,
+    /^(?:can\s+you\s+(?:try\s+to|go\s+ahead\s+and))\s+(.+)$/i,
     /^(?:how|what)\s+about\s+(\w+ing)\s+(.+)$/i,
     /^(?:i(?:'|’)?d|i\s+would)\s+like\s+(?:you\s+)?to\s+(.+)$/i,
     /^(?:i(?:'|’)?d|i\s+would)\s+like\s+(.+?)\s+(open|running|started|launched|closed)$/i,

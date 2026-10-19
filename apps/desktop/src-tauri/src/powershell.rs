@@ -252,7 +252,7 @@ fn nearest_existing(path: &str) -> Option<PathBuf> {
 
 /// Every path the script spells out must be inside Allowed Folders — the boundary every other
 /// file command has. The same words as everywhere else, so the "Add It?" card can recognise it.
-fn check_paths(script: &str) -> Result<(), String> {
+pub(crate) fn check_paths(script: &str) -> Result<(), String> {
     for path in embedded_paths(script) {
         let Some(anchor) = nearest_existing(&path) else {
             return Err("That path is outside the folders Atlas can touch.".into());

@@ -58,6 +58,7 @@ import { createSetupSkills } from '../../src/skills/setup-skills';
 import { SetupStore } from '../../src/setup/store';
 import { SkillRegistry } from '../../src/skills/registry';
 import { createPowerShellSkills } from '../../src/skills/powershell-skills';
+import { createTerminalSkills } from '../../src/skills/terminal-skills';
 import { createKbmSkills } from '../../src/skills/kbm-skills';
 import { createPluginSkills } from '../../src/skills/plugin-skills';
 
@@ -111,6 +112,7 @@ export function everySkill(): Skill[] {
     ...createScreenSkills(NOTHING),
     ...createDevToolsSkills(NOTHING),
     ...createPowerShellSkills(NOTHING),
+    ...createTerminalSkills(NOTHING),
     ...createKbmSkills(NOTHING),
     ...createPluginSkills(NOTHING),
     ...createWatchSkills({
