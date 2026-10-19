@@ -140,3 +140,33 @@ describe('the explicit phrasing', () => {
     for (const t of ['open steam', 'how do I free up space', 'figure', 'work out 1,250 * 3', 'figure out the tip', 'what is the capital of Peru']) expect(parseSolveRequest(t), t).toBeNull();
   });
 });
+
+describe('verification wording', () => {
+  test('a general job that changed files is not told to run a build', async () => {
+    const r = rig(['{"skill":"files.delete","args":{}}', '{"done":true,"summary":"removed it"}']);
+    const report = await r.run('delete the old file');
+    expect(report.message).not.toMatch(/Not verified|build or tests/);
+    expect(report.verified).toBeUndefined();
+  });
+});
+
+describe('what actually ran', () => {
+  test('a model claiming a second job it never did is not left standing', async () => {
+    const r = rig(['{"skill":"app.open","args":{"name":"x"}}', '{"done":true,"summary":"Opened it and moved the file too."}']);
+    const said: string[] = [];
+    const c = ctx();
+    const orig = c.say;
+    c.say = (t: string) => { said.push(t); orig(t); };
+    const report = await runUniversalTask('open steam and then move report.log into archive', r.deps, c);
+    expect(report.message).toMatch(/What actually ran: app\.open/);
+    expect(report.message).toMatch(/asked for 2 things and 1 action/);
+    expect(said.join('\n')).toMatch(/asked for 2 things/);
+  });
+
+  test('a single-part job that ran is simply listed', async () => {
+    const r = rig(['{"skill":"app.open","args":{"name":"x"}}', '{"done":true,"summary":"ok"}']);
+    const report = await r.run('open steam');
+    expect(report.message).toMatch(/What actually ran: app\.open/);
+    expect(report.message).not.toMatch(/asked for/);
+  });
+});

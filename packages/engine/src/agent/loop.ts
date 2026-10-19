@@ -183,6 +183,13 @@ export interface AgentTaskConfig {
    * admitted only by `allow` and still runs through the validator and the executor.
    */
   select?(view: { goal: string; recent: string[] }): string;
+  /**
+   * Whether a task that changed files must also show a passing build/test/check before it is called verified.
+   * Right for building or fixing a project (the default). Wrong for a general job such as "move this file":
+   * there is no build to run, and the warning would be noise; each action's own read-back (the executor's
+   * "Confirmed / Not confirmed") is the evidence there. Absent or true: unchanged behaviour.
+   */
+  verifyProjectChanges?: boolean;
 }
 
 const DEFAULT_HISTORY_CHARS = 7000;
@@ -336,7 +343,7 @@ export async function runAgentTask(
 
   const base = (): Pick<AgentTaskReport, 'changed' | 'refused'> => ({ changed: [...changed], refused: [...refused] });
   const verification = (): Pick<AgentTaskReport, 'verified' | 'unverified'> => {
-    if (!state.everChanged) return {};
+    if (!state.everChanged || config.verifyProjectChanges === false) return {};
     if (state.failingChecks.length) return { verified: false, unverified: `${state.failingChecks.join(', ')} ${state.failingChecks.length === 1 ? 'was' : 'were'} still failing at the end` };
     if (!state.verified) return { verified: false, unverified: 'the project was changed and no build, test or project check was run (and passed) afterwards' };
     return { verified: true };

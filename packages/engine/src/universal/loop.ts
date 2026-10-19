@@ -24,6 +24,7 @@
 import type { Skill, SkillContext } from '@atlas/core';
 import { runAgentTask, type AgentDeps, type AgentTaskReport } from '../agent/loop';
 import { CapabilityIndex } from '../capabilities';
+import { chainClauses } from './router';
 
 /** Enough for a real multi-step job, few enough to end a task that is going nowhere. */
 export const MAX_UNIVERSAL_ITERATIONS = 14;
@@ -61,11 +62,12 @@ export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: Skill
   /** Everything that has been offered so far in this task (an earlier step's tool may be wanted again). */
   const offered = new Set<string>();
 
-  return runAgentTask(
+  const report = await runAgentTask(
     goal,
     {
       role: 'general task agent',
       maxIterations: MAX_UNIVERSAL_ITERATIONS,
+      verifyProjectChanges: false,
       context: {},
       allow: (skillId) => offered.has(skillId) && !DENY.has(skillId),
       extraInstruction:
@@ -87,4 +89,32 @@ export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: Skill
     deps,
     ctx,
   );
+  return withEvidence(goal, report, deps, ctx);
+}
+
+/**
+ * What actually ran, in Atlas's own words, appended to the model's closing summary.
+ *
+ * A model asked to finish will sometimes claim more than it did ("the move is assumed complete" when the file
+ * did not exist and no move was ever tried). The summary is the model's; this is the executor's record. When the
+ * request had several parts and fewer actions succeeded than parts, the report says so instead of leaving the
+ * claim standing.
+ */
+export function evidenceNote(goal: string, report: AgentTaskReport): string | null {
+  const ran = report.steps.filter((s) => s.ok);
+  const parts = chainClauses(goal).length;
+  const lines: string[] = [];
+  if (ran.length) lines.push(`What actually ran: ${ran.map((s) => s.skill).join(', ')}.`);
+  else if (report.stoppedBecause === 'done') lines.push('No action actually ran.');
+  if (report.stoppedBecause === 'done' && parts > 1 && ran.length < parts) {
+    lines.push(`⚠ You asked for ${parts} things and ${ran.length} action${ran.length === 1 ? '' : 's'} succeeded, so do not take "done" at its word: check the rest.`);
+  }
+  return lines.length ? lines.join('\n') : null;
+}
+
+function withEvidence(goal: string, report: AgentTaskReport, _deps: AgentDeps, ctx: SkillContext): AgentTaskReport {
+  const note = evidenceNote(goal, report);
+  if (!note || report.stoppedBecause === 'no-provider') return report;
+  ctx.say(note);
+  return { ...report, message: `${report.message}\n\n${note}` };
 }
