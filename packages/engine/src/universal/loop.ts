@@ -51,6 +51,38 @@ const DENY = new Set([
   'setup.run',
 ]);
 
+/** Skills that remove or end something, whatever their declared risk (some ask for themselves). */
+const DESTRUCTIVE_ID = /(?:^|\.)(?:clean|delete|remove|empty|erase|wipe|uninstall|discard|endProcess|emptyRecycleBin|emptyFolder|kill)/i;
+
+/** Words a goal may use for an enum value the model picked, beyond the value itself. */
+const ENUM_ALIASES: Record<string, string[]> = {
+  temp: ['temp', 'tmp', 'temporary'],
+  crashdumps: ['crash', 'dump'],
+  installers: ['installer', 'setup'],
+};
+
+/**
+ * An action that removes things must be grounded in what was asked. The model once answered "delete the old log
+ * files" with `cleanup.clean(kind: temp)`: a different set of files entirely, on a card showing 459 of them.
+ * The card caught it; this stops it earlier. For a destructive skill, every enum choice must be something the
+ * goal actually talks about. It can only refuse, never change the action.
+ */
+export function vetDestructive(skill: Skill | null, args: Record<string, unknown>, goal: string): string | null {
+  if (!skill) return null;
+  const destructive = skill.risk === 'confirm' || DESTRUCTIVE_ID.test(skill.id);
+  if (!destructive) return null;
+  const said = goal.toLowerCase();
+  for (const [name, param] of Object.entries(skill.params ?? {})) {
+    const value = args[name];
+    if (!param.enum || typeof value !== 'string' || !value) continue;
+    const words = ENUM_ALIASES[value.toLowerCase()] ?? [value.toLowerCase().slice(0, Math.max(4, Math.min(value.length, 6)))];
+    if (!words.some((w) => said.includes(w))) {
+      return `the request never mentions "${value}", so ${skill.id} with ${name}=${value} is not what was asked.`;
+    }
+  }
+  return null;
+}
+
 function paramList(skill: Skill): string {
   return Object.entries(skill.params ?? {})
     .map(([n, p]) => `${n}${p.required ? '' : '?'}:${p.type}${p.enum ? `[${p.enum.join('|')}]` : ''}`)
@@ -70,8 +102,9 @@ export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: Skill
       verifyProjectChanges: false,
       context: {},
       allow: (skillId) => offered.has(skillId) && !DENY.has(skillId),
+      vet: (skillId, args, g) => vetDestructive(deps.skills.get(skillId), args, g),
       extraInstruction:
-        'only these are available right now; the list changes as the task goes. Prefer the most specific one. Use powershell.run only if nothing else fits',
+        'only these are available right now; the list changes as the task goes. Prefer the most specific one. Use powershell.run only if nothing else fits. Never pick an action that removes or ends something unless the request names exactly what to remove; if nothing offered does exactly what was asked, reply done and say what is missing',
       noProviderMessage:
         'Working a task out step by step needs an AI model connected: turn one on in Settings → Intelligence, then ask again.',
       select({ goal: g, recent }) {

@@ -170,3 +170,27 @@ describe('what actually ran', () => {
     expect(report.message).not.toMatch(/asked for/);
   });
 });
+
+describe('destructive actions must be what was asked', () => {
+  const cleanup: Skill = {
+    id: 'cleanup.clean', label: 'Clean up temp files, crash dumps or old installers', icon: '•', domain: 'files',
+    description: 'Remove old temp files or crash dumps for good, or old installers.', risk: 'safe',
+    params: { kind: { type: 'string', required: true, enum: ['temp', 'crashdumps', 'installers'], description: 'which' } },
+    async run() { return { ok: true, message: 'cleaned' }; },
+  };
+
+  test('"delete the old log files" is not answered with a temp-file cleanup', async () => {
+    const ran: string[] = [];
+    const r = rig(['{"skill":"cleanup.clean","args":{"kind":"temp"}}', '{"done":true,"summary":"nothing fits"}'], true, [{ ...cleanup, async run() { ran.push('cleanup'); return { ok: true }; } }]);
+    const report = await r.run('delete the old log files in my downloads');
+    expect(ran).toEqual([]);
+    expect(report.refused.join(' ')).toMatch(/never mentions "temp"/);
+  });
+
+  test('"clean my temp files" may use it', async () => {
+    const ran: string[] = [];
+    const r = rig(['{"skill":"cleanup.clean","args":{"kind":"temp"}}', '{"done":true,"summary":"ok"}'], true, [{ ...cleanup, async run() { ran.push('cleanup'); return { ok: true }; } }]);
+    await r.run('clean out my temp files');
+    expect(ran).toEqual(['cleanup']);
+  });
+});
