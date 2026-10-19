@@ -10,7 +10,7 @@ export function parseSolveRequest(raw: string): string | null {
   const t = raw.trim().replace(/[\s.!]+$/, '');
   const m =
     /^(?:please\s+)?(?:(?:figure\s+out|work\s+out)\s+how\s+to|find\s+(?:out\s+)?a\s+way\s+to)\s+(.{6,300})$/i.exec(t) ??
-    /^(?:please\s+)?(?:take\s+care\s+of|handle|sort\s+out)\s+(?:this|the\s+following)\s*[:\-]\s*(.{6,300})$/i.exec(t);
+    /^(?:please\s+)?(?:take\s+care\s+of|handle|sort\s+out)\s+(?:this|the\s+following)\s*[:-]\s*(.{6,300})$/i.exec(t);
   return m?.[1]?.trim() || null;
 }
 

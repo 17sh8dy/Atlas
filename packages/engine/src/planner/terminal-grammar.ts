@@ -30,7 +30,7 @@ const FULL_SCREEN = new Set(['opencode', 'claude', 'codex', 'gemini', 'aider', '
 const WHERE = String.raw`(?:in|inside|within|using|with|from)\s+(?:a\s+|an\s+|the\s+|my\s+|new\s+)*(?:(?:new|separate|visible|windows)\s+)*(?:power\s*shell|pwsh|terminal|console|command\s+prompt|cmd)(?:\s+(?:window|session|tab|prompt))?`;
 
 /** A command line that is plausibly typed: a program name and plain arguments. Nothing else is claimed. */
-const COMMAND = /^[\w][\w.\-]*(?:\s+[\w.\-:/\\=@"'~%,]+){0,8}$/;
+const COMMAND = /^[\w][\w.-]*(?:\s+[\w.:/\\=@"'~%,-]+){0,8}$/;
 
 /** Spoken tool names → the name `dev.tools` knows. */
 const TOOL_NAMES: Record<string, string> = {

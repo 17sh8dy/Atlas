@@ -11,7 +11,7 @@ const clean = (s: string) => s.trim().replace(/^["'`]+|["'`.!?]+$/g, '').trim();
 export function parseRemember(raw: string): { name: string; then?: string } | null {
   const t = raw.trim().replace(/[\s.!]+$/, '');
   // "save a workflow called deploy: run the tests then open the site"
-  let m = /^(?:please\s+)?(?:save|make|create|remember)\s+(?:a\s+|an\s+)?(?:new\s+)?workflow\s+(?:called|named)\s+(.+?)\s*[:\-]\s*(.+)$/i.exec(t);
+  let m = /^(?:please\s+)?(?:save|make|create|remember)\s+(?:a\s+|an\s+)?(?:new\s+)?workflow\s+(?:called|named)\s+(.+?)\s*[:-]\s*(.+)$/i.exec(t);
   if (m) return { name: clean(m[1]!), then: clean(m[2]!) };
   // "remember that as my morning routine", "save this as the deploy workflow", "remember what you just did as deploy"
   m = /^(?:please\s+)?(?:remember|save|keep)\s+(?:that|this|it|what\s+you\s+(?:just\s+)?did|those\s+steps)\s+as\s+(?:a\s+|an\s+|my\s+|the\s+)?(.+?)(?:\s+workflow)?$/i.exec(t);

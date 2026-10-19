@@ -53,7 +53,7 @@ describe('paraphraseCandidates', () => {
 
   test('a question about ability is never turned into a command', () => {
     for (const t of ['are you able to run commands for me?', 'is it possible to open steam', 'are you able to delete files']) {
-      expect(paraphraseCandidates(t).filter((c) => /^(?:run|open|delete)/i.test(c)), t).toEqual([]);
+      expect(paraphraseCandidates(t).filter((c) => /^(?:run|open|delete)\b/i.test(c)), t).toEqual([]);
     }
   });
 

@@ -26,8 +26,11 @@ function score(set: Route[]) {
     const plan = understand(g, c.text).plan;
     const handled = plan !== null && trustPlan(plan, c.text, index).trust;
     const routed = !handled && shouldRouteToAgent(c.text, index).route;
-    if (c.route) routed ? tp++ : fn++;
-    else routed ? fp++ : tn++;
+    if (c.route) {
+      if (routed) tp++;
+      else fn++;
+    } else if (routed) fp++;
+    else tn++;
   }
   return { tp, fn, fp, tn };
 }

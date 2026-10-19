@@ -9,7 +9,9 @@ export async function connect(port = 9222, tries = 60) {
     try {
       list = await (await fetch(`http://127.0.0.1:${port}/json`)).json()
       if (list.some((p) => p.type === 'page')) break
-    } catch {}
+    } catch {
+      /* the page is not up yet: try again */
+    }
     await sleep(1000)
   }
   const page = list?.find((p) => p.type === 'page')

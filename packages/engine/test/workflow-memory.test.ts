@@ -30,7 +30,7 @@ describe('what is never stored', () => {
     expect(secretIn([step('x', { password: 'hunter2' })])).toMatch(/credential field/);
     expect(secretIn([step('x', { apiKey: 'abc' })])).toMatch(/credential field/);
     expect(secretIn([step('x', { nested: { token: 'abc' } })])).toMatch(/credential field/);
-    expect(secretIn([step('x', { script: 'curl -H "Authorization: Bearer abcdefghijklmnop"' })])).toBeNull; // header text alone is not a shape we claim
+    expect(secretIn([step('x', { script: 'curl -H "Authorization: Bearer abcdefghijklmnop"' })])).toBeNull(); // header text alone is not a shape we claim
     expect(secretIn([step('x', { text: 'sk-abcdefghijklmnopqrstuvwx' })])).toMatch(/looks like/);
     expect(secretIn([step('x', { text: 'ghp_abcdefghijklmnopqrstuvwxyz0123' })])).toMatch(/looks like/);
     expect(secretIn([step('x', { script: '$env:X = 1; password=hunter2' })])).toMatch(/looks like/);
