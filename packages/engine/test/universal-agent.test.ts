@@ -137,6 +137,6 @@ describe('the explicit phrasing', () => {
     expect(parseSolveRequest('figure out how to free up space on my D drive')).toBe('free up space on my D drive');
     expect(parseSolveRequest('work out how to see what is slowing my PC')).toBe('see what is slowing my PC');
     expect(parseSolveRequest('handle this: clean up my downloads and tell me what you removed')).toMatch(/clean up my downloads/);
-    for (const t of ['open steam', 'how do I free up space', 'figure', 'what is the capital of Peru']) expect(parseSolveRequest(t), t).toBeNull();
+    for (const t of ['open steam', 'how do I free up space', 'figure', 'work out 1,250 * 3', 'figure out the tip', 'what is the capital of Peru']) expect(parseSolveRequest(t), t).toBeNull();
   });
 });
