@@ -43,3 +43,19 @@ export async function readUniversalAgent(storage: Storage): Promise<boolean> {
 export async function writeUniversalAgent(storage: Storage, enabled: boolean): Promise<void> {
   await new MemoryStore(storage).remember('preference', UNIVERSAL_AGENT, enabled ? 'true' : 'false');
 }
+
+const UNIVERSAL_AGENT_WARNED = 'agent.universal.warned';
+
+/**
+ * Whether the person has already been shown the Experimental warning for the Universal Agent. It is shown once,
+ * the first time they switch the agent on, and never again; only the exact saved word 'true' counts as seen, so
+ * a missing or corrupted value shows the warning rather than skipping it.
+ */
+export async function readUniversalAgentWarned(storage: Storage): Promise<boolean> {
+  const fact = await new MemoryStore(storage).fact('preference', UNIVERSAL_AGENT_WARNED);
+  return fact?.value === 'true';
+}
+
+export async function writeUniversalAgentWarned(storage: Storage): Promise<void> {
+  await new MemoryStore(storage).remember('preference', UNIVERSAL_AGENT_WARNED, 'true');
+}

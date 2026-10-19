@@ -9,13 +9,14 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Icons, Surface, Switch } from '@atlas/ui';
+import { Button, Icons, Modal, Surface, Switch } from '@atlas/ui';
 import type { Storage } from '@atlas/core';
-import { readUniversalAgent, writeUniversalAgent } from '@atlas/data';
+import { readUniversalAgent, writeUniversalAgent, readUniversalAgentWarned, writeUniversalAgentWarned } from '@atlas/data';
 import { ROUTING_CHANGED } from '../../../atlas/routingEvents';
 
 export function UniversalAgent({ storage }: { storage: Storage }) {
   const [on, setOn] = useState(false);
+  const [warning, setWarning] = useState(false);
   useEffect(() => {
     let alive = true;
     void readUniversalAgent(storage).then((v) => alive && setOn(v)).catch(() => {});
@@ -27,6 +28,18 @@ export function UniversalAgent({ storage }: { storage: Storage }) {
     setOn(next);
     await writeUniversalAgent(storage, next);
     window.dispatchEvent(new Event(ROUTING_CHANGED));
+  }
+  /** Turning it on shows the Experimental warning the first time only; it stays off until they accept it. */
+  async function request(next: boolean) {
+    if (!next) return change(false);
+    const warned = await readUniversalAgentWarned(storage).catch(() => false);
+    if (warned) return change(true);
+    setWarning(true);
+  }
+  async function accept() {
+    setWarning(false);
+    await writeUniversalAgentWarned(storage).catch(() => {});
+    await change(true);
   }
   return (
     <section aria-labelledby="universal-agent-title">
@@ -49,12 +62,29 @@ export function UniversalAgent({ storage }: { storage: Storage }) {
             never changes what Atlas is allowed to do.
           </p>
         </div>
-        <Switch checked={on} onCheckedChange={(next) => void change(next)} aria-label="Universal Agent (experimental)" />
+        <Switch checked={on} onCheckedChange={(next) => void request(next)} aria-label="Universal Agent (experimental)" />
       </Surface>
       <p className="text-foreground-subtle mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed">
         <Icons.Lock className="mt-0.5 h-3 w-3 shrink-0" />
         With this off, Atlas understands and acts exactly as before, and nothing is sent to a model for this purpose.
       </p>
+      <Modal open={warning} onOpenChange={setWarning} label="Experimental feature warning">
+        <Surface className="p-5">
+          <p className="text-foreground text-sm font-semibold">
+            <span aria-hidden="true">⚠️ </span>Experimental Feature
+          </p>
+          <p className="text-foreground-subtle mt-2 text-sm leading-relaxed">
+            The Automatic Agent is disabled by default because it&rsquo;s still in early development. It may perform
+            unintended actions or tasks you didn&rsquo;t request. Use with caution.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setWarning(false)}>
+              Keep it off
+            </Button>
+            <Button onClick={() => void accept()}>Enable anyway</Button>
+          </div>
+        </Surface>
+      </Modal>
     </section>
   );
 }

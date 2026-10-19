@@ -35,7 +35,7 @@ function ollama(structured: boolean): IntelligenceProvider {
         try {
           const res = await fetch(`${BASE}/api/chat`, {
             method: 'POST',
-            body: JSON.stringify({ model: TAG, stream: false, think: false, keep_alive: '10m', options: { num_ctx: 8192 }, messages: [{ role: 'user', content: prompt }], ...(opts?.responseSchema ? { format: opts.responseSchema } : {}) }),
+            body: JSON.stringify({ model: TAG, stream: false, ...(process.env.REAL_THINK === 'default' ? {} : { think: false }), keep_alive: '10m', options: { num_ctx: 8192 }, messages: [{ role: 'user', content: prompt }], ...(opts?.responseSchema ? { format: opts.responseSchema } : {}) }),
           });
           const j = (await res.json()) as { message?: { content?: string } };
           h.onDone(j.message?.content ?? '');

@@ -1,7 +1,7 @@
 /** The saved switch: off for everyone until they turn it on, including people upgrading with nothing saved. */
 import { expect, test } from 'vitest';
 import type { Storage } from '@atlas/core';
-import { readUniversalAgent, writeUniversalAgent } from '../../data/src/routing-preference';
+import { readUniversalAgent, writeUniversalAgent, readUniversalAgentWarned, writeUniversalAgentWarned } from '../../data/src/routing-preference';
 
 const mem = (): Storage & { data: Map<string, unknown> } => {
   const data = new Map<string, unknown>();
@@ -23,5 +23,13 @@ test('only an explicit on turns it on, and off turns it off again', async () => 
   await writeUniversalAgent(s, true);
   expect(await readUniversalAgent(s)).toBe(true);
   await writeUniversalAgent(s, false);
+  expect(await readUniversalAgent(s)).toBe(false);
+});
+
+test('the experimental warning is unseen until shown, then stays seen, and does not change the switch', async () => {
+  const s = mem();
+  expect(await readUniversalAgentWarned(s)).toBe(false);
+  await writeUniversalAgentWarned(s);
+  expect(await readUniversalAgentWarned(s)).toBe(true);
   expect(await readUniversalAgent(s)).toBe(false);
 });
