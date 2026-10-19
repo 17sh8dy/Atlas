@@ -270,7 +270,25 @@ describe('local-model compatibility: structured replies', () => {
       p.ask = (prompt: unknown, h: unknown, opts: unknown) => { seen.push((opts as { responseSchema?: Record<string, unknown> } | undefined)?.responseSchema); original(prompt, h, opts); };
       await r.run('find the largest files in C:/x');
       expect(seen.length).toBeGreaterThan(0);
-      expect(seen.every((s) => (expectSchema ? s?.type === 'object' : s === undefined)), support).toBe(true);
+      expect(seen.every((s) => (expectSchema ? Array.isArray(s?.anyOf) : s === undefined)), support).toBe(true);
     }
+  });
+});
+
+describe('a model that cannot produce a usable action', () => {
+  test('four unusable replies in a row end the task instead of burning every step', async () => {
+    const r = rig([]);
+    let n = 0;
+    r.p.ask = ((prompt: string, h: { onDone: (s: string) => void }) => { r.p.prompts.push(prompt); n += 1; h.onDone('{"skill":"files.createFolder","summary":"no args at all"}'); }) as never;
+    const report = await runUniversalTask('create a folder called reports in C:/x', r.deps, ctx());
+    expect(n).toBeLessThanOrEqual(5);
+    expect(report.stoppedBecause).toBe('malformed');
+    expect(report.message).toMatch(/Nothing was done/);
+  });
+
+  test('the reply schema demands args for an action and a summary for done', async () => {
+    const { AGENT_REPLY_SCHEMA } = await import('../src/agent/loop');
+    const shapes = (AGENT_REPLY_SCHEMA as { anyOf: Array<{ required: string[] }> }).anyOf;
+    expect(shapes.map((s) => s.required)).toEqual([['done', 'summary'], ['skill', 'args']]);
   });
 });

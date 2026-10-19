@@ -271,15 +271,23 @@ function catalogFor(skills: SkillRegistry, allow: AgentTaskConfig['allow']): str
  * which is the commonest way a small model loses a step. `args` stays free-form: the registry validates it.
  */
 export const AGENT_REPLY_SCHEMA: Record<string, unknown> = {
-  type: 'object',
-  properties: {
-    done: { type: 'boolean' },
-    summary: { type: 'string' },
-    skill: { type: 'string' },
-    args: { type: 'object' },
-    say: { type: 'string' },
-  },
-  additionalProperties: false,
+  // Exactly one of two shapes, each with its required fields. A flat schema with everything optional let a model
+  // satisfy it with {"skill": …, "summary": …} and no `args` at all, then repeat that until the steps ran out
+  // (seen with a real model in the app).
+  anyOf: [
+    {
+      type: 'object',
+      properties: { done: { type: 'boolean', enum: [true] }, summary: { type: 'string' } },
+      required: ['done', 'summary'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: { skill: { type: 'string' }, args: { type: 'object' }, say: { type: 'string' } },
+      required: ['skill', 'args'],
+      additionalProperties: false,
+    },
+  ],
 };
 
 function askProvider(
@@ -441,6 +449,8 @@ export async function runAgentTask(
   /** How many times a claim of "done" was sent back because Atlas's record contradicted it. */
   let challenges = 0;
   let failedTotal = 0;
+  /** Consecutive replies that named an action Atlas could not even start (not offered, or invalid arguments). */
+  let unusableStreak = 0;
   /** Atlas's own look at the project before accepting "done" happens once per task. */
   let autoChecked = false;
   /** What each file was last written as, so the same file is not written again unchanged. */
@@ -563,6 +573,7 @@ export async function runAgentTask(
     deps.trace?.({ step: i, note: `action ${skillId} ${JSON.stringify(action.args ?? {}).slice(0, 200)}` });
     if (!config.allow(skillId, domain)) {
       deps.trace?.({ step: i, note: 'not offered' });
+      if (++unusableStreak >= 4) return finish(steps.some((s) => s.ok), "I couldn't get a usable action from the model four times in a row, so I'm stopping rather than keep asking.", 'malformed');
       history.push({ full: `(${skillId} isn't one of the offered actions — ignored.)`, compact: `(${skillId}: not offered)` });
       continue;
     }
@@ -570,6 +581,7 @@ export async function runAgentTask(
     const check = deps.skills.validate(skillId, (action.args ?? {}) as SkillArgs);
     if (!check.ok) {
       deps.trace?.({ step: i, note: `validation: ${check.error}` });
+      if (++unusableStreak >= 4) return finish(steps.some((s) => s.ok), `I couldn't get a usable action from the model four times in a row (the last was rejected: ${check.error}), so I'm stopping rather than keep asking.`, 'malformed');
       history.push({ full: `Tried ${skillId}: rejected — ${check.error}`, compact: `Tried ${skillId}: rejected` });
       continue;
     }
@@ -603,6 +615,7 @@ export async function runAgentTask(
       continue;
     }
 
+    unusableStreak = 0;
     const signature = signatureOf(skillId, check.args);
     if (failed.has(signature)) {
       return finish(
