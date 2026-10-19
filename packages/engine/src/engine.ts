@@ -77,6 +77,7 @@ import { normalizeRequest } from './text/normalize';
 import { buildSentenceFor, isBuildItRedirect, openTargetOf } from './text/build-redirect';
 import { readSmallTalk } from './text/smalltalk';
 import { correctLeadingVerb } from './text/verb-typo';
+import { paraphraseCandidates } from './planner/paraphrase';
 import { reporterFor, type ActivityEvent } from './planner/executor';
 import { allTemplates } from './templates';
 
@@ -464,6 +465,22 @@ export class Engine {
       understood = verbCorrected;
       const retry = this.grammar.parse(verbCorrected);
       if (retry) matched = retry;
+    }
+
+    // 1d. Fourth attempt (2.0.2): the same sentence in another SHAPE — "would you mind opening X",
+    //     "get X running", "okay so, launch X" — rewritten into wording the rules already know
+    //     (`planner/paraphrase.ts`). Only reached when every attempt above found nothing, so it can
+    //     never change how an understood sentence behaves; each candidate is judged by the same rules,
+    //     content policy and confirmation cards as if the person had typed it.
+    if (!matched) {
+      for (const candidate of paraphraseCandidates(didNormalize ? normalized : raw)) {
+        const retry = this.grammar.parse(candidate);
+        if (retry) {
+          matched = retry;
+          understood = candidate;
+          break;
+        }
+      }
     }
 
     // 2. Content policy. Placed here, between understanding the request and
