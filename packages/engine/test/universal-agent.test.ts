@@ -258,3 +258,19 @@ describe('a path is not part of what was asked', () => {
     expect(vetDestructive(skill, { kind: 'temp' }, 'clean up my temp files in C:/x')).toBeNull();
   });
 });
+
+describe('local-model compatibility: structured replies', () => {
+  test('a model that can be held to a schema is held to it; one that cannot is asked as before', async () => {
+    for (const [support, expectSchema] of [['yes', true], ['unknown', false], ['no', false]] as const) {
+      const seen: Array<Record<string, unknown> | undefined> = [];
+      const r = rig(['{"done":true,"summary":"x"}']);
+      const p = r.p as unknown as { capabilities: () => unknown; ask: (...a: unknown[]) => void };
+      p.capabilities = () => ({ structuredOutput: support, conversation: 'yes', toolCalling: 'unknown', longContext: 'unknown', vision: 'unknown', coding: 'unknown', source: 'reported' });
+      const original = p.ask.bind(p);
+      p.ask = (prompt: unknown, h: unknown, opts: unknown) => { seen.push((opts as { responseSchema?: Record<string, unknown> } | undefined)?.responseSchema); original(prompt, h, opts); };
+      await r.run('find the largest files in C:/x');
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((s) => (expectSchema ? s?.type === 'object' : s === undefined)), support).toBe(true);
+    }
+  });
+});

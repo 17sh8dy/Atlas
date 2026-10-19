@@ -260,6 +260,23 @@ function catalogFor(skills: SkillRegistry, allow: AgentTaskConfig['allow']): str
 
 /** Same promise-wrapping `Engine.planWithAI` uses — a provider may call
  * `onDone` synchronously, so `settled` guards against resolving twice. */
+/**
+ * The reply shape every agent loop asks for, as a JSON Schema. Sent ONLY to a model the server reports can be held
+ * to one (`structuredOutput: 'yes'`); then the reply is always one parseable object instead of prose around JSON,
+ * which is the commonest way a small model loses a step. `args` stays free-form: the registry validates it.
+ */
+export const AGENT_REPLY_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    done: { type: 'boolean' },
+    summary: { type: 'string' },
+    skill: { type: 'string' },
+    args: { type: 'object' },
+    say: { type: 'string' },
+  },
+  additionalProperties: false,
+};
+
 function askProvider(
   intelligence: IntelligenceRegistry | undefined,
   prompt: string,
@@ -268,6 +285,7 @@ function askProvider(
 ): Promise<string | null> {
   const provider = intelligence?.active();
   if (!provider) return Promise.resolve(null);
+  const structured = provider.capabilities?.()?.structuredOutput === 'yes';
   return new Promise((resolve) => {
     let settled = false;
     const finish = (v: string | null) => {
@@ -283,7 +301,7 @@ function askProvider(
         onDone: (full) => finish(full),
         onError: () => finish(null),
       },
-      { signal, ...(contextTokens ? { contextTokens } : {}) },
+      { signal, ...(contextTokens ? { contextTokens } : {}), ...(structured ? { responseSchema: AGENT_REPLY_SCHEMA } : {}) },
     );
   });
 }

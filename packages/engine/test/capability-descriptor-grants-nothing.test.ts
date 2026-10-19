@@ -29,6 +29,9 @@ const ALLOWED: Record<string, string> = {
   // capability can change the wording of the request and never what the result may do.
   'gateway/route.ts': 'chooses tools, schema or text from toolCalling / structuredOutput',
   'gateway/plan.ts': 'reads the descriptor once, to pass it to chooseRoute and to step a route down',
+  // 2.0.2. The agent loops ask for a reply in one fixed JSON shape; a model the server says can be held to a schema
+  // is held to it. Same as the gateway: it changes how the reply is asked for, never what a reply may do.
+  'agent/loop.ts': 'asks a structured-output model for the reply as a schema (structuredOutput only)',
 };
 
 describe('the capability descriptor grants nothing', () => {
@@ -61,6 +64,15 @@ describe('the capability descriptor grants nothing', () => {
       if (f.rel in ALLOWED) continue;
       expect(f.text, f.rel).not.toMatch(DESCRIPTOR_USE);
     }
+  });
+
+  test('the agent loop reads structuredOutput and nothing else about a model', () => {
+    const loop = files.find((f) => f.rel === 'agent/loop.ts')!.text;
+    expect(loop).toMatch(/structuredOutput/);
+    expect(loop).not.toMatch(/toolCalling|canConverse|longContext|supports\(/);
+    // and only to attach a response schema to the ask, never in a branch on risk, mode or confirmation
+    const uses = loop.split(/\r?\n/).filter((l) => /structuredOutput/.test(l) && !/^\s*(?:\*|\/\/|\/\*)/.test(l));
+    expect(uses.length).toBe(1);
   });
 
   test('no provider module can reach the executor or the registry', () => {
