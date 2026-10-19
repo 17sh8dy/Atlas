@@ -402,6 +402,7 @@ export function createTauriPlatform(): Platform {
       invoke<TerminalInfo>('terminal_open', { script, cwd: opts?.cwd ?? null, watch: opts?.watch ?? null, title: opts?.title ?? null }),
     readTerminal: (id, tailChars) => invoke<TerminalRead>('terminal_read', { id, tailChars: tailChars ?? null }),
     listTerminals: () => invoke<TerminalSummary[]>('terminal_list'),
+    readTerminalScreen: (id) => invoke<{ id: string; text: string }>('terminal_screen', { id }).then((r) => r.text),
     probeDevTools: (names) => invoke<ToolProbe[]>('dev_tools_probe', { names: names ?? [] }),
     gameEngines: () => invoke<EngineInfo[]>('game_engines'),
     pluginManifests: () => invoke<PluginFolder[]>('plugin_manifests'),

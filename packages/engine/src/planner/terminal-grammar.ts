@@ -132,7 +132,8 @@ export function createTerminalGrammar(): GrammarRule[] {
         if (
           /^(?:what|show\s+me\s+what)\s+did\s+(?:the|that|my)\s+terminal\s+(?:print|say|show|output)$/.test(t) ||
           /^(?:read|show)\s+(?:me\s+)?(?:the\s+|that\s+|my\s+)?(?:last\s+)?terminal(?:\s+(?:output|log))?$/.test(t) ||
-          /^is\s+(?:the|that|my)\s+terminal\s+(?:still\s+running|done|finished|ready)$/.test(t)
+          /^is\s+(?:the|that|my)\s+terminal\s+(?:still\s+running|done|finished|ready)$/.test(t) ||
+          /^(?:what(?:['’]s|\s+is)\s+(?:on|in)|read|show\s+me)\s+(?:the|that|my)\s+(?:terminal|powershell|console)(?:\s+window)?(?:\s+screen)?$/.test(t)
         ) {
           return plan(step('terminal.read', {}), 'terminal-read');
         }

@@ -37,6 +37,7 @@ const DEFAULT_TAIL: usize = 6_000;
 const MAX_TAIL: usize = 20_000;
 const MARK_STARTED: &str = "[atlas-started]";
 const MARK_EXIT: &str = "[atlas-exit:";
+const MARK_PID: &str = "[atlas-pid:";
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +120,7 @@ pub(crate) fn launcher(script: &str, cwd: &Path, log: &Path, title: &str, watch:
          $Host.UI.RawUI.WindowTitle = {title}\n\
          Set-Location -LiteralPath {cwd}\n\
          __atlas_log '{started}'\n\
+         __atlas_log \"{pid_open}$PID]\"\n\
          Write-Host {shown} -ForegroundColor Cyan\n\
          $global:LASTEXITCODE = $null\n\
          $__failed = $false\n\
@@ -130,6 +132,7 @@ pub(crate) fn launcher(script: &str, cwd: &Path, log: &Path, title: &str, watch:
         title = psq(title),
         cwd = psq(&cwd.to_string_lossy()),
         started = MARK_STARTED,
+        pid_open = MARK_PID,
         shown = psq(&format!("[Atlas] Running: {}", preview_line(script))),
         exit_open = MARK_EXIT,
     )
@@ -151,10 +154,20 @@ pub(crate) fn exit_code_of(log: &str) -> Option<i32> {
     rest[..end].trim().parse::<i32>().ok()
 }
 
+/// The process id the launcher wrote about itself, if any.
+pub(crate) fn pid_of(log: &str) -> Option<u32> {
+    let at = log.find(MARK_PID)?;
+    let rest = &log[at + MARK_PID.len()..];
+    rest[..rest.find(']')?].trim().parse::<u32>().ok()
+}
+
 /// The log without Atlas's own marker lines.
 pub(crate) fn visible_text(log: &str) -> String {
     log.lines()
-        .filter(|l| !l.trim_start().starts_with(MARK_STARTED) && !l.trim_start().starts_with(MARK_EXIT))
+        .filter(|l| {
+            let t = l.trim_start();
+            !t.starts_with(MARK_STARTED) && !t.starts_with(MARK_EXIT) && !t.starts_with(MARK_PID)
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -316,6 +329,91 @@ pub fn terminal_list(app: AppHandle) -> Result<Vec<TerminalSummary>, String> {
         .collect();
     rows.sort_by_key(|r| std::cmp::Reverse(r.at));
     Ok(rows)
+}
+
+// ---- reading a terminal's SCREEN ------------------------------------------------------------
+
+/// Text of the console screen buffer that belongs to `pid`, top to bottom, trailing blanks trimmed.
+///
+/// A full-screen program (a terminal UI) draws straight to the console and never prints through PowerShell,
+/// so the log cannot hold it. The console's own screen buffer can: this attaches to the console of a window
+/// Atlas opened, reads the visible rows as text, and lets go. Only the pid Atlas's own launcher wrote about
+/// itself is ever used, and only text is read: nothing is typed, clicked or changed.
+#[cfg(windows)]
+pub(crate) fn read_screen(pid: u32) -> Result<String, String> {
+    use std::sync::Mutex;
+    use windows::core::w;
+    use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
+    use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+    use windows::Win32::System::Console::{AttachConsole, FreeConsole, GetConsoleScreenBufferInfo, ReadConsoleOutputCharacterW, CONSOLE_SCREEN_BUFFER_INFO, COORD};
+
+    // A process has one console at a time: one reader at a time.
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _guard = LOCK.lock().map_err(|_| "The screen reader is busy.".to_string())?;
+
+    unsafe {
+        // Whatever console this process had, if any, is put back by simply not needing it: Atlas is a GUI app.
+        let _ = FreeConsole();
+        AttachConsole(pid).map_err(|_| "That terminal has no screen I can read (it may have closed).".to_string())?;
+        let result = (|| -> Result<String, String> {
+            let handle = CreateFileW(w!("CONOUT$"), (GENERIC_READ | GENERIC_WRITE).0, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, None)
+                .map_err(|_| "I couldn't open that terminal's screen.".to_string())?;
+            let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
+            let got = GetConsoleScreenBufferInfo(handle, &mut info);
+            let mut lines = Vec::new();
+            if got.is_ok() {
+                let width = info.dwSize.X.max(1) as usize;
+                let top = info.srWindow.Top.max(0);
+                let bottom = info.srWindow.Bottom.max(top);
+                for row in top..=bottom.min(top + 199) {
+                    let mut buf = vec![0u16; width];
+                    let mut read = 0u32;
+                    if ReadConsoleOutputCharacterW(handle, &mut buf, COORD { X: 0, Y: row }, &mut read).is_err() {
+                        break;
+                    }
+                    buf.truncate(read as usize);
+                    lines.push(String::from_utf16_lossy(&buf).trim_end().to_string());
+                }
+            }
+            let _ = CloseHandle(handle);
+            if !got.is_ok() {
+                return Err("I couldn't read that terminal's screen.".into());
+            }
+            while lines.last().is_some_and(|l| l.is_empty()) {
+                lines.pop();
+            }
+            Ok(lines.join("\n"))
+        })();
+        let _ = FreeConsole();
+        result
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn read_screen(_pid: u32) -> Result<String, String> {
+    Err("Reading a terminal's screen isn't supported here.".into())
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalScreen {
+    pub id: String,
+    pub text: String,
+}
+
+#[tauri::command(async)]
+pub fn terminal_screen(app: AppHandle, id: String) -> Result<TerminalScreen, String> {
+    crate::halt::global().check()?;
+    if !valid_id(&id) {
+        return Err("That isn't a terminal Atlas opened.".into());
+    }
+    let log = read_log(&folder(&app)?.join(format!("{id}.log"))).unwrap_or_default();
+    let Some(pid) = pid_of(&log) else {
+        return Err("That terminal hasn't started yet, or has no screen I can read.".into());
+    };
+    let text = read_screen(pid)?;
+    let (text, _) = tail(&text, MAX_TAIL);
+    Ok(TerminalScreen { id, text })
 }
 
 // ---- which developer tools are installed -------------------------------------------------
@@ -572,6 +670,52 @@ second line");
         let thrown = run_launcher("throw 'boom'", true);
         assert_eq!(exit_code_of(&thrown), Some(1), "{thrown}");
         assert!(thrown.contains("boom"), "{thrown}");
+    }
+
+    #[test]
+    fn the_pid_marker_is_read_and_hidden() {
+        let log = "[atlas-started]\n[atlas-pid:4242]\nhello\n";
+        assert_eq!(pid_of(log), Some(4242));
+        assert_eq!(pid_of("[atlas-started]"), None);
+        assert_eq!(visible_text(log), "hello");
+    }
+
+    /// A real hidden console with something on its screen that was NOT printed through any log: it is read
+    /// back through the console's own screen buffer, which is what makes full-screen programs readable.
+    #[cfg(windows)]
+    #[test]
+    fn the_screen_of_a_real_console_can_be_read_back() {
+        use std::os::windows::process::CommandExt;
+        // The child must own a console of its own (as a window Atlas opens does), not inherit this test's pipes:
+        // an outer PowerShell starts it hidden and reports its pid.
+        let out = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "(Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoLogo','-NoProfile','-NoExit','-Command',\"Write-Host 'SCREEN-MARKER-7731'; Start-Sleep -Seconds 40\").Id",
+            ])
+            .creation_flags(0x0800_0000)
+            .output()
+            .unwrap();
+        let pid: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().expect("a pid");
+        let mut seen = String::new();
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(250));
+            if let Ok(text) = read_screen(pid) {
+                seen = text;
+                if seen.contains("SCREEN-MARKER-7731") {
+                    break;
+                }
+            }
+        }
+        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).creation_flags(0x0800_0000).output();
+        assert!(seen.contains("SCREEN-MARKER-7731"), "screen was: {seen:?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reading_a_screen_that_does_not_exist_is_an_error_not_a_crash() {
+        assert!(read_screen(0xFFFF_FFF0).is_err());
     }
 
     #[cfg(windows)]

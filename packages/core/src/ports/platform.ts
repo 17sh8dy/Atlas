@@ -779,6 +779,8 @@ export interface Platform {
   openTerminal?(script: string, opts?: { cwd?: string; watch?: boolean; title?: string }): Promise<TerminalInfo>;
   readTerminal?(id: string, tailChars?: number): Promise<TerminalRead>;
   listTerminals?(): Promise<TerminalSummary[]>;
+  /** The text currently on the screen of a terminal Atlas opened (works for full-screen programs). Read-only. */
+  readTerminalScreen?(id: string): Promise<string>;
   /** Which well-known developer tools are installed (a fixed list; empty `names` = all). */
   probeDevTools?(names?: string[]): Promise<ToolProbe[]>;
   /** Game engine editors (Unreal, Unity, Godot) that are really installed. Read-only discovery. */

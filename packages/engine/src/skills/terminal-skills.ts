@@ -131,6 +131,7 @@ export function createTerminalSkills(platform: Platform): Skill[] {
       params: {
         id: { type: 'string', required: false, description: 'the terminal id; omit for the most recent' },
         tail: { type: 'number', required: false, description: 'how many characters from the end (default 6000)' },
+        screen: { type: 'boolean', required: false, description: 'read what is on the terminal window right now (for full-screen programs); also used automatically when nothing was logged' },
       },
       summarize: () => 'read a terminal log',
       async run(args) {
@@ -148,8 +149,17 @@ export function createTerminalSkills(platform: Platform): Skill[] {
             : t.running
               ? 'is still running'
               : `finished with exit code ${t.exitCode ?? 0}`;
-          const body = t.text.trim() ? `\n\n${t.text.trim()}${t.truncated ? '\n(earlier output cut)' : ''}` : '\n\n(nothing printed that I can see)';
-          return { ok: true, message: `That terminal ${state}.${body}`, data: t };
+          // A full-screen program draws straight to the console, so the log has nothing; the screen does.
+          let onScreen = '';
+          if (platform.readTerminalScreen && t.started && (args.screen === true || !t.text.trim())) {
+            onScreen = await platform.readTerminalScreen(id).catch(() => '');
+          }
+          const body = onScreen.trim()
+            ? `\n\nOn the screen now:\n${onScreen.trim()}`
+            : t.text.trim()
+              ? `\n\n${t.text.trim()}${t.truncated ? '\n(earlier output cut)' : ''}`
+              : '\n\n(nothing printed that I can see)';
+          return { ok: true, message: `That terminal ${state}.${body}`, data: { ...t, screen: onScreen || undefined } };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }

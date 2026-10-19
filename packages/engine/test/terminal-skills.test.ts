@@ -147,3 +147,33 @@ describe('project.startServer', () => {
     expect(await skill.preview!({}, ctx())).toMatchObject({ kind: 'refuse' });
   });
 });
+
+describe('terminal.read and full-screen programs', () => {
+  const base = { id: 'term-1-0001', started: true, running: true, exitCode: null, truncated: false };
+  const mk = (text: string, screen: string | null) =>
+    ({
+      listTerminals: async () => [{ id: 'term-1-0001', at: 1, started: true, running: true, exitCode: null }],
+      readTerminal: async () => ({ ...base, text }),
+      ...(screen === null ? {} : { readTerminalScreen: async () => screen }),
+    }) as Partial<Platform>;
+
+  test('when nothing was logged the screen is read, so a full-screen program is not a blank', async () => {
+    const r = await byId(mk('', 'opencode v1\n> ask me anything'), 'terminal.read').run({}, ctx());
+    expect(r.message).toContain('On the screen now');
+    expect(r.message).toContain('ask me anything');
+  });
+
+  test('logged output is shown as before unless the screen is asked for', async () => {
+    const plain = await byId(mk('build ok', 'SCREEN'), 'terminal.read').run({}, ctx());
+    expect(plain.message).toContain('build ok');
+    expect(plain.message).not.toContain('SCREEN');
+    const asked = await byId(mk('build ok', 'SCREEN'), 'terminal.read').run({ screen: true }, ctx());
+    expect(asked.message).toContain('SCREEN');
+  });
+
+  test('a failing or missing screen reader falls back to the log, never an error', async () => {
+    const failing = { ...mk('log text', null), readTerminalScreen: async () => { throw new Error('gone'); } } as Partial<Platform>;
+    expect((await byId(failing, 'terminal.read').run({ screen: true }, ctx())).message).toContain('log text');
+    expect((await byId(mk('', null), 'terminal.read').run({}, ctx())).message).toContain('nothing printed');
+  });
+});

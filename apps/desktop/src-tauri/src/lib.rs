@@ -521,6 +521,7 @@ pub fn run() {
             terminal::terminal_open,
             terminal::terminal_read,
             terminal::terminal_list,
+            terminal::terminal_screen,
             terminal::dev_tools_probe,
             stats::stats_info,
             stats::stats_reset,
