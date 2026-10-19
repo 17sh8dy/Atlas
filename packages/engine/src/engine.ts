@@ -220,7 +220,14 @@ export interface EngineOptions {
    * it off keeps a cloud model to conversation and the deterministic planner does the rest.
    * It can only ever make Atlas ask a model *less*, never choose a different provider.
    */
-  routing?: { cloudPlanning?: () => boolean };
+  routing?: {
+    cloudPlanning?: () => boolean;
+    /**
+     * Whether the Universal Agent is switched on (Settings → Intelligence). Absent means OFF: nothing is offered.
+     * Read at the moment of the request, so flipping the switch takes effect on the next sentence.
+     */
+    universalAgent?: () => boolean;
+  };
 }
 
 export class Engine {
@@ -648,7 +655,7 @@ export class Engine {
    * runs with every action confirmed (`cautious`), so a loose request is never turned into unattended work.
    */
   private async offerToSolve(text: string, ctx: SkillContext, io: EngineIO, signal: HaltSignal): Promise<AskOutcome | null> {
-    if (!this.modelAllowed() || !this.skills.get('agent.solve') || !this.skills.available().some((k) => k.id === 'agent.solve')) return null;
+    if (!this.routing.universalAgent?.() || !this.modelAllowed() || !this.skills.get('agent.solve') || !this.skills.available().some((k) => k.id === 'agent.solve')) return null;
     const decision = shouldRouteToAgent(text, this.index());
     if (!decision.route) return null;
     this.bus.emit('engine:agent-offered', { reason: decision.reason });

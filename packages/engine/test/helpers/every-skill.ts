@@ -118,7 +118,7 @@ export function everySkill(): Skill[] {
     ...createPowerShellSkills(NOTHING),
     ...createTerminalSkills(NOTHING),
     createProjectServerSkill(NOTHING, async () => null),
-    createUniversalAgentSkill({ skills: new SkillRegistry(), getExecutionMode: () => 'doIt' }),
+    createUniversalAgentSkill({ skills: new SkillRegistry(), getExecutionMode: () => 'doIt', isEnabled: () => true }),
     ...createWorkflowMemorySkills({ memory: new WorkflowMemory(NOTHING as never), skills: new SkillRegistry(), getExecutionMode: () => 'doIt', planFor: async () => null, lastPlan: () => null }),
     ...createKbmSkills(NOTHING),
     ...createPluginSkills(NOTHING),

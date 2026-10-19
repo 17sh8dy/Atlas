@@ -38,7 +38,7 @@ import { DEFAULT_EXECUTION_MODE, DEFAULT_SPEECH, redactSecrets } from '@atlas/co
 import { isTauri, statsRecord } from '@atlas/platform';
 import { metricsForAsk, metricsForPlan, taskMetrics, type Metric } from './statsRecord';
 import { folderToOffer, isInsideAnyAllowedFolder } from './folderOffer';
-import { MemoryStore, readCloudPlanning } from '@atlas/data';
+import { MemoryStore, readCloudPlanning, readUniversalAgent } from '@atlas/data';
 import { ROUTING_CHANGED } from './routingEvents';
 import {
   buildIntelligence,
@@ -544,6 +544,19 @@ export function useAtlas(
       window.removeEventListener(ROUTING_CHANGED, load);
     };
   }, [storage]);
+  // The Universal Agent switch (Settings → Intelligence). OFF until the person turns it on, including for
+  // everyone upgrading: no saved value reads as off. Read when a request arrives, via the ref.
+  const universalAgentRef = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void readUniversalAgent(storage).then((v) => alive && (universalAgentRef.current = v)).catch(() => {});
+    load();
+    window.addEventListener(ROUTING_CHANGED, load);
+    return () => {
+      alive = false;
+      window.removeEventListener(ROUTING_CHANGED, load);
+    };
+  }, [storage]);
   const announceRef = useRef<(text: string) => void>(() => {});
   const needsYouRef = useRef<(watch: Watch) => void>(() => {});
   const watchManager = useMemo(
@@ -894,6 +907,7 @@ export function useAtlas(
         intelligence,
         phrasing,
         getExecutionMode: () => executionModeRef.current,
+        isEnabled: () => universalAgentRef.current,
       }),
     );
 
@@ -906,7 +920,7 @@ export function useAtlas(
       getExecutionMode: () => executionModeRef.current,
       isPreapproved,
       probes: createProbeRunner(platform),
-      routing: { cloudPlanning: () => cloudPlanningRef.current },
+      routing: { cloudPlanning: () => cloudPlanningRef.current, universalAgent: () => universalAgentRef.current },
     });
     return built;
   }, [

@@ -29,6 +29,7 @@ import { extraInstalledTags, type LocalAiRuntime } from '../../atlas/buildIntell
 import { CloudProviders } from './intelligence/CloudProviders';
 import { LocalModels } from './intelligence/LocalModels';
 import { NovaIntelligence } from './intelligence/NovaIntelligence';
+import { UniversalAgent } from './intelligence/UniversalAgent';
 
 interface Props {
   platform: Platform;
@@ -106,6 +107,8 @@ export function Intelligence({
         activeId={activeId}
         onChange={onProviderChange}
       />
+
+      <UniversalAgent storage={storage} />
     </div>
   );
 }

@@ -134,6 +134,8 @@ function foolishName(step: { skill: string; args?: unknown }): string | null {
 }
 
 export function trustPlan(plan: { steps: Array<{ skill: string; args?: unknown }> }, text: string, index: CapabilityIndex): Trust {
+  // An explicit hand-over to the agent IS the whole request in one step; it is never 'half understood'.
+  if (plan.steps.length === 1 && plan.steps[0]!.skill === 'agent.solve') return { trust: true, reason: 'explicit request for the agent' };
   for (const st of plan.steps) {
     const bad = foolishName(st);
     if (bad) return { trust: false, reason: `${st.skill} took "${bad}" as a name, which it is not` };

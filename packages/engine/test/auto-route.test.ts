@@ -19,7 +19,7 @@ import { WorkingMemory } from '../src/working-memory';
 import { Executor } from '../src/planner/executor';
 import { everySkill } from './helpers/every-skill';
 
-function rig(opts: { model: boolean; mode?: 'doIt' | 'doItPlus' | 'confirmActions'; agentReplies?: string[]; confirmAnswers?: boolean[]; plannerReply?: string }) {
+function rig(opts: { model: boolean; mode?: 'doIt' | 'doItPlus' | 'confirmActions'; agentReplies?: string[]; confirmAnswers?: boolean[]; plannerReply?: string; enabled?: boolean }) {
   const ran: string[] = [];
   const cards: string[] = [];
   const registry = new SkillRegistry({ capabilities: () => [] });
@@ -43,12 +43,12 @@ function rig(opts: { model: boolean; mode?: 'doIt' | 'doItPlus' | 'confirmAction
     },
   } as unknown as IntelligenceProvider;
   const intelligence: IntelligenceRegistry = { register() {}, get: () => provider, list: () => [provider], active: () => (opts.model ? provider : null), setActive() {} } as never;
-  registry.register(createUniversalAgentSkill({ skills: registry, intelligence, getExecutionMode: () => opts.mode ?? 'doIt' }));
+  registry.register(createUniversalAgentSkill({ skills: registry, intelligence, getExecutionMode: () => opts.mode ?? 'doIt', isEnabled: () => opts.enabled !== false }));
   const working = new WorkingMemory();
   const grammar = new Grammar();
   grammar.addMany(createCoreGrammar(working));
   grammar.addMany(createExtraGrammar());
-  const engine = new Engine({ skills: registry, grammar, working, intelligence, getExecutionMode: () => opts.mode ?? 'doIt' });
+  const engine = new Engine({ skills: registry, grammar, working, intelligence, getExecutionMode: () => opts.mode ?? 'doIt', routing: { universalAgent: () => opts.enabled !== false } });
   const said: string[] = [];
   const answers = [...(opts.confirmAnswers ?? [])];
   const io = {
@@ -147,5 +147,39 @@ describe('a model plan is held to the same standard', () => {
     await r.engine.ask(`figure out how to ${TWO_JOBS}`, r.io);
     expect(r.ran).toEqual([]);
     expect(r.cards.length).toBeGreaterThan(0);
+  });
+});
+
+describe('the Universal Agent switch (off means off)', () => {
+  const HALF = JSON.stringify({ intent: 'x', confidence: 0.9, steps: [{ skill: 'files.createFolder', args: { path: 'C:/x/reports' } }] });
+  const TWO_JOBS = 'create a folder called reports in C:/x and then move big.log into it';
+  const JOB = 'check how much space my downloads folder uses and then clean out the temp files';
+
+  test('off: no offer appears for a job that is offered when on', async () => {
+    const on = rig({ model: true, confirmAnswers: [false] });
+    await on.engine.ask(JOB, on.io);
+    expect(on.cards.some((c) => /step by step/.test(c))).toBe(true);
+    const off = rig({ model: true, enabled: false, confirmAnswers: [false] });
+    await off.engine.ask(JOB, off.io);
+    expect(off.cards.filter((c) => /step by step/.test(c))).toEqual([]);
+    expect(off.prompts.filter((p) => /general task agent/.test(p))).toEqual([]);
+  });
+
+  test('off: an explicit "figure out how to" does nothing and says why, with no card', async () => {
+    const r = rig({ model: true, enabled: false, plannerReply: HALF });
+    await r.engine.ask(`figure out how to ${TWO_JOBS}`, r.io);
+    expect(r.ran).toEqual([]);
+    expect(r.cards).toEqual([]);
+    expect(r.prompts.filter((p) => /general task agent/.test(p))).toEqual([]);
+    expect(r.said.join(' ')).toMatch(/Universal Agent is off/);
+  });
+
+  test('off: the engine with no routing option at all offers nothing (absent means off)', async () => {
+    const r = rig({ model: true, confirmAnswers: [false] });
+    // Rebuild an engine the way an older caller would: no `routing` option.
+    const { Engine: E } = await import('../src/engine');
+    const bare = new E({ skills: (r.engine as never as { skills: SkillRegistry }).skills, grammar: (r.engine as never as { grammar: Grammar }).grammar, working: new WorkingMemory(), intelligence: (r.engine as never as { intelligence: IntelligenceRegistry }).intelligence, getExecutionMode: () => 'doIt' });
+    await bare.ask(JOB, r.io);
+    expect(r.cards.filter((c) => /step by step/.test(c))).toEqual([]);
   });
 });

@@ -18,7 +18,12 @@ export interface UniversalAgentSkillOptions {
   intelligence?: IntelligenceRegistry;
   phrasing?: Phrasing;
   getExecutionMode: () => ExecutionMode;
+  /** The Settings switch. Required, so a caller cannot forget it: when it says no, the skill refuses outright. */
+  isEnabled: () => boolean;
 }
+
+export const UNIVERSAL_AGENT_OFF =
+  'The Universal Agent is off. It is experimental, so it only runs when you turn it on: Settings → Intelligence → Universal Agent.';
 
 export function createUniversalAgentSkill(options: UniversalAgentSkillOptions): Skill {
   const deps: AgentDeps = {
@@ -41,6 +46,8 @@ export function createUniversalAgentSkill(options: UniversalAgentSkillOptions): 
       cautious: { type: 'boolean', required: false, description: 'ask before every action whatever the execution mode (set when Atlas offered this itself)' },
     },
     summarize: (args) => `work out: ${String(args.goal ?? '').slice(0, 80)}`,
+    // Refused before any card is drawn, so an explicit "figure out how to…" does nothing while the feature is off.
+    guard: () => (options.isEnabled() ? null : UNIVERSAL_AGENT_OFF),
     async run(args, ctx) {
       const run: AgentDeps = args.cautious === true ? { ...deps, getExecutionMode: () => 'confirmActions' } : deps;
       const report = await runUniversalTask(String(args.goal ?? ''), run, ctx);

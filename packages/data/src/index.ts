@@ -34,7 +34,7 @@ export {
 } from './local-ai-settings';
 export type { LocalAiSettings, EndpointSettings, NovaSettings } from './local-ai-settings';
 export { readCloudProviders } from './cloud-provider-settings';
-export { readCloudPlanning, writeCloudPlanning } from './routing-preference';
+export { readCloudPlanning, writeCloudPlanning, readUniversalAgent, writeUniversalAgent } from './routing-preference';
 
 /** The storage implementation for the given platform. */
 export function detectStorage(platformId: Platform['id']): Storage {
