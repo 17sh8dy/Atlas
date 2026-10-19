@@ -156,9 +156,14 @@ controls through UIA, every step through the same executor and confirmations.
 
 ## 8. Known limitations and what was NOT verified
 
-* **Not driven in the real app by me, at the time of writing this section:** see the real-app section appended
-  below once that run is done; until then treat every UI-facing claim as unit-tested only.
-* The universal agent has been exercised with a scripted model only. No real model (Ollama or cloud) has run it.
+* **Driven in the real release build (2026-10-18, Windows, WebView2 over the debug port, real data snapshotted
+  and restored byte-for-byte afterwards):** "is git installed" answered `✓ git — git version 2.49.0`; "run echo
+  hello-from-atlas in a terminal" drew the approval card with the full script even in Do It + mode, a real
+  PowerShell window opened, `terminal_list`/`terminal_read` showed started, exit code 0 and the printed text;
+  "remember that as echo test" showed the steps and saved only after a yes; "what workflows have I saved"
+  listed it; "run my echo test workflow" asked for approval again and a Cancel stopped it ("stopped after 0 of 1
+  steps"). Cosmetic issue seen: the saved-step label shows the raw argument `true` (the `watch` flag).
+* The universal agent ran in the real app against a SCRIPTED model (a stand-in Ollama): it was shown 14 catalog lines, including the right tool and neither shutdown nor the developer agent, and finished a two-step task. No real model (Ollama or cloud) has run it, so its quality with one is unknown.
 * `terminal.open`'s window creation (`CREATE_NEW_CONSOLE` + `-NoExit`) is not asserted by an automated test; the
   launcher it runs *is* (a real PowerShell executes it and the log is read back, including exit codes, thrown
   errors, non-ASCII, and the unwatched mode). A bare `cmd /c exit N` did not set `$LASTEXITCODE` under this
