@@ -207,10 +207,10 @@ describe('reported, confirmed, and claimed are three different things', () => {
     expect(r.p.prompts.join(' ')).toMatch(/Atlas checked your "done"/);
   });
 
-  test('a model that keeps claiming done is challenged at most twice, then the report says what is missing', async () => {
+  test('a model that keeps claiming done is challenged at most three times, then the report says what is missing', async () => {
     const r = rig(['{"skill":"files.createFolder","args":{"path":"C:/x/reports"}}', '{"done":true,"summary":"done"}'], true, [folderSkill([])]);
     const report = await runUniversalTask('create a folder called reports in C:/x and then move big.log into it', r.deps, ctx());
-    expect(r.p.prompts.filter((q) => /Atlas checked your "done"/.test(q)).length).toBeLessThanOrEqual(2);
+    expect(r.p.prompts.filter((q) => /Atlas checked your "done"/.test(q)).length).toBeLessThanOrEqual(3);
     expect(report.message).toMatch(/Not done: .*move big\.log into it/);
   });
 

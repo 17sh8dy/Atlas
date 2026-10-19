@@ -526,7 +526,7 @@ export async function runAgentTask(
       // The model's word is not the record. If Atlas's own record shows part of the request uncovered, say so and let
       // it carry on, at most twice; after that the report states plainly what is and is not done.
       const challenge = config.challengeDone?.({ goal, steps, summary });
-      if (challenge && challenges < 2) {
+      if (challenge && challenges < 3) {
         challenges += 1;
         history.push({ full: `(Atlas checked your "done" against what actually ran: ${challenge})`, compact: '(done challenged: parts not covered)' });
         continue;

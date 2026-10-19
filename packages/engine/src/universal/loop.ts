@@ -187,11 +187,16 @@ export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: Skill
       challengeDone: ({ goal: g, steps }) => {
         const a = assess(g, steps, index, deps);
         if (!a.unmet.length) return null;
-        return `nothing that actually ran covers: ${a.unmet.map((u) => `"${u}"`).join('; ')}. Do that part now with one of the offered actions, or finish and say plainly what blocks it. Do not describe a step as done unless an action ran for it.`;
+        // Point at the offered action that fits the first missing part, with the arguments it takes: a small model
+        // that gave up ("the path does not exist") usually only needs to be shown the next move.
+        const first = a.unmet[0]!;
+        const fit = index.search(first, { limit: 6 }).find((h) => offered.has(h.skill.id) && !DENY.has(h.skill.id));
+        const hint = fit ? ` For “${first}” the offered action ${fit.skill.id}(${paramList(fit.skill)}) fits.` : '';
+        return `nothing that actually ran covers: ${a.unmet.map((u) => `"${u}"`).join('; ')}.${hint} Do that part now, copying any path exactly as it is written in the goal, or finish and say plainly what blocks it. Do not describe a step as done unless an action ran for it.`;
       },
       frame: ({ message, steps, reason }) => frameReport(goal, { message, steps, reason }, index, deps),
       extraInstruction:
-        'only these are available right now; the list changes as the task goes. Prefer the most specific one. Use powershell.run only if nothing else fits. Never pick an action that removes or ends something unless the request names exactly what to remove; if nothing offered does exactly what was asked, reply done and say what is missing. Each part of the request needs its own action: never say a part is done, or "implied", unless an action ran for it',
+        'only these are available right now; the list changes as the task goes. Prefer the most specific one. Use powershell.run only if nothing else fits. Never pick an action that removes or ends something unless the request names exactly what to remove; if nothing offered does exactly what was asked, reply done and say what is missing. Each part of the request needs its own action: never say a part is done, or "implied", unless an action ran for it. Copy every path exactly as written in the goal; never shorten, guess or invent one',
       noProviderMessage:
         'Working a task out step by step needs an AI model connected: turn one on in Settings → Intelligence, then ask again.',
       select({ goal: g, recent }) {
