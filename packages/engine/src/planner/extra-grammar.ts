@@ -17,6 +17,7 @@ import { createIncompleteRules } from './incomplete-grammar';
 import { createAgentGrammar } from './agent-grammar';
 import { createAppGrammar } from './app-grammar';
 import { createTerminalGrammar } from './terminal-grammar';
+import { createWorkflowMemoryGrammar } from './workflow-memory-grammar';
 import { createHealthGrammar } from './health-grammar';
 import { createAssistGrammar } from './assist-grammar';
 import { createTimeGrammar } from './time-grammar';
@@ -70,6 +71,9 @@ export function createExtraGrammar(): GrammarRule[] {
 
     // A visible terminal that runs a command, and "is git installed" (2.0.2).
     ...createTerminalGrammar(),
+
+    // Saved workflows: remember, replay, list, forget (2.0.2).
+    ...createWorkflowMemoryGrammar(),
 
     // PC health, file intelligence, build diagnosis, release notes (read-only, 1.0.8).
     ...createHealthGrammar(),

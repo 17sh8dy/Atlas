@@ -611,6 +611,11 @@ export class Engine {
    * run when the condition holds. The content policy is not skipped by this —
    * whatever runs the plan later goes through the executor, which screens it.
    */
+  /** The plan that last ran (not a repeat of it), or null. Read-only: for "remember that as…". */
+  lastPlanned(): Plan | null {
+    return this.lastPlan;
+  }
+
   async planFor(text: string): Promise<Plan | null> {
     const raw = String(text ?? '').trim();
     if (!raw) return null;

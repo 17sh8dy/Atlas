@@ -106,6 +106,8 @@ import {
   createProjectToolSkills,
   createPowerShellSkills,
   createTerminalSkills,
+  createWorkflowMemorySkills,
+  WorkflowMemory,
   createPluginSkills,
   loadPlugins,
   ProjectContext,
@@ -817,6 +819,19 @@ export function useAtlas(
         scheduler: routines,
         skills,
         planFor: (text) => (built ? built.planFor(text) : Promise.resolve(null)),
+      }),
+    );
+    // Workflows the person approved and named; replayed through the ordinary executor, never pre-approved.
+    const workflowMemory = new WorkflowMemory(storage);
+    void workflowMemory.load();
+    skills.registerMany(
+      createWorkflowMemorySkills({
+        memory: workflowMemory,
+        skills,
+        getExecutionMode: () => executionModeRef.current,
+        planFor: (text) => (built ? built.planFor(text) : Promise.resolve(null)),
+        lastPlan: () => (built ? built.lastPlanned() : null),
+        phrasing,
       }),
     );
 

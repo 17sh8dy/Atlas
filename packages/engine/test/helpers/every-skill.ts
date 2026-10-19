@@ -58,6 +58,8 @@ import { createSetupSkills } from '../../src/skills/setup-skills';
 import { SetupStore } from '../../src/setup/store';
 import { SkillRegistry } from '../../src/skills/registry';
 import { createPowerShellSkills } from '../../src/skills/powershell-skills';
+import { createWorkflowMemorySkills } from '../../src/skills/workflow-memory-skills';
+import { WorkflowMemory } from '../../src/workflow/memory';
 import { createTerminalSkills } from '../../src/skills/terminal-skills';
 import { createKbmSkills } from '../../src/skills/kbm-skills';
 import { createPluginSkills } from '../../src/skills/plugin-skills';
@@ -113,6 +115,7 @@ export function everySkill(): Skill[] {
     ...createDevToolsSkills(NOTHING),
     ...createPowerShellSkills(NOTHING),
     ...createTerminalSkills(NOTHING),
+    ...createWorkflowMemorySkills({ memory: new WorkflowMemory(NOTHING as never), skills: new SkillRegistry(), getExecutionMode: () => 'doIt', planFor: async () => null, lastPlan: () => null }),
     ...createKbmSkills(NOTHING),
     ...createPluginSkills(NOTHING),
     ...createWatchSkills({
