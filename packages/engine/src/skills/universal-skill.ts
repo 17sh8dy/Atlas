@@ -22,6 +22,7 @@ export interface UniversalAgentSkillOptions {
   isEnabled: () => boolean;
   /** The machine read-back, so each step the agent takes can be CONFIRMED and not merely reported. */
   verify?: AgentDeps['verify'];
+  trace?: AgentDeps['trace'];
 }
 
 export const UNIVERSAL_AGENT_OFF =
@@ -34,6 +35,7 @@ export function createUniversalAgentSkill(options: UniversalAgentSkillOptions): 
     executor: new Executor(options.skills, options.phrasing ?? createPhrasing()),
     getExecutionMode: options.getExecutionMode,
     verify: options.verify,
+    trace: options.trace,
   };
   return {
     id: 'agent.solve',

@@ -909,6 +909,11 @@ export function useAtlas(
         getExecutionMode: () => executionModeRef.current,
         isEnabled: () => universalAgentRef.current,
         verify: createProbeRunner(platform),
+        // Developer diagnostics only: set window.__ATLAS_TRACE = true in the console to keep the agent's prompts and replies in memory.
+        trace: (e) => {
+          const g = globalThis as unknown as { __ATLAS_TRACE?: boolean; __atlasAgentTrace?: unknown[] };
+          if (g.__ATLAS_TRACE) (g.__atlasAgentTrace ??= []).push(e);
+        },
       }),
     );
 

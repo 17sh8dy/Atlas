@@ -48,7 +48,10 @@ while ((Date.now() - t0) / 60000 < Number(val('--minutes', '6'))) {
   await sleep(2500)
   const s = await state()
   if (s.yes) {
-    const card = (await afterRequest()).slice(0, 1500)
+    // The card's title sits just BEFORE the quoted request, so judge a window around it.
+    const whole = await pageText()
+    const at = whole.lastIndexOf(request)
+    const card = whole.slice(Math.max(0, at - 300), at + request.length + 1500)
     const d = decideCard(card, { sandbox, allowDestructiveInSandbox: flag('--allow-destructive') })
     decisions.push(d)
     log(`CARD -> ${d.answer.toUpperCase()} (${d.reason}): ${card.replace(/\s+/g, ' ').slice(0, 300)}`)

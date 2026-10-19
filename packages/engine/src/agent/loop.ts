@@ -136,6 +136,11 @@ export interface AgentDeps {
   scale?: AgentScale;
   /** The machine read-back (`verify/probes.ts`), so a step can be independently confirmed, not merely reported. */
   verify?: import('../planner/executor').ExecutorOptions['verify'];
+  /**
+   * Diagnostics: called with each prompt, the model's raw reply and what Atlas did with it. Off unless the caller
+   * sets it (the app does so only while a developer flag is on), so prompts are never kept by default.
+   */
+  trace?: (event: { step: number; prompt?: string; reply?: string | null; note?: string }) => void;
 }
 
 /**
@@ -482,6 +487,7 @@ export async function runAgentTask(
       );
     }
 
+    deps.trace?.({ step: i, prompt, reply });
     const parsed = parseToolCall(reply);
     if (parsed.kind === 'invalid') {
       malformedStreak += 1;
@@ -554,13 +560,16 @@ export async function runAgentTask(
 
     const skillId = action.skill!;
     const domain = deps.skills.get(skillId)?.domain ?? '';
+    deps.trace?.({ step: i, note: `action ${skillId} ${JSON.stringify(action.args ?? {}).slice(0, 200)}` });
     if (!config.allow(skillId, domain)) {
+      deps.trace?.({ step: i, note: 'not offered' });
       history.push({ full: `(${skillId} isn't one of the offered actions — ignored.)`, compact: `(${skillId}: not offered)` });
       continue;
     }
 
     const check = deps.skills.validate(skillId, (action.args ?? {}) as SkillArgs);
     if (!check.ok) {
+      deps.trace?.({ step: i, note: `validation: ${check.error}` });
       history.push({ full: `Tried ${skillId}: rejected — ${check.error}`, compact: `Tried ${skillId}: rejected` });
       continue;
     }
