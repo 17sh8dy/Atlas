@@ -202,3 +202,23 @@ describe('the adapter changes nothing', () => {
     expect(after).toBe(before);
   });
 });
+
+describe('a path says nothing about what to do', () => {
+  test('withoutPaths removes drive paths, UNC paths, URLs and slash-joined tokens, and only those', async () => {
+    const { withoutPaths } = await import('../src/capabilities');
+    expect(withoutPaths('create a folder called reports in D:/Dev/Atlas/.e2e-sandbox/x and then move big.log into it')).toBe('create a folder called reports in and then move big.log into it');
+    expect(withoutPaths('copy C:\\Users\\me\\a.txt to \\\\server\\share\\b.txt')).toBe('copy to');
+    expect(withoutPaths('open https://example.com/a/b then ~/notes/todo.md')).toBe('open then');
+    expect(withoutPaths('save it as a.txt')).toBe('save it as a.txt');
+  });
+
+  test('a path full of the word "Atlas" does not push the right capability out of the shortlist', () => {
+    const { index } = build();
+    const plain = index.disclose('create a folder called reports and then move big.log into it', { limit: 14 }).hits.map((h) => h.skill.id);
+    const withPath = index.disclose('create a folder called reports in D:/Dev/Atlas/.atlas-sandbox/atlas/atlas and then move big.log into it', { limit: 14 }).hits.map((h) => h.skill.id);
+    for (const id of ['files.createFolder', 'files.move']) {
+      expect(plain, id).toContain(id);
+      expect(withPath, id).toContain(id);
+    }
+  });
+});

@@ -58,6 +58,18 @@ export function widenQuery(query: string): string {
  */
 const SYNONYM_WEIGHT = 0.35;
 
+/** The request with drive paths, UNC paths, URLs and slash-joined tokens removed. */
+export function withoutPaths(text: string): string {
+  return String(text ?? '')
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ')
+    .replace(/[a-z]:[\\/]\S*/gi, ' ')
+    .replace(/\\\\\S+/g, ' ')
+    .replace(/(?:^|\s)~?[\\/]\S+/g, ' ')
+    .replace(/\S+[\\/]\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export interface SearchOptions {
   limit?: number;
   family?: FamilyId;
@@ -100,7 +112,11 @@ export class CapabilityIndex {
     return FAMILIES.filter((f) => counts.has(f.id)).map((f) => ({ ...f, count: counts.get(f.id)! }));
   }
 
-  search(query: string, options: SearchOptions = {}): Hit[] {
+  search(rawQuery: string, options: SearchOptions = {}): Hit[] {
+    // Where a file lives says nothing about what to do with it. A path such as D:/Dev/Atlas/.e2e-sandbox/x once
+    // pulled every skill that mentions "Atlas" to the top and pushed the folder-creating skill out of the model's
+    // list (a real-model run then said "there is no way to create a folder"). Only the words count.
+    const query = withoutPaths(rawQuery);
     const pool = this.pool(options.availableOnly ?? true).filter((s) => !options.family || familyOf(s) === options.family);
     if (!query.trim() || pool.length === 0) return [];
     const said = scoreSkills(pool, query);
