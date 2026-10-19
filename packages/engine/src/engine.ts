@@ -556,8 +556,23 @@ export class Engine {
     const instruction = actionable && !this.isQuestion(raw);
     if (instruction) {
       const proposed = await this.planWithAI(understood, signal);
+      // A model's one-shot plan is held to the same standard as a rule's: a request with several jobs that came
+      // back with fewer steps (or steps the capability index does not recognise for those parts) is not run as
+      // if it were the whole answer. It is offered to the step-by-step agent instead; if that does not apply,
+      // the understood part runs and the rest is said out loud, exactly as for a rule.
+      let leftOver: string[] = [];
+      if (proposed) {
+        const verdict = trustPlan(proposed, understood, this.index());
+        if (!verdict.trust) {
+          this.bus.emit('engine:distrusted', { reason: verdict.reason, source: 'planner' });
+          const solved = await this.offerToSolve(understood, ctx, io, signal);
+          if (solved) return solved;
+          leftOver = chainClauses(understood).slice(proposed.steps.length);
+        }
+      }
       if (proposed) {
         const outcome = await this.executor.run(proposed, ctx, this.executorOptions(signal));
+        if (leftOver.length) io.say(`I only did the first part. I haven't done: ${leftOver.map((c) => `“${c}”`).join(', ')}.`);
         this.bus.emit('engine:done', { mode: 'command', plan: proposed, outcome });
         if (outcome.halted) throw new HaltedError();
         this.remember(proposed, outcome);

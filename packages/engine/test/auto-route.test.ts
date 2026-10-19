@@ -19,7 +19,7 @@ import { WorkingMemory } from '../src/working-memory';
 import { Executor } from '../src/planner/executor';
 import { everySkill } from './helpers/every-skill';
 
-function rig(opts: { model: boolean; mode?: 'doIt' | 'doItPlus' | 'confirmActions'; agentReplies?: string[]; confirmAnswers?: boolean[] }) {
+function rig(opts: { model: boolean; mode?: 'doIt' | 'doItPlus' | 'confirmActions'; agentReplies?: string[]; confirmAnswers?: boolean[]; plannerReply?: string }) {
   const ran: string[] = [];
   const cards: string[] = [];
   const registry = new SkillRegistry({ capabilities: () => [] });
@@ -38,6 +38,7 @@ function rig(opts: { model: boolean; mode?: 'doIt' | 'doItPlus' | 'confirmAction
     ask(prompt: string, h: { onDone: (s: string) => void }) {
       prompts.push(prompt);
       if (/general task agent/.test(prompt)) h.onDone((opts.agentReplies ?? ['{"done":true,"summary":"done"}'])[Math.min(agentCall++, (opts.agentReplies ?? ['x']).length - 1)]!);
+      else if (opts.plannerReply && /JSON plan|tool calls/.test(prompt)) h.onDone(opts.plannerReply);
       else h.onDone('I am not sure what you mean.');
     },
   } as unknown as IntelligenceProvider;
@@ -128,4 +129,23 @@ describe('half-understood chains', () => {
 
 test('Executor import stays used (the engine owns one)', () => {
   expect(typeof Executor).toBe('function');
+});
+
+describe('a model plan is held to the same standard', () => {
+  const HALF = JSON.stringify({ intent: 'x', confidence: 0.9, steps: [{ skill: 'files.createFolder', args: { path: 'C:/x/reports' } }] });
+  const TWO_JOBS = 'create a folder called reports in C:/x and then move big.log into it';
+
+  test('a one-step plan for a two-job request is offered to the agent, not run as the whole answer', async () => {
+    const r = rig({ model: true, plannerReply: HALF, confirmAnswers: [false] });
+    await r.engine.ask(TWO_JOBS, r.io);
+    expect(r.cards.some((c) => /step by step/.test(c))).toBe(true);
+    expect(r.ran).toEqual([]);
+  });
+
+  test('"figure out how to" wins over every other rule', async () => {
+    const r = rig({ model: true, plannerReply: HALF, confirmAnswers: [false] });
+    await r.engine.ask(`figure out how to ${TWO_JOBS}`, r.io);
+    expect(r.ran).toEqual([]);
+    expect(r.cards.length).toBeGreaterThan(0);
+  });
 });

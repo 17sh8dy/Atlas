@@ -18,7 +18,7 @@ export function createUniversalGrammar(): GrammarRule[] {
   return [
     {
       name: 'solveGoal',
-      order: -11.64,
+      order: -50,
       pathSafe: true,
       test(_lower, raw) {
         const goal = parseSolveRequest(raw);
