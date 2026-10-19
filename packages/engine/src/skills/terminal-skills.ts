@@ -23,7 +23,7 @@ import type { Platform, Skill } from '@atlas/core';
 import { MAX_SCRIPT_CHARS, powershellRefusal } from '../safety/powershell-policy';
 
 /** A short, stable fingerprint, so a changed script can't ride an earlier approval. */
-function fingerprint(script: string, cwd: string, watch: boolean): string {
+export function terminalFingerprint(script: string, cwd: string, watch: boolean): string {
   let h = 2166136261;
   const text = `${script}\n${cwd}\n${watch}`;
   for (let i = 0; i < text.length; i++) {
@@ -77,7 +77,7 @@ export function createTerminalSkills(platform: Platform): Skill[] {
           kind: 'ask',
           question: 'Open a terminal and run this?',
           detail: `${script.trim()}${cwd ? `\n\n(starting in ${cwd})` : ''}${watch ? '' : '\n\n(a full-screen program: I will know when it starts and ends, not what is on screen)'}`,
-          fingerprint: fingerprint(script, cwd, watch),
+          fingerprint: terminalFingerprint(script, cwd, watch),
         };
       },
       async run(args, ctx) {
@@ -86,7 +86,7 @@ export function createTerminalSkills(platform: Platform): Skill[] {
         const watch = args.watch !== false;
         const refusal = powershellRefusal(script);
         if (refusal) return { ok: false, error: refusal };
-        if (ctx.approvedPreview !== undefined && ctx.approvedPreview !== fingerprint(script, cwd, watch)) {
+        if (ctx.approvedPreview !== undefined && ctx.approvedPreview !== terminalFingerprint(script, cwd, watch)) {
           return { ok: false, error: 'That is not the script you approved, so I did not run it.' };
         }
         if (!platform.openTerminal) return { ok: false, error: "I can't open a terminal on this device." };

@@ -52,6 +52,7 @@ const ROWS: Row[] = [
   { name: 'base64Decode', patterns: [re(String.raw`decode\s+(?:this\s+)?base-?64\s*[:,-]?\s*(\S+)`)], build: (m) => plan(step('util.base64', { text: unquote(m[1]!), mode: 'decode' }), 'base64') },
   { name: 'daysUntilFrom', question: 'days-until', patterns: [re(String.raw`days\s+(?:from\s+)?(?:today|now)\s+until\s+(.+)`)], build: (m) => plan(step('time.between', { from: 'today', to: unquote(m[1]!) }), 'days-between') },
   { name: 'putOnService', patterns: [re(String.raw`put\s+on\s+(?:some\s+)?(.+?)\s+on\s+(spotify|youtube)(?:\s+music)?`)], build: (m) => plan(step('media.playOn', { query: unquote(m[1]!), service: m[2]!.toLowerCase() }), 'play-on') },
+  { name: 'startDevServer', patterns: [re(String.raw`(?:start|run|launch|boot\s+up|fire\s+up|spin\s+up)\s+(?:my\s+|the\s+|this\s+)?(?:project(?:['’]s)?\s+)?(?:dev(?:elopment)?\s+)?server`), re(String.raw`(?:run|start)\s+(?:my\s+|the\s+|this\s+)?(?:project|app)\s+in\s+dev(?:elopment)?\s+mode`)], build: () => plan(step('project.startServer', {}), 'start-server') },
   { name: 'captureActiveWindow', patterns: [re(String.raw`(?:screenshot|capture|take\s+a\s+screenshot\s+of)\s+(?:just\s+)?(?:this|the\s+active|the\s+current)\s+window`)], build: () => plan(step('screen.captureWindow', { window: 'active' }), 'capture-window') },
 ];
 

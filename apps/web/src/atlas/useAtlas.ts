@@ -106,6 +106,7 @@ import {
   createProjectToolSkills,
   createPowerShellSkills,
   createTerminalSkills,
+  createProjectServerSkill,
   createUniversalAgentSkill,
   createWorkflowMemorySkills,
   WorkflowMemory,
@@ -767,6 +768,7 @@ export function useAtlas(
     skills.registerMany(createPowerShellSkills(platform));
     // The same fences, but a window the person can see and keep using, read back to confirm it started.
     skills.registerMany(createTerminalSkills(platform));
+    skills.register(createProjectServerSkill(platform, () => projectContext.get()));
     // Plugins add project templates (data only, validated); engines are found, never started.
     skills.registerMany(createPluginSkills(platform));
     void loadPlugins(platform).catch(() => undefined);

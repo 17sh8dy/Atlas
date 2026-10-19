@@ -196,3 +196,17 @@ describe('phrasing', () => {
     expect(parseRemember('remember to buy milk')).toBeNull();
   });
 });
+
+describe('saved workflow labels', () => {
+  test('show what a step does, without raw flags or repeated values', async () => {
+    const registry = new SkillRegistry({ capabilities: () => [] });
+    registry.register({ id: 'terminal.open', label: 'Open a terminal and run something', icon: '•', domain: 'terminal', description: 'x', risk: 'safe', params: {}, async run() { return { ok: true }; } } as Skill);
+    const memory = new WorkflowMemory(memoryStorage());
+    await memory.save('echo test', [step('terminal.open', { script: 'echo hi', watch: true, title: 'echo hi' })]);
+    const skills = createWorkflowMemorySkills({ memory, skills: registry, getExecutionMode: () => 'doIt', planFor: async () => null, lastPlan: () => null });
+    const out = await skills.find((s) => s.id === 'workflow.saved')!.run({}, { say() {}, confirm: async () => true } as never);
+    expect(out.message).toContain('Open a terminal and run something — echo hi');
+    expect(out.message).not.toContain('true');
+    expect(out.message).not.toContain('echo hi · echo hi');
+  });
+});

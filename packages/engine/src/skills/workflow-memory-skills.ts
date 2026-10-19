@@ -28,8 +28,9 @@ export interface WorkflowMemorySkillDeps {
 function describe(skills: SkillRegistry, step: PlanStep): string {
   const skill = skills.get(step.skill);
   const args = Object.entries(step.args ?? {})
-    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .filter(([, v]) => v !== undefined && v !== null && v !== '' && typeof v !== 'boolean')
     .map(([, v]) => String(v))
+    .filter((v, i, all) => all.indexOf(v) === i)
     .join(' · ');
   return `${skill?.label ?? step.skill}${args ? ` — ${args}` : ''}`;
 }
