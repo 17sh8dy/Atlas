@@ -183,7 +183,7 @@ export interface AgentTaskConfig {
   /** What "done" means here. Shown every step with the status of each criterion Atlas has observed. */
   spec?: ProjectSpec;
   /** Extra context that changes as the task goes (research notes). Already fenced by whoever builds it. */
-  dynamicContext?(): Record<string, string>;
+  dynamicContext?(view?: { steps: readonly AgentStepLog[] }): Record<string, string>;
   /**
    * A one-line hint to add to the history after a step, e.g. "docs.research could look this error up". Pure and
    * deterministic; it is Atlas's own advice, shown outside the untrusted block.
@@ -197,7 +197,7 @@ export interface AgentTaskConfig {
    * the fixed catalog, exactly as before. Whatever it returns is only text for the model: a step is still
    * admitted only by `allow` and still runs through the validator and the executor.
    */
-  select?(view: { goal: string; recent: string[] }): string;
+  select?(view: { goal: string; recent: string[]; steps?: readonly AgentStepLog[] }): string;
   /**
    * Whether a task that changed files must also show a passing build/test/check before it is called verified.
    * Right for building or fixing a project (the default). Wrong for a general job such as "move this file":
@@ -460,12 +460,12 @@ export async function runAgentTask(
     if (signal?.aborted) return halted();
     const contextLines = [
       ...Object.entries(config.context),
-      ...Object.entries(config.dynamicContext?.() ?? {}),
+      ...Object.entries(config.dynamicContext?.({ steps }) ?? {}),
     ].map(([label, value]) => `${label}: ${value}`);
     const actionsLine = config.extraInstruction
       ? `You may ONLY use these actions (${config.extraInstruction}):`
       : 'You may ONLY use these actions:';
-    const catalogNow = config.select ? config.select({ goal, recent: history.slice(-3).map((h) => h.compact) }) : catalog;
+    const catalogNow = config.select ? config.select({ goal, recent: history.slice(-3).map((h) => h.compact), steps }) : catalog;
     const prompt = [
       `You are Atlas's ${config.role}, working step by step toward one goal.`,
       `Goal: ${goal}`,

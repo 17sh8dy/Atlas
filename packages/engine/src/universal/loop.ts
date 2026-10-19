@@ -164,6 +164,55 @@ export function frameReport(
   return lines.join('\n');
 }
 
+/**
+ * What kind of job the goal is. It decides which few tools are always on the shelf (a general index hit can miss
+ * the obvious one) and what "done" has to show. Plain patterns on the person's own words, never the model's.
+ */
+export const RESEARCH_GOAL = /\b(?:research|look\s*up|find\s*out|search\s+(?:the\s+)?(?:web|internet|online)|google|latest|newest|news|compare|reviews?|sources?)\b/i;
+export const CODING_GOAL = /\b(?:code|function|bug|fix|refactor|implement|script|tests?|build|compile|typecheck|lint|repo|repository|commit|npm|pnpm|python|typescript|javascript|rust|cargo)\b/i;
+/** Wants more than a snippet: the answer has to come from the pages themselves. */
+const READ_PAGES_GOAL = /\b(?:research|compare|reviews?|sources?|in\s+depth|explain)\b/i;
+const RESEARCH_SHELF = ['research.search', 'research.open'];
+const CODING_SHELF = ['code.search', 'files.readText', 'code.edit', 'code.write', 'build.run', 'test.run', 'project.check', 'git.status', 'git.diff'];
+const CODE_CHANGES = /^(?:code\.(?:write|edit|replaceAll)|files\.(?:create|append))$/;
+const CODE_CHECKS = /^(?:build\.run|test\.run|build\.diagnose|project\.check|script\.(?:python|node))$/;
+
+/** The tools pinned to the shelf for this goal, only those that exist and are not denied. */
+export function shelfFor(goal: string, deps: { skills: { get(id: string): Skill | null } }): string[] {
+  const ids = [...(RESEARCH_GOAL.test(goal) ? RESEARCH_SHELF : []), ...(CODING_GOAL.test(goal) ? CODING_SHELF : [])];
+  return ids.filter((id) => !DENY.has(id) && deps.skills.get(id));
+}
+
+/** Atlas's own advice after a step, shown outside the untrusted output. */
+export function adviceFor(skillId: string, ok: boolean): string | undefined {
+  if (skillId === 'research.search') return ok ? 'Open the best one or two results with research.open before answering; do not answer from the snippets alone, and name the pages you used.' : 'Try different wording or a narrower question before giving up.';
+  if (skillId === 'research.open' && ok) return 'If this answers it, finish and name the page; if not, open another result or search again with better words.';
+  if (CODE_CHANGES.test(skillId) && ok) return 'Check the change: run build.run, test.run or project.check if they are offered.';
+  if (!ok && /^(?:build\.run|test\.run)$/.test(skillId)) return 'Read the first error, fix that one cause, then run it again.';
+  return undefined;
+}
+
+/** Why a "done" is not yet believable for this kind of job, or null. */
+export function jobChallenge(goal: string, steps: readonly AgentStepLog[]): string | null {
+  const ok = steps.filter((st) => st.ok);
+  const searched = ok.some((st) => /^(?:research\.search|web\.search)/.test(st.skill));
+  if (RESEARCH_GOAL.test(goal)) {
+    if (!searched) return 'this needs information from the web, but no search ran. Search with research.search first and do not answer from memory.';
+    if (READ_PAGES_GOAL.test(goal) && !ok.some((st) => st.skill === 'research.open')) return 'you searched but opened no page. Open the best one or two results with research.open and answer from them, naming the pages.';
+  }
+  if (ok.some((st) => CODE_CHANGES.test(st.skill)) && !ok.some((st) => CODE_CHECKS.test(st.skill))) return 'you changed code but ran no build, test or check afterwards. Run one, or say plainly that you could not.';
+  return null;
+}
+
+/** Atlas's own tally of the request's parts, so the model works through them in order. */
+export function progressFor(goal: string, steps: readonly AgentStepLog[], index: CapabilityIndex, deps: { skills: { get(id: string): Skill | null } }): Record<string, string> {
+  const parts = chainClauses(goal);
+  if (parts.length < 2) return {};
+  const unmet = new Set(assess(goal, steps, index, deps).unmet);
+  const tally = parts.map((part, i) => `${i + 1}. [${unmet.has(part) ? 'open' : 'done'}] ${part}`).join(' | ');
+  return { "Progress (Atlas's own record of what ran, not your say-so; work on the first open part next)": tally };
+}
+
 /** Retry limits for a task that is going badly. */
 export const MAX_FAILED_ACTIONS = 4;
 
@@ -171,6 +220,7 @@ export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: Skill
   const index = new CapabilityIndex(deps.skills);
   /** Everything that has been offered so far in this task (an earlier step's tool may be wanted again). */
   const offered = new Set<string>();
+  const shelf = shelfFor(goal, deps);
 
   return runAgentTask(
     goal,
@@ -184,9 +234,11 @@ export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: Skill
       vet: (skillId, args, g) => vetDestructive(deps.skills.get(skillId), args, g),
       // "Done" is checked against the executor's record. Up to twice the model is sent back to do the missing part
       // or to say what blocks it; the report then states what is and is not done whatever it answers.
+      dynamicContext: (view) => progressFor(goal, view?.steps ?? [], index, deps),
+      hintFor: (skillId, _text, ok) => adviceFor(skillId, ok),
       challengeDone: ({ goal: g, steps }) => {
         const a = assess(g, steps, index, deps);
-        if (!a.unmet.length) return null;
+        if (!a.unmet.length) return jobChallenge(g, steps);
         // Point at the offered action that fits the first missing part, with the arguments it takes: a small model
         // that gave up ("the path does not exist") usually only needs to be shown the next move.
         const first = a.unmet[0]!;
@@ -196,17 +248,27 @@ export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: Skill
       },
       frame: ({ message, steps, reason }) => frameReport(goal, { message, steps, reason }, index, deps),
       extraInstruction:
-        'only these are available right now; the list changes as the task goes. Prefer the most specific one. Use powershell.run only if nothing else fits. Never pick an action that removes or ends something unless the request names exactly what to remove; if nothing offered does exactly what was asked, reply done and say what is missing. Each part of the request needs its own action: never say a part is done, or "implied", unless an action ran for it. Copy every path exactly as written in the goal; never shorten, guess or invent one',
+        'only these are available right now; the list changes as the task goes. Prefer the most specific one. Use powershell.run only if nothing else fits. Never pick an action that removes or ends something unless the request names exactly what to remove; if nothing offered does exactly what was asked, reply done and say what is missing. Each part of the request needs its own action: never say a part is done, or "implied", unless an action ran for it. Copy every path exactly as written in the goal; never shorten, guess or invent one. After a failure change what you do (another tool, other wording or arguments), never repeat the same call. For anything about the outside world, search first, open the best pages and name them; never answer from memory. After changing code, run a build, test or check before saying done',
       noProviderMessage:
         'Working a task out step by step needs an AI model connected: turn one on in Settings → Intelligence, then ask again.',
-      select({ goal: g, recent }) {
-        const query = [g, ...recent].join(' ').slice(0, 600);
+      select({ goal: g, recent, steps }) {
+        // Follow the first part of the request nothing has covered yet, so the shelf moves with the job.
+        const focus = steps?.length ? assess(g, steps, index, deps).unmet[0] : undefined;
+        const query = [focus ?? '', g, ...recent].join(' ').slice(0, 600);
         const { hits } = index.disclose(query, { limit: CATALOG_SIZE });
         const lines: string[] = [];
-        for (const { skill } of hits) {
-          if (DENY.has(skill.id)) continue;
+        const show = (skill: Skill) => {
+          if (offered.has(skill.id) && lines.some((l) => l.startsWith(`${skill.id}(`))) return;
           offered.add(skill.id);
           lines.push(`${skill.id}(${paramList(skill)}) — ${skill.description}`);
+        };
+        for (const id of shelf) {
+          const skill = deps.skills.get(id);
+          if (skill) show(skill);
+        }
+        for (const { skill } of hits) {
+          if (DENY.has(skill.id)) continue;
+          show(skill);
         }
         return lines.length ? lines.join('\n') : '(nothing matches this goal; reply {"done":true,...} and say what is missing)';
       },
