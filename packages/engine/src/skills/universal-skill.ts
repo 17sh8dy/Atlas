@@ -20,6 +20,8 @@ export interface UniversalAgentSkillOptions {
   getExecutionMode: () => ExecutionMode;
   /** The Settings switch. Required, so a caller cannot forget it: when it says no, the skill refuses outright. */
   isEnabled: () => boolean;
+  /** The machine read-back, so each step the agent takes can be CONFIRMED and not merely reported. */
+  verify?: AgentDeps['verify'];
 }
 
 export const UNIVERSAL_AGENT_OFF =
@@ -31,6 +33,7 @@ export function createUniversalAgentSkill(options: UniversalAgentSkillOptions): 
     intelligence: options.intelligence,
     executor: new Executor(options.skills, options.phrasing ?? createPhrasing()),
     getExecutionMode: options.getExecutionMode,
+    verify: options.verify,
   };
   return {
     id: 'agent.solve',

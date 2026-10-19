@@ -150,24 +150,79 @@ describe('verification wording', () => {
   });
 });
 
-describe('what actually ran', () => {
-  test('a model claiming a second job it never did is not left standing', async () => {
-    const r = rig(['{"skill":"app.open","args":{"name":"x"}}', '{"done":true,"summary":"Opened it and moved the file too."}']);
-    const said: string[] = [];
-    const c = ctx();
-    const orig = c.say;
-    c.say = (t: string) => { said.push(t); orig(t); };
-    const report = await runUniversalTask('open steam and then move report.log into archive', r.deps, c);
-    expect(report.message).toMatch(/What actually ran: app\.open/);
-    expect(report.message).toMatch(/asked for 2 things and 1 action/);
-    expect(said.join('\n')).toMatch(/asked for 2 things/);
+describe('reported, confirmed, and claimed are three different things', () => {
+  const folderSkill = (ran: string[]): Skill => ({
+    id: 'files.createFolder', label: 'Create a folder', icon: '•', domain: 'files', description: 'Create a new folder at a path.', risk: 'safe',
+    params: { path: { type: 'string', required: true, description: 'where' } },
+    async run(a) { ran.push(String(a.path)); return { ok: true, message: 'Created.' }; },
+  });
+  const probeAlways = (state: 'confirmed' | 'contradicted') => async (specs: readonly { kind: string }[]) =>
+    specs.map((probe) => ({ probe, state, evidence: state === 'confirmed' ? 'the folder is there' : 'the folder is not there' })) as never;
+
+  async function runWith(replies: string[], goal: string, verifyState: 'confirmed' | 'contradicted' | null) {
+    const ran: string[] = [];
+    const r = rig(replies, true, [folderSkill(ran)]);
+    const deps = { ...r.deps, ...(verifyState ? { verify: probeAlways(verifyState) } : {}) };
+    return { report: await runUniversalTask(goal, deps, ctx()), ran };
+  }
+
+  test('confirmed: a read-back saw the effect', async () => {
+    const { report } = await runWith(['{"skill":"files.createFolder","args":{"path":"C:/x/reports"}}', '{"done":true,"summary":"ok"}'], 'create a folder called reports in C:/x', 'confirmed');
+    expect(report.message).toMatch(/Done, and Atlas confirmed it/);
+    expect(report.message).toMatch(/Confirmed by Atlas: files\.createFolder/);
+    expect(report.steps[0]!.verified).toBe('confirmed');
   });
 
-  test('a single-part job that ran is simply listed', async () => {
-    const r = rig(['{"skill":"app.open","args":{"name":"x"}}', '{"done":true,"summary":"ok"}']);
-    const report = await r.run('open steam');
-    expect(report.message).toMatch(/What actually ran: app\.open/);
-    expect(report.message).not.toMatch(/asked for/);
+  test('reported only: the tool said ok and Atlas could not check', async () => {
+    const { report } = await runWith(['{"skill":"files.createFolder","args":{"path":"C:/x/reports"}}', '{"done":true,"summary":"ok"}'], 'create a folder called reports in C:/x', null);
+    expect(report.message).toMatch(/could not independently confirm/);
+    expect(report.message).not.toMatch(/Atlas confirmed it/);
+    expect(report.message).toMatch(/Reported done by the tool/);
+  });
+
+  test('a read-back that finds nothing is not described as done', async () => {
+    const { report } = await runWith(['{"skill":"files.createFolder","args":{"path":"C:/x/reports"}}', '{"done":true,"summary":"ok"}'], 'create a folder called reports in C:/x', 'contradicted');
+    expect(report.message).not.toMatch(/Atlas confirmed it/);
+  });
+
+  test('the model claim is labelled and never stands in for the record', async () => {
+    const { report } = await runWith(['{"skill":"files.createFolder","args":{"path":"C:/x/reports"}}', '{"done":true,"summary":"I created it and moved big.log too."}'], 'create a folder called reports in C:/x and then move big.log into it', null);
+    expect(report.message).toMatch(/Only part of this was done/);
+    expect(report.message).toMatch(/Not done: .*move big\.log into it/);
+    expect(report.message).toMatch(/The model's own summary \(Atlas did not check this\)/);
+  });
+
+  test('"done" with a part uncovered is sent back, and the model can finish the job', async () => {
+    const ran: string[] = [];
+    const move: Skill = { id: 'files.move', label: 'Move', icon: '•', domain: 'files', description: 'Move a file into a folder.', risk: 'safe', params: { path: { type: 'string', required: true, description: 'p' }, destDir: { type: 'string', required: true, description: 'd' } }, async run() { ran.push('move'); return { ok: true, message: 'moved' }; } };
+    const r = rig(
+      ['{"skill":"files.createFolder","args":{"path":"C:/x/reports"}}', '{"done":true,"summary":"all done"}', '{"skill":"files.move","args":{"path":"C:/x/big.log","destDir":"C:/x/reports"}}', '{"done":true,"summary":"now really done"}'],
+      true,
+      [folderSkill(ran), move],
+    );
+    const report = await runUniversalTask('create a folder called reports in C:/x and then move big.log into it', r.deps, ctx());
+    expect(ran).toContain('move');
+    expect(report.message).not.toMatch(/Not done/);
+    // Atlas told the model what was missing:
+    expect(r.p.prompts.join(' ')).toMatch(/Atlas checked your "done"/);
+  });
+
+  test('a model that keeps claiming done is challenged at most twice, then the report says what is missing', async () => {
+    const r = rig(['{"skill":"files.createFolder","args":{"path":"C:/x/reports"}}', '{"done":true,"summary":"done"}'], true, [folderSkill([])]);
+    const report = await runUniversalTask('create a folder called reports in C:/x and then move big.log into it', r.deps, ctx());
+    expect(r.p.prompts.filter((q) => /Atlas checked your "done"/.test(q)).length).toBeLessThanOrEqual(2);
+    expect(report.message).toMatch(/Not done: .*move big\.log into it/);
+  });
+
+  test('retry limit: repeated failures stop the task and the report says so', async () => {
+    const failing: Skill = { id: 'files.createFolder', label: 'Create', icon: '•', domain: 'files', description: 'Create a new folder at a path.', risk: 'safe', params: { path: { type: 'string', required: true, description: 'p' } }, async run(a) { return { ok: false, error: `cannot make ${String(a.path)} number ${Math.random()}` }; } };
+    let n = 0;
+    const r = rig([], true, [failing]);
+    r.p.ask = ((prompt: string, h: { onDone: (s: string) => void }) => { r.p.prompts.push(prompt); h.onDone(`{"skill":"files.createFolder","args":{"path":"C:/x/f${++n}"}}`); }) as never;
+    const report = await runUniversalTask('create a folder called reports in C:/x', r.deps, ctx());
+    expect(report.stoppedBecause).toBe('repeated-failure');
+    expect(n).toBeLessThanOrEqual(4);
+    expect(report.message).toMatch(/Nothing was done/);
   });
 });
 

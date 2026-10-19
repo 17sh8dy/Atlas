@@ -22,7 +22,7 @@
  */
 
 import type { Skill, SkillContext } from '@atlas/core';
-import { runAgentTask, type AgentDeps, type AgentTaskReport } from '../agent/loop';
+import { runAgentTask, type AgentDeps, type AgentStepLog, type AgentStopReason, type AgentTaskReport } from '../agent/loop';
 import { CapabilityIndex } from '../capabilities';
 import { chainClauses } from './router';
 
@@ -94,22 +94,104 @@ function paramList(skill: Skill): string {
     .join(', ');
 }
 
+/** What a person is told about how far a task got, in Atlas's own words and never the model's. */
+export type Completion = 'verified' | 'reported' | 'partial' | 'nothing';
+
+export interface Assessment {
+  completion: Completion;
+  /** The parts of the request that no successful action covers. */
+  unmet: string[];
+}
+
+/** Does this successful step merely look at things (so "confirmed" is not the right question)? */
+function observational(deps: { skills: { get(id: string): Skill | null } }, id: string): boolean {
+  const k = deps.skills.get(id);
+  return Boolean(k && k.risk === 'safe' && !DESTRUCTIVE_ID.test(id) && !/(?:^|\.)(?:create|move|copy|rename|write|set|install|add|open|start|run|edit|append|zip|unzip|restart|mute|volume)/i.test(id));
+}
+
+/**
+ * How far did this get? From the executor's record only. A part of the request counts as covered when some
+ * SUCCESSFUL action is a capability the index also finds for that part of the sentence; the model saying "done"
+ * counts for nothing.
+ */
+export function assess(goal: string, steps: readonly AgentStepLog[], index: CapabilityIndex, deps: { skills: { get(id: string): Skill | null } }): Assessment {
+  const ok = steps.filter((st) => st.ok);
+  const parts = chainClauses(goal);
+  const unmet = parts.filter((part) => {
+    const candidates = new Set(index.search(part, { limit: 8 }).map((h) => h.skill.id));
+    return !ok.some((st) => candidates.has(st.skill));
+  });
+  if (!ok.length) return { completion: 'nothing', unmet: parts };
+  if (unmet.length) return { completion: 'partial', unmet };
+  const changing = ok.filter((st) => !observational(deps, st.skill));
+  const allConfirmed = changing.length > 0 && changing.every((st) => st.verified === 'confirmed');
+  return { completion: changing.length === 0 || allConfirmed ? 'verified' : 'reported', unmet: [] };
+}
+
+function stepLine(st: AgentStepLog, observed: boolean): string {
+  const target = st.args && typeof st.args === 'object' ? String(Object.values(st.args).find((v) => typeof v === 'string' && v) ?? '') : '';
+  const what = `${st.skill}${target ? ` (${target.length > 60 ? `…${target.slice(-57)}` : target})` : ''}`;
+  if (!st.ok) return `✕ Failed: ${what}: ${st.summary.replace(/\s+/g, ' ').slice(0, 140)}`;
+  if (st.verified === 'confirmed') return `✓ Confirmed by Atlas: ${what}${st.evidence ? `, ${st.evidence}` : ''}`;
+  if (st.verified === 'unconfirmed') return `◐ Reported done, but Atlas could not confirm it: ${what}${st.evidence ? `, ${st.evidence}` : ''}`;
+  return observed ? `• Looked at: ${what}` : `• Reported done by the tool; Atlas has no independent check for this one: ${what}`;
+}
+
+/**
+ * The closing report: three things kept apart. WHAT ATLAS RECORDED (each step, and whether the machine was
+ * read back to confirm it), WHAT IS NOT DONE (parts of the request no successful action covers), and, last and
+ * labelled, WHAT THE MODEL SAID. The model's sentence is never allowed to stand in for the other two.
+ */
+export function frameReport(
+  goal: string,
+  view: { message: string; steps: readonly AgentStepLog[]; reason: AgentStopReason },
+  index: CapabilityIndex,
+  deps: { skills: { get(id: string): Skill | null } },
+): string {
+  if (view.reason === 'no-provider' && !view.steps.length) return view.message;
+  const a = assess(goal, view.steps, index, deps);
+  const headline: Record<Completion, string> = {
+    verified: 'Done, and Atlas confirmed it.',
+    reported: 'Done as far as the tools reported; Atlas could not independently confirm all of it.',
+    partial: 'Only part of this was done.',
+    nothing: 'Nothing was done.',
+  };
+  const lines = [headline[a.completion]];
+  if (view.steps.length) lines.push('', ...view.steps.map((st) => stepLine(st, st.ok && observational(deps, st.skill))));
+  if (a.unmet.length) lines.push('', `Not done: ${a.unmet.map((u) => `“${u}”`).join('; ')}.`);
+  if (view.reason !== 'done') lines.push('', `It stopped because: ${view.message.replace(/\s+/g, ' ').trim()}`);
+  else if (view.message.trim()) lines.push('', `The model's own summary (Atlas did not check this): ${view.message.replace(/\s+/g, ' ').trim()}`);
+  return lines.join('\n');
+}
+
+/** Retry limits for a task that is going badly. */
+export const MAX_FAILED_ACTIONS = 4;
+
 export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: SkillContext): Promise<AgentTaskReport> {
   const index = new CapabilityIndex(deps.skills);
   /** Everything that has been offered so far in this task (an earlier step's tool may be wanted again). */
   const offered = new Set<string>();
 
-  const report = await runAgentTask(
+  return runAgentTask(
     goal,
     {
       role: 'general task agent',
       maxIterations: MAX_UNIVERSAL_ITERATIONS,
+      maxFailures: MAX_FAILED_ACTIONS,
       verifyProjectChanges: false,
       context: {},
       allow: (skillId) => offered.has(skillId) && !DENY.has(skillId),
       vet: (skillId, args, g) => vetDestructive(deps.skills.get(skillId), args, g),
+      // "Done" is checked against the executor's record. Up to twice the model is sent back to do the missing part
+      // or to say what blocks it; the report then states what is and is not done whatever it answers.
+      challengeDone: ({ goal: g, steps }) => {
+        const a = assess(g, steps, index, deps);
+        if (!a.unmet.length) return null;
+        return `nothing that actually ran covers: ${a.unmet.map((u) => `"${u}"`).join('; ')}. Do that part now with one of the offered actions, or finish and say plainly what blocks it. Do not describe a step as done unless an action ran for it.`;
+      },
+      frame: ({ message, steps, reason }) => frameReport(goal, { message, steps, reason }, index, deps),
       extraInstruction:
-        'only these are available right now; the list changes as the task goes. Prefer the most specific one. Use powershell.run only if nothing else fits. Never pick an action that removes or ends something unless the request names exactly what to remove; if nothing offered does exactly what was asked, reply done and say what is missing',
+        'only these are available right now; the list changes as the task goes. Prefer the most specific one. Use powershell.run only if nothing else fits. Never pick an action that removes or ends something unless the request names exactly what to remove; if nothing offered does exactly what was asked, reply done and say what is missing. Each part of the request needs its own action: never say a part is done, or "implied", unless an action ran for it',
       noProviderMessage:
         'Working a task out step by step needs an AI model connected: turn one on in Settings → Intelligence, then ask again.',
       select({ goal: g, recent }) {
@@ -127,32 +209,4 @@ export async function runUniversalTask(goal: string, deps: AgentDeps, ctx: Skill
     deps,
     ctx,
   );
-  return withEvidence(goal, report, deps, ctx);
-}
-
-/**
- * What actually ran, in Atlas's own words, appended to the model's closing summary.
- *
- * A model asked to finish will sometimes claim more than it did ("the move is assumed complete" when the file
- * did not exist and no move was ever tried). The summary is the model's; this is the executor's record. When the
- * request had several parts and fewer actions succeeded than parts, the report says so instead of leaving the
- * claim standing.
- */
-export function evidenceNote(goal: string, report: AgentTaskReport): string | null {
-  const ran = report.steps.filter((s) => s.ok);
-  const parts = chainClauses(goal).length;
-  const lines: string[] = [];
-  if (ran.length) lines.push(`What actually ran: ${ran.map((s) => s.skill).join(', ')}.`);
-  else if (report.stoppedBecause === 'done') lines.push('No action actually ran.');
-  if (report.stoppedBecause === 'done' && parts > 1 && ran.length < parts) {
-    lines.push(`⚠ You asked for ${parts} things and ${ran.length} action${ran.length === 1 ? '' : 's'} succeeded, so do not take "done" at its word: check the rest.`);
-  }
-  return lines.length ? lines.join('\n') : null;
-}
-
-function withEvidence(goal: string, report: AgentTaskReport, _deps: AgentDeps, ctx: SkillContext): AgentTaskReport {
-  const note = evidenceNote(goal, report);
-  if (!note || report.stoppedBecause === 'no-provider') return report;
-  ctx.say(note);
-  return { ...report, message: `${report.message}\n\n${note}` };
 }

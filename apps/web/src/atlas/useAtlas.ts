@@ -908,6 +908,7 @@ export function useAtlas(
         phrasing,
         getExecutionMode: () => executionModeRef.current,
         isEnabled: () => universalAgentRef.current,
+        verify: createProbeRunner(platform),
       }),
     );
 

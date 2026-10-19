@@ -81,8 +81,16 @@ import type { AgentScale } from './scale';
 export interface AgentStepLog {
   skill: string;
   args: SkillArgs;
+  /** What the tool reported. Not proof: see `verified`. */
   ok: boolean;
   summary: string;
+  /**
+   * Whether Atlas read the machine back afterwards and saw the effect (`confirmed`), looked and could not
+   * (`unconfirmed`), or had no way to look (absent). Independent of what the tool or the model said.
+   */
+  verified?: 'confirmed' | 'unconfirmed';
+  /** What the read-back actually observed. */
+  evidence?: string;
 }
 
 export type AgentStopReason =
@@ -126,6 +134,8 @@ export interface AgentDeps {
   contextChars?: number;
   /** How big a job this model is given (see `scale.ts`). Absent: the standard, small size. */
   scale?: AgentScale;
+  /** The machine read-back (`verify/probes.ts`), so a step can be independently confirmed, not merely reported. */
+  verify?: import('../planner/executor').ExecutorOptions['verify'];
 }
 
 /**
@@ -196,6 +206,19 @@ export interface AgentTaskConfig {
    * check. This can only ever REFUSE; it never adds or changes an action.
    */
   vet?(skillId: string, args: SkillArgs, goal: string): string | null;
+  /**
+   * Called when the model says it is done. Returns a reason the claim should not be accepted yet (for example
+   * "nothing that ran covers this part of the request"), or null. The model is told once or twice and may carry
+   * on; the loop never accepts a "done" that Atlas's own record contradicts without saying so. Absent: accepted.
+   */
+  challengeDone?(view: { goal: string; steps: readonly AgentStepLog[]; summary: string }): string | null;
+  /** Total failed actions after which the task stops instead of trying again. Absent: only the same-failure rule. */
+  maxFailures?: number;
+  /**
+   * How the closing report is worded. Receives the model's own summary and Atlas's record of what ran, and returns
+   * the text to show: this is where "the model said" is kept apart from "Atlas saw". Absent: the summary as is.
+   */
+  frame?(view: { message: string; steps: readonly AgentStepLog[]; reason: AgentStopReason; ok: boolean; goal: string }): string;
 }
 
 const DEFAULT_HISTORY_CHARS = 7000;
@@ -368,10 +391,10 @@ export async function runAgentTask(
   const finish = (ok: boolean, message: string, reason: AgentStopReason): AgentTaskReport => {
     const v = verification();
     // A task that changed the project and never saw it work is not reported as a success.
-    let text = message;
+    let text = config.frame ? config.frame({ message, steps, reason, ok, goal }) : message;
     let good = ok;
     if (reason === 'done' && v.verified === false) {
-      text = `${message}\n\n⚠ Not verified: ${v.unverified}. I can't tell you it works — run the build or tests to confirm.`;
+      text = `${text}\n\n⚠ Not verified: ${v.unverified}. I can't tell you it works — run the build or tests to confirm.`;
       if (state.failingChecks.length) good = false;
     }
     if (changed.length && reason !== 'done') text = `${text}\nChanged so far: ${changed.slice(0, 8).join('; ')}${changed.length > 8 ? '…' : ''}.`;
@@ -392,6 +415,9 @@ export async function runAgentTask(
   const budget = deps.scale ? deps.scale.historyChars : Math.min(config.historyChars ?? DEFAULT_HISTORY_CHARS, deps.contextChars ? Math.max(1500, Math.floor(deps.contextChars * 0.4)) : Infinity);
   const keepFull = deps.scale?.keepFull ?? KEEP_FULL;
   let malformedStreak = 0;
+  /** How many times a claim of "done" was sent back because Atlas's record contradicted it. */
+  let challenges = 0;
+  let failedTotal = 0;
   /** Atlas's own look at the project before accepting "done" happens once per task. */
   let autoChecked = false;
   /** What each file was last written as, so the same file is not written again unchanged. */
@@ -463,6 +489,14 @@ export async function runAgentTask(
     if (action.done) {
       const summary =
         action.summary?.trim() || (steps.length ? 'Done.' : 'There was nothing to do.');
+      // The model's word is not the record. If Atlas's own record shows part of the request uncovered, say so and let
+      // it carry on, at most twice; after that the report states plainly what is and is not done.
+      const challenge = config.challengeDone?.({ goal, steps, summary });
+      if (challenge && challenges < 2) {
+        challenges += 1;
+        history.push({ full: `(Atlas checked your "done" against what actually ran: ${challenge})`, compact: '(done challenged: parts not covered)' });
+        continue;
+      }
       // "Done" before a single step worked cannot be a build: nothing was created or changed, however
       // the summary reads. A model that says "I created the app" here made the claim up, so it is
       // reported as what it is, and the person is not told something exists that does not.
@@ -481,7 +515,7 @@ export async function runAgentTask(
       if (state.everChanged && !state.verified && !autoChecked && folder && deps.skills.get('project.check') && config.allow('project.check', 'project')) {
         autoChecked = true;
         const checkPlan: Plan = { source: 'ai', intent: 'agent-step', steps: [{ skill: 'project.check', args: { path: folder } }], confidence: 1 };
-        const checked = await deps.executor.run(checkPlan, ctx, { mode: deps.getExecutionMode(), signal });
+        const checked = await deps.executor.run(checkPlan, ctx, { mode: deps.getExecutionMode(), signal, verify: deps.verify });
         if (checked.halted) return halted();
         const result = checked.outcomes[0];
         const data = result?.data as { ok?: boolean } | undefined;
@@ -559,7 +593,7 @@ export async function runAgentTask(
       steps: [{ skill: skillId, args: check.args }],
       confidence: 1,
     };
-    const outcome = await deps.executor.run(plan, ctx, { mode: deps.getExecutionMode(), signal });
+    const outcome = await deps.executor.run(plan, ctx, { mode: deps.getExecutionMode(), signal, verify: deps.verify });
     if (outcome.halted) return halted();
     const stepOutcome = outcome.outcomes[0];
 
@@ -574,7 +608,7 @@ export async function runAgentTask(
     const ok = Boolean(stepOutcome?.ok);
     const resultText = observationText(stepOutcome, ok);
     const summary = truncate(resultText, 300);
-    steps.push({ skill: skillId, args: check.args, ok, summary });
+    steps.push({ skill: skillId, args: check.args, ok, summary, ...(stepOutcome?.verified ? { verified: stepOutcome.verified, evidence: stepOutcome.evidence } : {}) });
 
     // What changed, and what vouches for it — from the executor's result, not from the model's description.
     if (ok && WRITES.test(skillId)) {
@@ -612,6 +646,15 @@ export async function runAgentTask(
     // The same failure again and again, whatever the action: change approach, then stop.
     let nudge = '';
     if (!ok) {
+      failedTotal += 1;
+      if (config.maxFailures && failedTotal >= config.maxFailures) {
+        history.push({ full: line, compact: `Failed ${skillId}` });
+        return finish(
+          steps.some((s) => s.ok),
+          `${failedTotal} actions have failed, so I'm stopping rather than keep trying. The last failure:\n${truncate(resultText, 300)}`,
+          'repeated-failure',
+        );
+      }
       failed.add(signature);
       const key = failureKey(resultText);
       const n = (failures.get(key) ?? 0) + 1;
