@@ -106,6 +106,7 @@ import {
   createProjectToolSkills,
   createPowerShellSkills,
   createTerminalSkills,
+  createUniversalAgentSkill,
   createWorkflowMemorySkills,
   WorkflowMemory,
   createPluginSkills,
@@ -877,6 +878,16 @@ export function useAtlas(
     // `packages/engine/src/uiagent/loop.ts`'s module doc.
     skills.register(
       createUiAgentSkill({
+        skills,
+        intelligence,
+        phrasing,
+        getExecutionMode: () => executionModeRef.current,
+      }),
+    );
+
+    // Works a multi-step goal out across EVERY capability, only when asked ("figure out how to…").
+    skills.register(
+      createUniversalAgentSkill({
         skills,
         intelligence,
         phrasing,

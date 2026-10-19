@@ -111,6 +111,8 @@ export { createRecolorSkills } from './skills/recolor-skills';
 export { createProjectToolSkills } from './skills/project-tools-skills';
 export { createPowerShellSkills } from './skills/powershell-skills';
 export { createTerminalSkills } from './skills/terminal-skills';
+export { createUniversalAgentSkill } from './skills/universal-skill';
+export { runUniversalTask, MAX_UNIVERSAL_ITERATIONS, CATALOG_SIZE } from './universal/loop';
 export { createWorkflowMemorySkills } from './skills/workflow-memory-skills';
 export { WorkflowMemory, secretIn, validateSteps, workflowKey, MAX_STEPS, MAX_WORKFLOWS, type SavedWorkflow } from './workflow/memory';
 export { createPluginSkills, engineAdvice } from './skills/plugin-skills';

@@ -176,6 +176,13 @@ export interface AgentTaskConfig {
   hintFor?(skillId: string, resultText: string, ok: boolean): string | undefined;
   /** Bounds the history block of the prompt, in characters. */
   historyChars?: number;
+  /**
+   * Chooses the action catalog shown THIS iteration, from the goal and what just happened, instead of one
+   * fixed catalog built up front (the universal agent re-selects every step from the whole registry). Absent:
+   * the fixed catalog, exactly as before. Whatever it returns is only text for the model: a step is still
+   * admitted only by `allow` and still runs through the validator and the executor.
+   */
+  select?(view: { goal: string; recent: string[] }): string;
 }
 
 const DEFAULT_HISTORY_CHARS = 7000;
@@ -386,6 +393,7 @@ export async function runAgentTask(
     const actionsLine = config.extraInstruction
       ? `You may ONLY use these actions (${config.extraInstruction}):`
       : 'You may ONLY use these actions:';
+    const catalogNow = config.select ? config.select({ goal, recent: history.slice(-3).map((h) => h.compact) }) : catalog;
     const prompt = [
       `You are Atlas's ${config.role}, working step by step toward one goal.`,
       `Goal: ${goal}`,
@@ -397,7 +405,7 @@ export async function runAgentTask(
       '  {"done":true,"summary":string} — the goal is complete, or cannot be; explain which and why. Do not say it is complete unless a build, test or check has passed since your last change.',
       '  {"skill":string,"args":object,"say"?:string} — one next action to take.',
       actionsLine,
-      catalog,
+      catalogNow,
       '',
       renderHistory(history, budget, keepFull),
     ].join('\n');

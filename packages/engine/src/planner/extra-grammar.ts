@@ -18,6 +18,7 @@ import { createAgentGrammar } from './agent-grammar';
 import { createAppGrammar } from './app-grammar';
 import { createTerminalGrammar } from './terminal-grammar';
 import { createWorkflowMemoryGrammar } from './workflow-memory-grammar';
+import { createUniversalGrammar } from './universal-grammar';
 import { createHealthGrammar } from './health-grammar';
 import { createAssistGrammar } from './assist-grammar';
 import { createTimeGrammar } from './time-grammar';
@@ -74,6 +75,9 @@ export function createExtraGrammar(): GrammarRule[] {
 
     // Saved workflows: remember, replay, list, forget (2.0.2).
     ...createWorkflowMemoryGrammar(),
+
+    // "figure out how to…" hands a goal to the universal agent (explicit request only).
+    ...createUniversalGrammar(),
 
     // PC health, file intelligence, build diagnosis, release notes (read-only, 1.0.8).
     ...createHealthGrammar(),
