@@ -7,3 +7,5 @@ New: a private search address (SearXNG) can be used first for web research, with
 Improved: models that support tools or structured answers are asked in that form, with one repair attempt, so local and cloud models make fewer mistakes planning actions.
 Improved: talking and small talk go to the connected model when it can converse, with a clear fallback if it cannot, and Atlas knows what it can really do.
 Improved: your Nova session now lives in Windows Credential Manager, and the provider list is held natively - Atlas migrates both on first start and keeps a backup.
+New: code review - when Atlas edits one of your files you see exactly what would change before you say yes (green for added, red for removed), and afterwards you can keep it, edit it or undo it in one step. Undo never overwrites a file you changed since.
+New: a fuller Stats dashboard (time using Atlas, streaks, conversations, files edited, an estimate of cloud spending from prices you enter), and an Atlas Pro preview in Settings. Nothing is for sale and everything in Atlas stays free.
