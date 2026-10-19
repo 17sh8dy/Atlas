@@ -9,7 +9,7 @@ import { describe, expect, test } from 'vitest';
 import type { IntelligenceProvider, IntelligenceRegistry, Skill, SkillContext } from '@atlas/core';
 import { SkillRegistry } from '../src/skills/registry';
 import { Executor } from '../src/planner/executor';
-import { CATALOG_SIZE, MAX_UNIVERSAL_ITERATIONS, runUniversalTask } from '../src/universal/loop';
+import { CATALOG_SIZE, MAX_UNIVERSAL_ITERATIONS, runUniversalTask, vetDestructive } from '../src/universal/loop';
 import { parseSolveRequest } from '../src/planner/universal-grammar';
 import type { AgentDeps } from '../src/agent/loop';
 
@@ -192,5 +192,14 @@ describe('destructive actions must be what was asked', () => {
     const r = rig(['{"skill":"cleanup.clean","args":{"kind":"temp"}}', '{"done":true,"summary":"ok"}'], true, [{ ...cleanup, async run() { ran.push('cleanup'); return { ok: true }; } }]);
     await r.run('clean out my temp files');
     expect(ran).toEqual(['cleanup']);
+  });
+});
+
+describe('a path is not part of what was asked', () => {
+  test('a folder called Temp in the path does not ground a temp-file cleanup', () => {
+    const skill = { id: 'cleanup.clean', risk: 'safe', params: { kind: { type: 'string', enum: ['temp', 'crashdumps', 'installers'] } } } as unknown as Skill;
+    const goal = 'delete all the old log files in C:\Users\me\AppData\Local\Temp\work and then show me what is left';
+    expect(vetDestructive(skill, { kind: 'temp' }, goal)).toMatch(/never mentions "temp"/);
+    expect(vetDestructive(skill, { kind: 'temp' }, 'clean up my temp files in C:/x')).toBeNull();
   });
 });

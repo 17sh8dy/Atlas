@@ -71,7 +71,12 @@ export function vetDestructive(skill: Skill | null, args: Record<string, unknown
   if (!skill) return null;
   const destructive = skill.risk === 'confirm' || DESTRUCTIVE_ID.test(skill.id);
   if (!destructive) return null;
-  const said = goal.toLowerCase();
+  // Only the WORDS of the request count: a folder that happens to be called "Temp" or "Downloads" in a path
+  // must not make a request about log files look like it asked for a temp cleanup.
+  const said = goal
+    .replace(/[a-z]:[\\/][^\s"']*/gi, ' ')
+    .replace(/(?:^|\s)(?:~?\/|\.{1,2}\/)[^\s"']*/g, ' ')
+    .toLowerCase();
   for (const [name, param] of Object.entries(skill.params ?? {})) {
     const value = args[name];
     if (!param.enum || typeof value !== 'string' || !value) continue;
