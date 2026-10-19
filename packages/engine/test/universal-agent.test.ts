@@ -198,7 +198,7 @@ describe('destructive actions must be what was asked', () => {
 describe('a path is not part of what was asked', () => {
   test('a folder called Temp in the path does not ground a temp-file cleanup', () => {
     const skill = { id: 'cleanup.clean', risk: 'safe', params: { kind: { type: 'string', enum: ['temp', 'crashdumps', 'installers'] } } } as unknown as Skill;
-    const goal = 'delete all the old log files in C:\Users\me\AppData\Local\Temp\work and then show me what is left';
+    const goal = 'delete all the old log files in C:\\Users\\me\\AppData\\Local\\Temp\\work and then show me what is left';
     expect(vetDestructive(skill, { kind: 'temp' }, goal)).toMatch(/never mentions "temp"/);
     expect(vetDestructive(skill, { kind: 'temp' }, 'clean up my temp files in C:/x')).toBeNull();
   });
