@@ -17,3 +17,10 @@ describe('the Nova product switcher lists the Replay.GG website', () => {
     expect(source).toContain("id: 'nova-review'");
   });
 });
+
+describe('the Nova product switcher lists the Nova Cut website', () => {
+  test('as a real website with a real address', () => {
+    expect(source).toContain("id: 'nova-cut-site'");
+    expect(source).toContain("url: 'https://nova-cut-site.shadylabs.workers.dev/'");
+  });
+});
