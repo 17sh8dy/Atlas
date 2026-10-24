@@ -1,0 +1,5 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+New: Atlas can answer questions about itself and the Nova products from built-in documentation, with no AI model, internet or account, and always says where the answer came from.
+New: a Knowledge tab in Settings. Atlas can refresh that documentation once a day and read Nova's public pages for current news. Both switches are on by default and each one can be turned off.
+Improved: token counts are more accurate and honest. Atlas now separates counts a provider confirmed from its own estimates, and counts a request that may have reached a provider toward your monthly limit, so you may reach a limit slightly sooner.
+Improved: a model's answer drawn from the documentation is checked against it, and invented numbers or names are replaced by the documentation itself.
