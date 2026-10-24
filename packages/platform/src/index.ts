@@ -72,3 +72,4 @@ export type {
 export function detectPlatform(): Platform {
   return isTauri() ? createTauriPlatform() : createWebPlatform();
 }
+export * from './knowledge';

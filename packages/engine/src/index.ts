@@ -204,3 +204,4 @@ export { SimpleIntelligenceRegistry } from './intelligence-registry';
 export * from './review/diff';
 
 export * from './capabilities';
+export * from './knowledge';
