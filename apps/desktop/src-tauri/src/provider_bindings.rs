@@ -117,6 +117,9 @@ pub struct ProviderView {
     /// said, otherwise estimated).
     pub month_requests: u64,
     pub month_tokens: u64,
+    /// Part of `month_tokens`: input of requests that may have reached the provider and then failed,
+    /// so they may have been billed. They count toward the cap.
+    pub month_tokens_uncertain: u64,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
@@ -143,6 +146,7 @@ fn view_of(id: &str, p: &Provider) -> ProviderView {
         price_out_milli: p.price_out_milli,
         month_requests: crate::stats::month_total(&format!("cloud:{id}:requests")),
         month_tokens: crate::cloud_safety::month_tokens_of(id),
+        month_tokens_uncertain: crate::stats::month_total(&format!("cloud:{id}:tokens_unc_in")),
     }
 }
 

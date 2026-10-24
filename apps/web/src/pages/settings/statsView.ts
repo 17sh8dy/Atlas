@@ -7,7 +7,7 @@
  * reported its own) the row says so.
  */
 
-import type { StatsCalendarDay, StatsPeriod, StatsSpend, StatsSummary } from '@atlas/platform';
+import type { StatsCalendarDay, StatsLifetime, StatsPeriod, StatsSpend, StatsSummary } from '@atlas/platform';
 
 export const PERIODS: readonly { id: StatsPeriod; label: string }[] = [
   { id: 'lifetime', label: 'Lifetime' },
@@ -112,6 +112,20 @@ export function spendNote(spend: StatsSpend, hasCloudUse: boolean): string {
 }
 
 /**
+ * How sure the cloud token figure is: how much the provider reported, how much Atlas estimated,
+ * and how much is from before that split was recorded (never guessed at).
+ */
+export function cloudTokensNote(l: StatsLifetime): string {
+  const parts: string[] = [];
+  if (l.cloudTokensConfirmed > 0) parts.push(`${tokens(l.cloudTokensConfirmed)} reported by the provider`);
+  if (l.cloudTokensEstimated > 0) parts.push(`${tokens(l.cloudTokensEstimated)} estimated by Atlas`);
+  if (l.cloudTokensUnsplit > 0) parts.push(`${tokens(l.cloudTokensUnsplit)} from before this split was recorded`);
+  const cached = l.cloudTokensCached > 0 ? ` Of the input, ${tokens(l.cloudTokensCached)} came from the provider’s cache.` : '';
+  const lead = parts.length ? `${parts.join(' · ')}.` : 'Atlas’s own count.';
+  return `${lead}${cached} Never a guarantee: your provider’s dashboard is the authority.`;
+}
+
+/**
  * The headline figures. All-time, so they do not move when the period below is changed, and every
  * one says plainly what it is: a number Atlas could not measure is shown as "—" with the reason,
  * never as a zero that looks like a measurement.
@@ -149,12 +163,17 @@ export function highlightsFor(s: StatsSummary): Highlight[] {
       localTokensValue(l.localTokens, l.localTokensReported),
       localTokensNote(l.localTokens, l.localTokensReported),
     ),
-    h(
-      'cloud-tokens',
-      'Cloud tokens (Atlas’s count)',
-      tokens(l.cloudTokens),
-      'Atlas’s own count, never a guarantee. Your provider’s dashboard is the authority.',
-    ),
+    h('cloud-tokens', 'Cloud tokens (Atlas’s count)', tokens(l.cloudTokens), cloudTokensNote(l)),
+    ...(l.cloudTokensUncertain > 0
+      ? [
+          h(
+            'cloud-uncertain',
+            'Cloud tokens that may have been billed',
+            tokens(l.cloudTokensUncertain),
+            'These requests may have reached your provider before failing. They count toward your monthly limit but not your lifetime total.',
+          ),
+        ]
+      : []),
     h('conversations', 'Conversations', count(l.conversations), 'Messages less than 30 minutes apart count as one.'),
     h('tasks', 'Tasks completed', count(l.tasksCompleted), 'Multi-step tasks that finished.'),
     h('files', 'Files edited', count(l.filesEdited), 'Edits made, not distinct files. Atlas never records file names.'),
@@ -224,6 +243,9 @@ export function groupsFor(s: StatsSummary): StatGroup[] {
       ),
       r('Cloud model requests', count(m('model.cloud.requests')), 'Sent to the provider you chose. Counted by Atlas; your provider’s records are the authority.'),
       r('Cloud tokens', tokens(modelTokens('model.cloud')), 'Atlas’s count (the provider’s number where it gave one). Not a guarantee: your provider’s dashboard is the authority.'),
+      r('  of which estimated', tokens(m('model.cloud.tokens_in_est') + m('model.cloud.tokens_out_est')), 'Estimated by Atlas because the provider did not report them.'),
+      r('  of input, from cache', tokens(m('model.cloud.tokens_cached_in')), 'Already counted in the cloud tokens above.'),
+      r('Cloud tokens that may have been billed', tokens(m('model.cloud.tokens_unc_in')), 'Requests that may have reached the provider before failing. Counted toward a monthly limit, not the total above.'),
       r('Cloud requests that failed', count(m('model.cloud.failures'))),
       r('Times a cloud limit was reached', count(m('model.cloud.limit_hits'))),
       r('Nova Intelligence requests', count(m('model.nova.requests'))),

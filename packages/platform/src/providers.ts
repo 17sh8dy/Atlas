@@ -491,6 +491,8 @@ export interface ProviderStanding {
   priceOutMilli: number | null;
   monthRequests: number;
   monthTokens: number;
+  /** Part of `monthTokens`: failed requests that may still have been billed. */
+  monthTokensUncertain: number;
   host: string;
 }
 
@@ -505,6 +507,7 @@ export async function listProviderStanding(): Promise<ProviderStanding[]> {
       priceOutMilli: number | null;
       monthRequests: number;
       monthTokens: number;
+      monthTokensUncertain: number;
       host: string;
     }>
   >('provider_list');

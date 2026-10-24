@@ -7,6 +7,7 @@ import {
   days,
   duration,
   groupsFor,
+  cloudTokensNote,
   highlightsFor,
   providerLine,
   spendNote,
@@ -40,6 +41,12 @@ function summary(over: Partial<StatsSummary> = {}): StatsSummary {
       localTokens: 0,
       localTokensReported: 0,
       cloudTokens: 0,
+      cloudTokensEstimated: 0,
+      cloudTokensConfirmed: 0,
+      cloudTokensUnsplit: 0,
+      cloudTokensCached: 0,
+      cloudTokensUncertain: 0,
+      cloudSplitFrom: '2026-10-21',
       conversations: 0,
       tasksCompleted: 0,
       filesEdited: 0,
@@ -331,5 +338,31 @@ describe('files edited', () => {
     };
     const m = new Map(metricsForPlan(plan as never));
     expect(m.get('files.edited')).toBe(1);
+  });
+});
+
+describe('cloud token certainty (2.0.3)', () => {
+  const lt = (over: Partial<ReturnType<typeof summary>['lifetime']>) => ({ ...summary().lifetime, ...over });
+
+  test('says how much was reported, estimated and unsplit, and never guesses the unsplit part', () => {
+    const note = cloudTokensNote(
+      lt({ cloudTokens: 1500, cloudTokensConfirmed: 350, cloudTokensEstimated: 150, cloudTokensUnsplit: 1000, cloudTokensCached: 40 }),
+    );
+    expect(note).toContain('reported by the provider');
+    expect(note).toContain('estimated by Atlas');
+    expect(note).toContain('before this split was recorded');
+    expect(note).toContain('provider’s cache');
+  });
+
+  test('shows the uncertain row only when there is something uncertain', () => {
+    expect(highlightsFor(summary()).map((h) => h.id)).not.toContain('cloud-uncertain');
+    const ids = highlightsFor({ ...summary(), lifetime: lt({ cloudTokensUncertain: 4000 }) }).map((h) => h.id);
+    expect(ids).toContain('cloud-uncertain');
+  });
+
+  test('explains that uncertain tokens count toward the limit but not the lifetime total', () => {
+    const h = highlightsFor({ ...summary(), lifetime: lt({ cloudTokensUncertain: 4000 }) }).find((x) => x.id === 'cloud-uncertain')!;
+    expect(h.note).toMatch(/monthly limit/);
+    expect(h.note).toMatch(/not your lifetime total/);
   });
 });

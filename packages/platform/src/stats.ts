@@ -50,6 +50,18 @@ export interface StatsLifetime {
   localTokensReported: number;
   /** Tokens sent to cloud providers, as Atlas counted them. Never authoritative: the provider is. */
   cloudTokens: number;
+  /** Of `cloudTokens`: the part Atlas estimated because the provider did not report it. */
+  cloudTokensEstimated: number;
+  /** Of `cloudTokens` since `cloudSplitFrom`: the part the provider reported itself. */
+  cloudTokensConfirmed: number;
+  /** Cloud tokens from before the split existed: confirmed vs estimated was not recorded. */
+  cloudTokensUnsplit: number;
+  /** Of cloud input: the part served from the provider's cache (already inside `cloudTokens`). */
+  cloudTokensCached: number;
+  /** Input of requests that may have been billed and then failed. NOT in `cloudTokens`. */
+  cloudTokensUncertain: number;
+  /** First day (YYYY-MM-DD) recorded with the split. */
+  cloudSplitFrom: string;
   conversations: number;
   tasksCompleted: number;
   filesEdited: number;
