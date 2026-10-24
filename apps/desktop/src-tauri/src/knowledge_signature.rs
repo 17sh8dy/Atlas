@@ -248,4 +248,16 @@ mod tests {
     fn the_compiled_in_key_is_well_formed() {
         assert_eq!(hex_decode(PUBLIC_KEY_HEX).map(|k| k.len()), Some(32));
     }
+
+    /// If a real pack has been built (`node scripts/build-knowledge.mjs`), it must verify with the
+    /// compiled-in key. Skipped when there is none, so a fresh checkout still passes.
+    #[test]
+    fn the_real_built_pack_verifies_with_the_compiled_in_key_when_one_exists() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("..").join("knowledge").join("dist");
+        let (Ok(pack), Ok(sig)) = (std::fs::read(dir.join("knowledge-pack.json")), std::fs::read_to_string(dir.join("knowledge-pack.sig"))) else {
+            return;
+        };
+        let got = verify(&pack, &sig).expect("the pack in knowledge/dist verifies");
+        assert!(got.seq > 0);
+    }
 }

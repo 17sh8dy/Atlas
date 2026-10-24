@@ -72,7 +72,43 @@ function checkRepo(dir, repo, label) {
   } catch (e) {
     fail(`${label}: could not confirm ${repo} is public (${String(e.message).split('\n')[0]})`);
   }
-  if (!dev && git(dir, 'status', '--porcelain')) fail(`${label}: working tree has uncommitted changes (commit first, or use --dev)`);
+  // Content is read from the committed HEAD (see `show`), so uncommitted edits can never leak into a
+  // signed pack. A HEAD that is not on the remote yet would give readers links that do not resolve.
+  if (!dev) {
+    try {
+      git(dir, 'merge-base', '--is-ancestor', 'HEAD', 'origin/main');
+    } catch {
+      notes.push(`${label}: HEAD is not on origin/main yet, so some source links will not resolve until it is pushed`);
+    }
+  }
+}
+
+/** The committed text of a file at HEAD (a dev build reads the working tree instead). */
+function show(dir, rel) {
+  if (dev) return readFileSync(join(dir, rel), 'utf8');
+  return execFileSync('git', ['-C', dir, 'show', `HEAD:${rel}`], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+}
+
+function existsAtHead(dir, rel) {
+  if (dev) return existsSync(join(dir, rel));
+  try {
+    git(dir, 'cat-file', '-e', `HEAD:${rel}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function listAtHead(dir, rel) {
+  if (dev) return existsSync(join(dir, rel)) ? readdirSync(join(dir, rel)) : [];
+  try {
+    return git(dir, 'ls-tree', '--name-only', 'HEAD', `${rel}/`)
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((f) => f.slice(rel.length + 1));
+  } catch {
+    return [];
+  }
 }
 
 const cfg = JSON.parse(readFileSync(join(root, 'knowledge', 'sources.json'), 'utf8'));
@@ -109,13 +145,12 @@ function addChunks({ idBase, product, title, body, origin, sourceUrl, sourcePath
 {
   const k = cfg.knowledgeRepo;
   checkRepo(k.path, k.repo, 'Nova-Knowledge');
-  const dir = join(k.path, k.pages);
-  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).sort() : [];
+  const files = listAtHead(k.path, k.pages).filter((f) => f.endsWith('.md')).sort();
   if (files.length === 0) fail('Nova-Knowledge has no pages');
   const ids = new Set();
   for (const f of files) {
     const rel = `${k.pages}/${f}`;
-    const parsed = parsePage(readFileSync(join(dir, f), 'utf8'));
+    const parsed = parsePage(show(k.path, rel));
     if (parsed.error) {
       fail(`${rel}: ${parsed.error}`);
       continue;
@@ -162,12 +197,11 @@ const lastDate = (dir, rel) => {
 for (const d of cfg.docs) {
   checkRepo(d.path, d.repo, d.product);
   for (const rel of d.files) {
-    const abs = join(d.path, rel);
-    if (!existsSync(abs)) {
+    if (!existsAtHead(d.path, rel)) {
       fail(`${d.product}: ${rel} is listed but does not exist`);
       continue;
     }
-    const text = readFileSync(abs, 'utf8');
+    const text = show(d.path, rel);
     if (text.length > LIMITS.pageChars * 4) {
       fail(`${d.product}: ${rel} is very large (${text.length} characters)`);
       continue;
