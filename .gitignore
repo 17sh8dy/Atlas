@@ -36,3 +36,4 @@ apps/desktop/Atlas.exe
 
 # Disposable folders for real-app tests (scripts/e2e)
 .e2e-sandbox/
+knowledge/dist/

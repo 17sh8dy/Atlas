@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "note": "The explicit allowlist for the Atlas/Nova knowledge pack (docs/PLAN-2.0.3.md §J-1, §N). Nothing is crawled: a file is in the pack only if it is named here. Every repo must have a PUBLIC GitHub remote, or the build fails. Atlas docs that are NOT listed (ROADMAP, TODO-2.0-RELEASE, INCIDENT-*, PLAN-*) are internal and never packed. LIFE and Nova Engine are not here: Nova Engine is private and gets only a hand-written, reviewed overview.",
+  "knowledgeRepo": {
+    "path": "D:/Dev/NovaKnowledge",
+    "repo": "17sh8dy/Nova-Knowledge",
+    "pages": "pages",
+    "publicBase": "https://github.com/17sh8dy/Nova-Knowledge/blob/main/"
+  },
+  "docs": [
+    {
+      "product": "atlas",
+      "path": "D:/Dev/Atlas",
+      "repo": "17sh8dy/Atlas",
+      "files": [
+        "README.md",
+        "docs/ARCHITECTURE.md",
+        "docs/CAPABILITY-SYSTEM-2.0.2.md",
+        "docs/CAPABILITY-COVERAGE.md",
+        "docs/CLOUD-SAFETY-AND-STATS.md",
+        "docs/MODEL-GATEWAY.md",
+        "docs/NATIVE-AUTHORIZATION.md",
+        "docs/NATIVE-AUTHORIZATION-INVENTORY.md",
+        "docs/SECURITY-HARDENING-2.0.md",
+        "docs/TOOL-CATALOG.md",
+        "docs/WEB-AND-BUILD.md",
+        "docs/WORKFLOW-UNIFICATION.md",
+        "docs/PLUGINS.md",
+        "docs/INSTALL.md",
+        "docs/TOKEN-ACCOUNTING.md",
+        "docs/TOKEN-ACCURACY.md"
+      ]
+    },
+    { "product": "replay-gg", "path": "D:/Dev/ReplayGG", "repo": "17sh8dy/Replay.GG", "files": ["README.md"] },
+    { "product": "nova-cut", "path": "D:/Dev/NovaCut", "repo": "17sh8dy/NovaCut", "files": ["README.md"] },
+    { "product": "nova-help", "path": "D:/Dev/NovaHelp", "repo": "17sh8dy/Nova.Help", "files": ["README.md"] },
+    { "product": "nova-review", "path": "D:/Dev/Nova.Review", "repo": "17sh8dy/Nova.Review", "files": ["README.md"] },
+    { "product": "novaos", "path": "D:/Dev/NovaOS", "repo": "17sh8dy/NovaOS", "files": ["README.md"] },
+    { "product": "nova-legal", "path": "D:/Dev/NovaLegal", "repo": "17sh8dy/NovaLegal", "files": ["README.md"] }
+  ],
+  "allowEmail": ["getnovasupport@gmail.com"]
+}

@@ -1,0 +1,13 @@
+{
+  "publicKeyHex": "adfb86ba96c1574dace14cb1239c03c9df5ad6fe280ea5b63683ee6b4661916b",
+  "pack": "{\"schema\":1,\"seq\":1000,\"builtAt\":\"2026-10-23T00:00:00.000Z\",\"keyId\":\"atlas-knowledge-1\",\"dev\":false,\"chunks\":[]}",
+  "sha256": "6e553cb8261b176e44346212a3055d05a8d44a4223e464331ef535f39f841aa5",
+  "sig": {
+    "algorithm": "ed25519",
+    "keyId": "atlas-knowledge-1",
+    "seq": 1000,
+    "builtAt": "2026-10-23T00:00:00.000Z",
+    "sha256": "6e553cb8261b176e44346212a3055d05a8d44a4223e464331ef535f39f841aa5",
+    "value": "CjGkrp4afIw1d1LsTNyJP7v8F5j1Sse0e0dVPmjRYfJQlGLBvwq+Kq6WSVH3DtguuPk3mnIxzBax2MZvMEaQDg=="
+  }
+}

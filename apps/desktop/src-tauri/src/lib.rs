@@ -22,6 +22,7 @@ mod diagnostics;
 mod redact;
 mod stats;
 mod usage;
+mod knowledge_signature;
 mod tokens;
 mod calibration;
 mod terminal;
