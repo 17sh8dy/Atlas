@@ -48,7 +48,7 @@ through `storage_set` is persistent but takes effect at the **next launch**.
 | `atlas.watches` | **High** | engine: continuation steps run unattended with their saved approval |
 | `routines.items` | **High** | engine: saved plans replayed on a schedule. **Not `atlas.`-prefixed** |
 | `atlas.halt-shortcut` | Medium | native-startup: `halt::start`; `set_halt_shortcut` rebinds the stop key |
-| `atlas.setups`, `atlas.tasks`, `atlas.workflow.transactions`, `atlas.file-journal` | Medium | engine/renderer: saved steps or undo steps that re-run **through the executor** (which still asks as its mode requires) |
+| `atlas.setups`, `atlas.tasks`, `atlas.workflows`, `atlas.workflow.transactions`, `atlas.file-journal` | Medium | engine/renderer: saved steps or undo steps that re-run **through the executor** (which still asks as its mode requires) |
 | `reminders.items` | Low | engine scheduler. **Not `atlas.`-prefixed** |
 | `atlas.update.autocheck`, `atlas.update.dismissed`, `atlas.settings.alerts`, `atlas.settings.notifications-enabled`, `atlas.settings.scroll`, `atlas.accent`, `atlas.theme`, `atlas.text-style`, `atlas.effects.enhanced`, `atlas.agent.context-tokens`, `atlas.selftest.probe` | Low | renderer preferences and bookkeeping |
 | `atlas.transcript`, `atlas.memory.episodes`, `atlas.settings.clipboard-history` | Privacy | not authority, but private |

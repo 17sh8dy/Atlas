@@ -112,7 +112,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
   const [standing, setStanding] = useState<Record<string, ProviderStanding>>({});
   const [capDraft, setCapDraft] = useState<Record<string, { r: string; t: string }>>({});
   // What the person says a million tokens cost, in dollars as typed, for the Stats estimate.
-  const [priceDraft, setPriceDraft] = useState<Record<string, { i: string; o: string }>>({});
+  const [priceDraft, setPriceDraft] = useState<Record<string, { i: string; o: string; c: string }>>({});
   const [safetyNote, setSafetyNote] = useState<Record<string, string>>({});
 
   const refreshStanding = useCallback(async () => {
@@ -170,14 +170,16 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
     const d = priceDraft[id] ?? {
       i: formatPriceMilli(st?.priceInMilli ?? null),
       o: formatPriceMilli(st?.priceOutMilli ?? null),
+      c: formatPriceMilli(st?.priceCachedMilli ?? null),
     };
-    const problem = priceTextProblem(d.i) ?? priceTextProblem(d.o);
+    const problem = priceTextProblem(d.i) ?? priceTextProblem(d.o) ?? priceTextProblem(d.c);
     if (problem) {
       setSafetyNote((p) => ({ ...p, [id]: problem }));
       return;
     }
     const pi = parsePriceMilli(d.i);
     const po = parsePriceMilli(d.o);
+    const pc = parsePriceMilli(d.c);
     // An estimate needs both halves; one alone would quietly price the other at nothing.
     if ((pi === null) !== (po === null)) {
       setSafetyNote((p) => ({ ...p, [id]: 'Enter both prices, or leave both empty.' }));
@@ -186,7 +188,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
     setBusy(true);
     setSafetyNote((p) => ({ ...p, [id]: '' }));
     try {
-      await setProviderPrices(id, pi, po);
+      await setProviderPrices(id, pi, po, pc);
       await refreshStanding();
       setPriceDraft((p) => {
         const next = { ...p };
@@ -465,6 +467,7 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
                       const pd = priceDraft[config.id] ?? {
                         i: formatPriceMilli(st.priceInMilli),
                         o: formatPriceMilli(st.priceOutMilli),
+                        c: formatPriceMilli(st.priceCachedMilli),
                       };
                       return (
                         <div className="flex flex-wrap items-end gap-2">
@@ -487,6 +490,17 @@ export function CloudProviders({ storage, providers, activeProviderId, onChange 
                               placeholder="not set"
                               onChange={(e) =>
                                 setPriceDraft((p) => ({ ...p, [config.id]: { ...pd, o: e.target.value } }))
+                              }
+                            />
+                          </label>
+                          <label className="text-foreground-subtle text-xs">
+                            Cached input, per 1M (optional)
+                            <Input
+                              value={pd.c}
+                              inputMode="decimal"
+                              placeholder="same as input"
+                              onChange={(e) =>
+                                setPriceDraft((p) => ({ ...p, [config.id]: { ...pd, c: e.target.value } }))
                               }
                             />
                           </label>

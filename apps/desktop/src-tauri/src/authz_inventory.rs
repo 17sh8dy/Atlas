@@ -369,6 +369,8 @@ pub const KEYS: &[Key] = &[
           consumers: "native-startup: halt::start; set_halt_shortcut rebinds the emergency stop" },
     Key { key: "atlas.setups", trust: Trust::Medium,
           consumers: "engine: setup store; saved step lists re-run through the executor" },
+    Key { key: "atlas.workflows", trust: Trust::Medium,
+          consumers: "engine: workflow memory; saved step lists the person approved, replayed through the ordinary executor (credentials refused at save time)" },
     Key { key: "atlas.tasks", trust: Trust::Medium,
           consumers: "engine: task store; resume re-runs steps through the executor" },
     Key { key: "atlas.workflow.transactions", trust: Trust::Medium,

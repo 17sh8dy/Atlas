@@ -83,6 +83,10 @@ pub struct Provider {
     pub price_in_milli: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_out_milli: Option<u64>,
+    /// Optional price for input served from the provider's cache. Unset means cached input is
+    /// priced as ordinary input, and the Stats note says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_cached_milli: Option<u64>,
 }
 
 fn yes() -> bool {
@@ -113,6 +117,7 @@ pub struct ProviderView {
     pub cap_tokens: Option<u64>,
     pub price_in_milli: Option<u64>,
     pub price_out_milli: Option<u64>,
+    pub price_cached_milli: Option<u64>,
     /// This calendar month, from Stats: requests, and tokens (reported by the provider where it
     /// said, otherwise estimated).
     pub month_requests: u64,
@@ -144,6 +149,7 @@ fn view_of(id: &str, p: &Provider) -> ProviderView {
         cap_tokens: p.cap_tokens,
         price_in_milli: p.price_in_milli,
         price_out_milli: p.price_out_milli,
+        price_cached_milli: p.price_cached_milli,
         month_requests: crate::stats::month_total(&format!("cloud:{id}:requests")),
         month_tokens: crate::cloud_safety::month_tokens_of(id),
         month_tokens_uncertain: crate::stats::month_total(&format!("cloud:{id}:tokens_unc_in")),
@@ -328,6 +334,7 @@ pub(crate) fn plan_migration(current: &Table, legacy: &[Legacy], start_at: u64) 
                 cap_tokens: None,
                 price_in_milli: None,
                 price_out_milli: None,
+                price_cached_milli: None,
             },
         );
         adopted += 1;
@@ -521,6 +528,7 @@ pub async fn provider_add(
         cap_tokens: None,
         price_in_milli: None,
         price_out_milli: None,
+        price_cached_milli: None,
     };
     crate::consent::ask(crate::consent::Request::ProviderAdd {
         kind: kind_label(kind).to_string(),
@@ -689,11 +697,12 @@ pub fn provider_set_prices(
     provider_id: String,
     price_in_milli: Option<u64>,
     price_out_milli: Option<u64>,
+    price_cached_milli: Option<u64>,
 ) -> Result<ProviderView, String> {
     check_id(&provider_id)?;
     // $100,000 per million tokens is well past any real price; refuse nonsense, not honest highs.
     const MAX_MILLI: u64 = 100_000_000;
-    if price_in_milli.is_some_and(|p| p > MAX_MILLI) || price_out_milli.is_some_and(|p| p > MAX_MILLI) {
+    if [price_in_milli, price_out_milli, price_cached_milli].iter().any(|p| p.is_some_and(|p| p > MAX_MILLI)) {
         return Err("That price looks too high to be a price per million tokens.".into());
     }
     let updated = {
@@ -703,15 +712,18 @@ pub fn provider_set_prices(
         };
         x.price_in_milli = price_in_milli;
         x.price_out_milli = price_out_milli;
+        x.price_cached_milli = price_cached_milli;
         x.clone()
     };
     persist(&app)?;
     Ok(view_of(&provider_id, &updated))
 }
 
-/// The prices the person entered for a provider, for the Stats estimate: `(input, output)`.
-pub fn prices_of(provider_id: &str) -> (Option<u64>, Option<u64>) {
-    get(provider_id).map(|p| (p.price_in_milli, p.price_out_milli)).unwrap_or((None, None))
+/// The prices the person entered for a provider, for the Stats estimate: `(input, output, cached input)`.
+pub fn prices_of(provider_id: &str) -> (Option<u64>, Option<u64>, Option<u64>) {
+    get(provider_id)
+        .map(|p| (p.price_in_milli, p.price_out_milli, p.price_cached_milli))
+        .unwrap_or((None, None, None))
 }
 
 /// Forget a provider (called when it is removed). Withdrawing a destination only makes a saved
@@ -752,6 +764,7 @@ mod tests {
             cap_tokens: None,
             price_in_milli: None,
             price_out_milli: None,
+            price_cached_milli: None,
         }
     }
 

@@ -420,6 +420,8 @@ pub struct ProviderUsage {
     pub requests: u64,
     pub tokens_in: u64,
     pub tokens_out: u64,
+    /// Of `tokens_in`: served from the provider's cache.
+    pub tokens_cached_in: u64,
     pub failures: u64,
     pub limit_hits: u64,
     /// This provider's estimated cost in US dollars, only when the person entered both prices.
@@ -571,15 +573,32 @@ pub(crate) fn streaks(active_days: &[i64], today: i64) -> (u64, u64, Option<i64>
 
 /// One provider's cost at the prices the person entered, in US dollars. Prices are thousandths of
 /// a dollar per million tokens.
-pub(crate) fn cost_usd(tokens_in: u64, tokens_out: u64, price_in_milli: u64, price_out_milli: u64) -> f64 {
-    (tokens_in as f64 * price_in_milli as f64 + tokens_out as f64 * price_out_milli as f64) / 1_000.0 / 1_000_000.0
+///
+/// `cached_in` is the part of `tokens_in` served from the provider's cache. It is priced at
+/// `price_cached_milli` when the person entered one, otherwise as ordinary input (so an estimate
+/// without a cached price can only err high, never low).
+pub(crate) fn cost_usd(
+    tokens_in: u64,
+    tokens_out: u64,
+    cached_in: u64,
+    price_in_milli: u64,
+    price_out_milli: u64,
+    price_cached_milli: Option<u64>,
+) -> f64 {
+    let cached = cached_in.min(tokens_in);
+    let cached_price = price_cached_milli.unwrap_or(price_in_milli);
+    ((tokens_in - cached) as f64 * price_in_milli as f64
+        + cached as f64 * cached_price as f64
+        + tokens_out as f64 * price_out_milli as f64)
+        / 1_000.0
+        / 1_000_000.0
 }
 
 /// Per-provider rows from the `cloud:<id>:<metric>` counters, priced where the person gave prices.
 fn provider_rows(
     metrics: &BTreeMap<String, u64>,
     label_for: &dyn Fn(&str) -> String,
-    price_for: &dyn Fn(&str) -> (Option<u64>, Option<u64>),
+    price_for: &dyn Fn(&str) -> (Option<u64>, Option<u64>, Option<u64>),
 ) -> Vec<ProviderUsage> {
     let mut ids: BTreeMap<String, ProviderUsage> = BTreeMap::new();
     for (k, v) in metrics {
@@ -591,6 +610,7 @@ fn provider_rows(
             requests: 0,
             tokens_in: 0,
             tokens_out: 0,
+            tokens_cached_in: 0,
             failures: 0,
             limit_hits: 0,
             est_cost_usd: None,
@@ -599,14 +619,15 @@ fn provider_rows(
             "requests" => e.requests += v,
             "tokens_in" => e.tokens_in += v,
             "tokens_out" => e.tokens_out += v,
+            "tokens_cached_in" => e.tokens_cached_in += v,
             "failures" => e.failures += v,
             "limit_hits" => e.limit_hits += v,
             _ => {}
         }
     }
     for p in ids.values_mut() {
-        if let (Some(pi), Some(po)) = price_for(&p.id) {
-            p.est_cost_usd = Some(cost_usd(p.tokens_in, p.tokens_out, pi, po));
+        if let (Some(pi), Some(po), pc) = price_for(&p.id) {
+            p.est_cost_usd = Some(cost_usd(p.tokens_in, p.tokens_out, p.tokens_cached_in, pi, po, pc));
         }
     }
     ids.into_values().collect()
@@ -653,7 +674,7 @@ fn sum_metrics(store: &Store, from_day: Option<i64>, to_day: i64) -> BTreeMap<St
 
 #[cfg(test)]
 fn summarise(store: &Store, period: &str, today: (i64, i64, i64), label_for: &dyn Fn(&str) -> String) -> Option<Summary> {
-    summarise_with(store, period, today, label_for, &|_| (None, None))
+    summarise_with(store, period, today, label_for, &|_| (None, None, None))
 }
 
 fn summarise_with(
@@ -661,7 +682,7 @@ fn summarise_with(
     period: &str,
     today: (i64, i64, i64),
     label_for: &dyn Fn(&str) -> String,
-    price_for: &dyn Fn(&str) -> (Option<u64>, Option<u64>),
+    price_for: &dyn Fn(&str) -> (Option<u64>, Option<u64>, Option<u64>),
 ) -> Option<Summary> {
     let (from_day, to_day, label) = period_range(period, today)?;
     let today_n = days_from_civil(today.0, today.1, today.2);
@@ -925,6 +946,18 @@ pub async fn stats_reset() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn cached_input_is_priced_separately_only_when_the_person_entered_a_price() {
+        // 1M input tokens, 800k of them cached; input $2.00/M; cached $0.50/M.
+        let with = cost_usd(1_000_000, 0, 800_000, 2_000, 0, Some(500));
+        assert!((with - (0.2 * 2.0 + 0.8 * 0.5)).abs() < 1e-9, "{with}");
+        // No cached price: cached tokens cost the ordinary input price, so the estimate can only err high.
+        let without = cost_usd(1_000_000, 0, 800_000, 2_000, 0, None);
+        assert!((without - 2.0).abs() < 1e-9, "{without}");
+        // More cached than input (bad data) can never produce a negative or inflated cost.
+        assert!(cost_usd(100, 0, 999, 1_000, 0, Some(500)) >= 0.0);
+    }
+
+    #[test]
     fn lifetime_cloud_tokens_split_into_confirmed_estimated_and_unsplit() {
         let mut st = store_with(&[
             // Before the split existed: 1000 tokens, nobody knows how many were estimated.
@@ -1171,8 +1204,8 @@ mod dashboard_tests {
 
     fn summary(s: &Store, period: &str, today: (i64, i64, i64)) -> Summary {
         summarise_with(s, period, today, &|_| "P".to_string(), &|id| match id {
-            "priced" => (Some(2_500), Some(10_000)), // $2.50 in, $10 out per million tokens
-            _ => (None, None),
+            "priced" => (Some(2_500), Some(10_000), None), // $2.50 in, $10 out per million tokens
+            _ => (None, None, None),
         })
         .unwrap()
     }
@@ -1290,9 +1323,9 @@ mod dashboard_tests {
 
     #[test]
     fn the_cost_arithmetic_is_exact() {
-        assert_eq!(cost_usd(1_000_000, 0, 1_000, 0), 1.0, "$1 per million tokens in");
-        assert!((cost_usd(0, 1_000, 0, 15_000) - 0.015).abs() < 1e-12, "1k tokens out at $15/M");
-        assert_eq!(cost_usd(0, 0, 5_000, 5_000), 0.0);
+        assert_eq!(cost_usd(1_000_000, 0, 0, 1_000, 0, None), 1.0, "$1 per million tokens in");
+        assert!((cost_usd(0, 1_000, 0, 0, 15_000, None) - 0.015).abs() < 1e-12, "1k tokens out at $15/M");
+        assert_eq!(cost_usd(0, 0, 0, 5_000, 5_000, None), 0.0);
     }
 
     #[test]

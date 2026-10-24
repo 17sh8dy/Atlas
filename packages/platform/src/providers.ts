@@ -489,6 +489,8 @@ export interface ProviderStanding {
   /** What the person says a million tokens cost, in thousandths of a US dollar; null = not set. */
   priceInMilli: number | null;
   priceOutMilli: number | null;
+  /** Optional price for input served from the provider's cache; null = priced as ordinary input. */
+  priceCachedMilli: number | null;
   monthRequests: number;
   monthTokens: number;
   /** Part of `monthTokens`: failed requests that may still have been billed. */
@@ -505,6 +507,7 @@ export async function listProviderStanding(): Promise<ProviderStanding[]> {
       capTokens: number | null;
       priceInMilli: number | null;
       priceOutMilli: number | null;
+      priceCachedMilli: number | null;
       monthRequests: number;
       monthTokens: number;
       monthTokensUncertain: number;
@@ -536,8 +539,9 @@ export async function setProviderPrices(
   providerId: string,
   priceInMilli: number | null,
   priceOutMilli: number | null,
+  priceCachedMilli: number | null = null,
 ): Promise<void> {
-  await invoke<unknown>('provider_set_prices', { providerId, priceInMilli, priceOutMilli });
+  await invoke<unknown>('provider_set_prices', { providerId, priceInMilli, priceOutMilli, priceCachedMilli });
 }
 
 /** Rename, change the model, or enable/disable. None of these can redirect a key, so none asks. */
