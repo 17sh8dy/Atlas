@@ -52,7 +52,7 @@ function trimAscii(s: string): string {
   return s.slice(a, b);
 }
 
-const SYMBOLS = '{}[]()<>;=+*/\|&^~';
+const SYMBOLS = '{}[]()<>;=+*/|&^~';
 
 /** A cheap single-pass guess at what kind of text a paragraph is. */
 export function classify(paragraph: string): ContentKind {
