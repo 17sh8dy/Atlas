@@ -429,3 +429,17 @@ describe('a model that cannot be reached does not make raw internals appear as a
     expect(t.said.join('\n')).toMatch(/isn't in my documentation/);
   });
 });
+
+describe('developer documentation is never displayed, even beside a user-written passage', () => {
+  it('shows only the user-audience window when the model cannot answer', async () => {
+    const user = base({ id: 'u#0', title: 'Atlas 2.0.0 release notes', headingPath: ['Atlas 2.0.0 release notes'], text: 'New: changes to which cloud providers Atlas trusts need your OK in a Windows box.', sourcePath: 'u' });
+    const dev = base({ id: 'd#0', title: 'Cloud safety', headingPath: ['Cloud safety', 'Internals'], text: 'ask_cloud_provider reads the saved key by provider_id and sends it to whatever https URL the caller supplies for cloud providers.', sourcePath: 'd', audience: 'developer' });
+    const parsed = parsePack(JSON.stringify({ ...PACK, chunks: [user, dev] }))!;
+    const loaded = { info: INFO, index: new KnowledgeIndex(parsed), faq: [] };
+    const t = engine(deps({ load: async () => loaded }), provider({ error: 'offline' }));
+    await t.ask('Does Atlas change cloud providers?');
+    const said = t.said.join('\n');
+    expect(said).toMatch(/need your OK in a Windows box/);
+    expect(said).not.toMatch(/ask_cloud_provider|provider_id/);
+  });
+});

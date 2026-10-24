@@ -204,6 +204,8 @@ function showable(hits: KnowledgeHit[], intent: Intent): Array<{ h: KnowledgeHit
   const out: Array<{ h: KnowledgeHit; text: string }> = [];
   for (const h of hits) {
     if (h.score < top * 0.8) continue;
+    // Developer documentation is for a model to read, never for a person to be shown as an answer.
+    if (h.chunk.audience === 'developer') continue;
     // The section's heading names what was asked: it is that section, so read it from its opening.
     const headingIsAbout = tokenize(h.chunk.headingPath[h.chunk.headingPath.length - 1] ?? '').some((t) => content.includes(t));
     const w = windowWithOverlap(h.chunk.text, intent.text, 650, headingIsAbout);
