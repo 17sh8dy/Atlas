@@ -214,12 +214,14 @@ for (const d of cfg.docs) {
       fail(`${d.product}: ${rel} is very large (${text.length} characters)`);
       continue;
     }
-    const title = (/^#\s+(.+)$/m.exec(text)?.[1] ?? rel).trim();
+    // A file may be given a title (the release notes are bare lines with no heading of their own).
+    const given = typeof file === 'string' ? null : (file.title ?? null);
+    const title = (given ?? /^#\s+(.+)$/m.exec(text)?.[1] ?? rel).trim();
     addChunks({
       idBase: `${d.product}/${rel}`,
       product: d.product,
       title,
-      body: text,
+      body: given ? text.replace(/^#.*\n/, '') : text,
       origin: 'repo-docs',
       sourceUrl: `https://github.com/${d.repo}/blob/main/${rel}`,
       sourcePath: `${d.repo}:${rel}`,

@@ -7,12 +7,13 @@
  * or calls a tool. Everything it shows a person is built in code from verified text or labelled live text.
  */
 
-import { decide, excerpt, liveLine, passagesText, windowWithOverlap, NEEDS_MODEL_LINE, type LiveSourceId } from './decide';
-import { matchFaq, type Facts, type FaqEntry } from './faq';
+import { decide, excerpt, liveLine, windowWithOverlap, NEEDS_MODEL_LINE, type LiveSourceId } from './decide';
+import { compareVersions, matchFaq, type Facts, type FaqEntry } from './faq';
+import { plainText } from './plain';
 import { classifyIntent, type Intent } from './intent';
 import { referenceBlock, sourceLine, sourceLinks } from './cite';
 import { contentTokens, tokenize, type KnowledgeIndex } from './search';
-import type { KnowledgeHit, PackInfo } from './types';
+import type { KnowledgeChunk, KnowledgeHit, PackInfo } from './types';
 
 /** What the engine needs to hand over. */
 export interface LoadedKnowledge {
@@ -126,38 +127,90 @@ function packAnswer(
   const stale = liveFailed ? ' · may be out of date: I could not read the live page just now' : '';
   const line = (h: KnowledgeHit[]) => `${sourceLine({ hits: h, pack: loaded.info, now, refreshing: deps.refreshing() })}${stale}`;
 
+  // "What's new" when the live page could not be read (or lookups are off): the newest release notes in the pack,
+  // flagged because a newer release may exist.
+  if (intent.current && intent.product && /\b(?:new|changed|release|latest|newest|changelog|notes)\b/.test(intent.text)) {
+    const notes = latestReleaseNotes(loaded, intent.product);
+    if (notes) {
+      const h = [{ chunk: notes, score: 1 }];
+      const stale = ' · may be out of date: I could not read the live page just now';
+      const flag = liveFailed ? stale : ' · this is the newest release in my built-in documentation; a newer one may exist';
+      return {
+        kind: 'say',
+        how: 'passages',
+        text: `${notes.title}
+
+${excerpt(plainText(notes.text), 900)}
+
+${sourceLine({ hits: h, pack: loaded.info, now, refreshing: deps.refreshing() })}${flag}`,
+        links: sourceLinks(h),
+      };
+    }
+  }
+
   if (plan.kind === 'template') {
     const h = [{ chunk: plan.faq.entry.chunk, score: 1 }];
     return { kind: 'say', how: 'verified', text: `${plan.faq.text}\n\n${line(h)} · Verified answer`, links: sourceLinks(h) };
   }
   if (plan.kind === 'passages') {
-    // Only passages whose best sentences actually contain what was asked are shown: a chunk that matched on a
-    // stray word is not an answer, and showing it would be worse than saying nothing.
-    const asked = contentTokens(intent.text).length;
-    const need = asked === 0 ? 0 : Math.max(1, Math.ceil(asked * 0.5));
-    const top = plan.hits[0]?.score ?? 0;
-    const asking = new Set(tokenize(intent.text));
-    const kept = plan.hits
-      .map((h) => {
-        // The section's own heading names what was asked: it is that section, so read it from its opening.
-        const headingIsAbout = tokenize(h.chunk.headingPath[h.chunk.headingPath.length - 1] ?? '').some((t) => asking.has(t) && contentTokens(intent.text).includes(t));
-        return { h, headingIsAbout, w: windowWithOverlap(h.chunk.text, intent.text, 650, headingIsAbout) };
-      })
-      // One content word beside a product name is weak evidence (any chunk mentions "computer"): it only counts when
-      // the section's heading is about it too.
-      .filter(({ h, w, headingIsAbout }) => w.text.length > 0 && (asked >= 2 || headingIsAbout || asked === 0) && w.overlap >= Math.min(need, headingIsAbout ? 1 : need) && h.score >= top * 0.8);
-    if (kept.length === 0) return { kind: 'none', intent };
+    const shown = showable(plan.hits, intent);
+    if (shown.length === 0) return { kind: 'none', intent };
     const more = plan.needsModel ? `\n\n${NEEDS_MODEL_LINE}` : '';
-    const hits = kept.map((k) => k.h);
-    const body = kept.map((k) => k.w.text).join('\n\n');
+    const hits = shown.map((k) => k.h);
+    const body = shown.map((k) => k.text).join('\n\n');
     const lead = plan.partial ? 'Here is the closest thing I have:\n\n' : '';
     return { kind: 'say', how: 'passages', text: `${lead}${body}${more}\n\n${line(hits)}`, links: sourceLinks(hits) };
   }
   if (plan.kind === 'model') {
     const body = `${referenceBlock(plan.hits)}\n\nAnswer the question using only the reference material above. If it does not say, say that it does not.\n\nQuestion: ${intent.text}`;
     const footer = `\n\n${line(plan.hits)}${plan.partial ? ' · partly from the documentation' : ''}`;
-    const fallback = `${passagesText(plan.hits, plan.partial, intent.text)}\n\n${line(plan.hits)}`;
+    // If the model cannot answer, the documentation answers only if it really has something to show; otherwise
+    // there is no fallback, and the engine says honestly that the model could not be reached and the docs do not cover it.
+    const shown = showable(plan.hits, intent);
+    const fallback = shown.length
+      ? `${plan.partial ? 'Here is the closest thing I have:\n\n' : ''}${shown.map((k) => k.text).join('\n\n')}\n\n${line(shown.map((k) => k.h))}`
+      : '';
     return { kind: 'ask-model', body, footer, fallback };
   }
   return { kind: 'none', intent };
+}
+
+/** The release notes for a product with the highest version, if the pack has any. */
+function latestReleaseNotes(loaded: LoadedKnowledge, product: string): KnowledgeChunk | null {
+  const candidates = loaded.index.findByTitle(/release notes/i, product);
+  let best: KnowledgeChunk | null = null;
+  let bestV = '0.0.0';
+  for (const c of candidates) {
+    const v = /(\d+\.\d+\.\d+)/.exec(c.title)?.[1];
+    if (v && (best === null || compareVersions(v, bestV) > 0)) {
+      best = c;
+      bestV = v;
+    }
+  }
+  return best;
+}
+
+/**
+ * The passages worth showing a person, as plain text. Only a chunk whose best sentences actually contain what was
+ * asked is shown: one that matched on a stray word is not an answer, and showing it would be worse than saying
+ * nothing. One content word beside a product name is weak evidence (any chunk mentions "computer"), so it only
+ * counts when the section's own heading is about it too.
+ */
+function showable(hits: KnowledgeHit[], intent: Intent): Array<{ h: KnowledgeHit; text: string }> {
+  const content = contentTokens(intent.text);
+  const asked = content.length;
+  const need = asked === 0 ? 0 : Math.max(1, Math.ceil(asked * 0.5));
+  const top = hits[0]?.score ?? 0;
+  const out: Array<{ h: KnowledgeHit; text: string }> = [];
+  for (const h of hits) {
+    if (h.score < top * 0.8) continue;
+    // The section's heading names what was asked: it is that section, so read it from its opening.
+    const headingIsAbout = tokenize(h.chunk.headingPath[h.chunk.headingPath.length - 1] ?? '').some((t) => content.includes(t));
+    const w = windowWithOverlap(h.chunk.text, intent.text, 650, headingIsAbout);
+    if (w.text.length === 0) continue;
+    if (!(asked >= 2 || headingIsAbout || asked === 0)) continue;
+    if (w.overlap < (headingIsAbout ? Math.min(need, 1) : need)) continue;
+    out.push({ h, text: w.text });
+  }
+  return out;
 }

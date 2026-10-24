@@ -82,7 +82,7 @@ import { CapabilityIndex } from './capabilities';
 import { chainClauses, shouldRouteToAgent, trustPlan } from './universal/router';
 import { reporterFor, type ActivityEvent } from './planner/executor';
 import { allTemplates } from './templates';
-import { answerKnowledge, notInDocsModelUnreachable, notInDocsNoModel, type KnowledgeDeps } from './knowledge';
+import { answerKnowledge, isProductNews, notInDocsModelUnreachable, notInDocsNoModel, type KnowledgeDeps } from './knowledge';
 
 /**
  * What the chat model is told when an instruction reached it unresolved.
@@ -430,6 +430,18 @@ export class Engine {
       }
     } else {
       this.lastOpenTarget = openTargetOf(raw);
+    }
+
+    // 0b. News about a Nova product ("what's new in Atlas?") is a knowledge question. A file rule also reads
+    //     "what's new in <folder>", and a folder happens to be called Atlas, so without this the question about the
+    //     product became "nothing in Atlas has changed in the last day". If the tier cannot answer, say so plainly
+    //     rather than falling through to a folder search the person did not ask for.
+    if (this.knowledge && isProductNews(raw)) {
+      const answered = await this.answerFromKnowledge(raw, io, signal);
+      if (answered) return answered;
+      const said = "I couldn't get the latest release information for that: it comes from Nova's public pages, and I couldn't read them just now (I may be offline, or looking things up may be turned off in Settings). My built-in documentation doesn't have it either.";
+      io.say(said);
+      return { ok: false, mode: 'chat', error: 'no-release-info' };
     }
 
     // 1. Grammar — the fast path. Parsing is pure: it reads the text and

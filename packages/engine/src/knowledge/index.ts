@@ -1,6 +1,6 @@
 export * from './types';
 export { parsePack } from './pack';
-export { classifyIntent, cleanQuestion, type Intent, type Aspect } from './intent';
+export { classifyIntent, cleanQuestion, isProductNews, type Intent, type Aspect } from './intent';
 export { faqEntries, matchFaq, fillAnswer, compareVersions, type FaqEntry, type FaqMatch, type Facts } from './faq';
 export { KnowledgeIndex, tokenize } from './search';
 export { referenceBlock, sanitizeChunkText, sourceLine, sourceLinks, REFERENCE_RULE, STALE_AFTER_DAYS } from './cite';

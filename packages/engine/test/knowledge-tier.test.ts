@@ -335,8 +335,42 @@ describe('current information (live)', () => {
     await t.ask("What's new in Atlas?");
     const said = t.said.join('\n');
     expect(said).not.toMatch(/Live from/);
-    // Nothing in this tiny pack is about "what's new", so it declines honestly rather than guessing.
-    expect(said).toMatch(/isn't in my documentation|may be out of date/);
+    // Nothing in this tiny pack is about "what's new", so it says so plainly: it does NOT fall through to a folder
+    // search ("nothing in Atlas has changed in the last day") that the person never asked for.
+    expect(said).toMatch(/couldn't get the latest release information/);
+    expect(said).not.toMatch(/has changed in the last/);
+  });
+
+  it('with release notes in the pack, "what is new" is answered offline and flagged as possibly out of date', async () => {
+    const withNotes = {
+      ...PACK,
+      chunks: [
+        ...CHUNKS,
+        base({
+          id: 'atlas/release-notes/2.0.2.txt#0',
+          title: 'Atlas 2.0.2 release notes',
+          headingPath: ['Atlas 2.0.2 release notes'],
+          text: 'New: Atlas understands far more everyday requests in plain words. New: Atlas can remember a workflow you did and replay it later.',
+          sourcePath: '17sh8dy/Atlas:release-notes/2.0.2.txt',
+          sourceUrl: 'https://github.com/17sh8dy/Atlas/blob/main/release-notes/2.0.2.txt',
+        }),
+      ],
+    };
+    const parsed = parsePack(JSON.stringify(withNotes))!;
+    const loaded = { info: INFO, index: new KnowledgeIndex(parsed), faq: faqEntries(parsed.chunks) };
+    const k = deps({ load: async () => loaded, live: async () => { throw new Error('offline'); } });
+    const t = engine(k, null);
+    await t.ask("What's new in Atlas?");
+    const said = t.said.join('\n');
+    expect(said).toMatch(/remember a workflow/);
+    expect(said).toMatch(/may be out of date: I could not read the live page just now/);
+    expect(said).not.toMatch(/has changed in the last/);
+  });
+
+  it('a product-news question is never turned into a folder search', async () => {
+    const t = engine(deps({ liveAllowed: () => false }), null);
+    await t.ask('What is new in Replay.GG?');
+    expect(t.said.join('\n')).not.toMatch(/has changed in the last|Nothing in/);
   });
 
   it('never reads a live page when lookups are off', async () => {
@@ -362,5 +396,36 @@ describe('answerKnowledge directly', () => {
     const r = await answerKnowledge('What is the capital of Peru?', k, { modelUsable: false });
     expect(r.kind).toBe('none');
     expect(loads).toBe(0);
+  });
+});
+
+describe('a model that cannot be reached does not make raw internals appear as an answer', () => {
+  it('developer-only matches are not shown as the fallback; the reply says the model is unreachable and the docs do not cover it', async () => {
+    const dev = base({
+      id: 'dev#0',
+      product: 'replay-gg',
+      title: 'Replay.gg',
+      headingPath: ['Replay.gg', 'Architecture'],
+      text: 'Electron plus React plus TypeScript. Expose it on the preload API in src/preload/index.ts and call it from the renderer via window.replay.',
+      sourcePath: 'p',
+      audience: 'developer',
+    });
+    const parsed = parsePack(JSON.stringify({ ...PACK, chunks: [dev] }))!;
+    const loaded = { info: INFO, index: new KnowledgeIndex(parsed), faq: [] };
+    const t = engine(deps({ load: async () => loaded }), provider({ error: 'offline' }));
+    await t.ask('What is Replay.GG?');
+    const said = t.said.join('\n');
+    expect(said).not.toMatch(/preload|renderer|TypeScript/);
+    expect(said).toMatch(/couldn't reach your language model/);
+    expect(said).toMatch(/my documentation doesn't cover this/);
+  });
+
+  it('with no model at all, developer-only matches are declined outright', async () => {
+    const dev = base({ id: 'dev#0', product: 'replay-gg', title: 'Replay.gg', headingPath: ['Replay.gg'], text: 'Electron plus React plus TypeScript app for recording gameplay.', sourcePath: 'p', audience: 'developer' });
+    const parsed = parsePack(JSON.stringify({ ...PACK, chunks: [dev] }))!;
+    const loaded = { info: INFO, index: new KnowledgeIndex(parsed), faq: [] };
+    const t = engine(deps({ load: async () => loaded }), null);
+    await t.ask('What is Replay.GG?');
+    expect(t.said.join('\n')).toMatch(/isn't in my documentation/);
   });
 });

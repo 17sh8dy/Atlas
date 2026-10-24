@@ -59,7 +59,7 @@ const PRODUCT_WORDS: Record<string, string[]> = {
 /** The folded tokens that merely name a product; they say which product, not what is being asked. */
 const PRODUCT_TOKENS = new Set(Object.values(PRODUCT_WORDS).flat().flatMap((w) => tokenize(w)));
 /** A question about how Atlas is built, which is allowed to land in the developer documentation. */
-const DEVELOPER_QUESTION = /(?:architecture|source code|code|api|rust|typescript|tauri|implement(?:ed|ation)?|internals?|modules?|functions?|repo(?:sitory)?|developers?|contribut\w*|build it)/i;
+const DEVELOPER_QUESTION = /\b(?:architecture|source code|code|api|rust|typescript|tauri|implement(?:ed|ation)?|internals?|modules?|functions?|repo(?:sitory)?|developers?|contribut\w*|build it)\b/i;
 /** Developer documentation answers a person's question less directly, so it ranks below user documentation. */
 const DEVELOPER_WEIGHT = 0.7;
 
@@ -100,6 +100,11 @@ export class KnowledgeIndex {
       for (const t of tf.keys()) this.df.set(t, (this.df.get(t) ?? 0) + 1);
     }
     this.avgLen = this.docs.length ? Math.max(1, total / this.docs.length) : 1;
+  }
+
+  /** Every chunk of one product whose title matches (used to find a product's release notes). */
+  findByTitle(title: RegExp, product: string): KnowledgeChunk[] {
+    return this.docs.filter((d) => d.chunk.product === product && title.test(d.chunk.title)).map((d) => d.chunk);
   }
 
   get size(): number {

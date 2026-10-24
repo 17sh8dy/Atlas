@@ -117,3 +117,14 @@ export function classifyIntent(raw: string): Intent {
     isKnowledgeQuestion: questionShaped && (product !== null || (topic !== null && selfRef)),
   };
 }
+
+/**
+ * "What's new in Atlas?", "latest Nova Cut version", "Replay.GG release notes": news about a Nova PRODUCT. These are
+ * knowledge questions even though a file rule also reads "what's new in <folder>", so the engine asks the knowledge
+ * tier first; a folder that happens to be called "Atlas" must not turn a question about the product into a file search.
+ */
+export function isProductNews(raw: string): boolean {
+  const t = cleanQuestion(raw);
+  if (!/\b(?:what is new|what changed|what has changed|latest|newest|release notes|changelog|new version|recent(?:ly)? (?:changes|release))\b/.test(t)) return false;
+  return PRODUCTS.some(([id, re]) => id !== 'nova' && re.test(t));
+}

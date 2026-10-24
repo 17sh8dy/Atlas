@@ -72,6 +72,46 @@
         {
           "path": "docs/TOKEN-ACCURACY.md",
           "audience": "user"
+        },
+        {
+          "path": "release-notes/1.0.6.txt",
+          "audience": "user",
+          "title": "Atlas 1.0.6 release notes"
+        },
+        {
+          "path": "release-notes/1.0.7.txt",
+          "audience": "user",
+          "title": "Atlas 1.0.7 release notes"
+        },
+        {
+          "path": "release-notes/1.0.8.txt",
+          "audience": "user",
+          "title": "Atlas 1.0.8 release notes"
+        },
+        {
+          "path": "release-notes/1.0.9.txt",
+          "audience": "user",
+          "title": "Atlas 1.0.9 release notes"
+        },
+        {
+          "path": "release-notes/1.0.10.txt",
+          "audience": "user",
+          "title": "Atlas 1.0.10 release notes"
+        },
+        {
+          "path": "release-notes/2.0.0.txt",
+          "audience": "user",
+          "title": "Atlas 2.0.0 release notes"
+        },
+        {
+          "path": "release-notes/2.0.1.txt",
+          "audience": "user",
+          "title": "Atlas 2.0.1 release notes"
+        },
+        {
+          "path": "release-notes/2.0.2.txt",
+          "audience": "user",
+          "title": "Atlas 2.0.2 release notes"
         }
       ]
     },
