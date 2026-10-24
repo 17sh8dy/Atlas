@@ -607,7 +607,8 @@ async fn ask_cloud_provider_unraced(
     crate::cloud_safety::before_request(&provider_id)?;
 
     let client = http_client()?;
-    let tokens_in = crate::stats::estimate_tokens(&prompt);
+    // Everything the request sends is billed as input: the prompt and any tool or schema JSON.
+    let tokens_in = crate::tokens::estimate_request(&prompt, tools.as_ref(), schema.as_ref());
     // The emergency stop drops this future mid-request. A request that was in flight may have
     // reached the provider, so if we are dropped before an outcome is known it is recorded as
     // uncertain rather than vanishing from the cap.

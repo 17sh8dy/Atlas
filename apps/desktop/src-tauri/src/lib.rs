@@ -22,6 +22,7 @@ mod diagnostics;
 mod redact;
 mod stats;
 mod usage;
+mod tokens;
 mod terminal;
 mod changes;
 mod cloud_safety;

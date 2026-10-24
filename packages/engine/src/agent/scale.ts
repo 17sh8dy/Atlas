@@ -17,7 +17,7 @@
  * quality. More room is an opportunity, not an improvement — measure before believing it.
  */
 
-import type { ModelCapacity } from '@atlas/core';
+import { AGENT_CHARS_PER_TOKEN, type ModelCapacity } from '@atlas/core';
 
 /** What Atlas has always assumed when it does not know better. */
 export const DEFAULT_TOKENS = 16_384;
@@ -55,7 +55,7 @@ export function chooseWorkingMemory(capacity: ModelCapacity | null | undefined, 
 
 export function scaleFor(capacity: ModelCapacity | null | undefined, pinned?: number | null): AgentScale {
   const tokens = chooseWorkingMemory(capacity, pinned);
-  const chars = tokens * 3; // about three characters a token for code and logs
+  const chars = tokens * AGENT_CHARS_PER_TOKEN; // the one shared, cautious figure (token-weights.json)
   const maxIterations = tokens <= 16_384 ? 12 : tokens < 40_000 ? 24 : tokens < 80_000 ? 36 : tokens < 160_000 ? 48 : 64;
   const keepFull = tokens <= 16_384 ? 3 : tokens < 40_000 ? 5 : tokens < 100_000 ? 7 : 10;
   const why = capacity?.contextTokens

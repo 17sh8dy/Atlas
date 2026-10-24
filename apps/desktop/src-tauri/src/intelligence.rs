@@ -125,9 +125,14 @@ fn validate_prompt_for(prompt: &str, num_ctx: u32) -> Result<(), String> {
     if prompt.trim().is_empty() {
         return Err("Nothing to ask.".into());
     }
-    let limit = MAX_PROMPT_CHARS.max((num_ctx as usize).saturating_mul(3).saturating_mul(3) / 4);
-    if prompt.chars().count() > limit {
-        return Err("That's too long to send.".into());
+    // Up to the old fixed limit a prompt is judged exactly as before (a plain character count).
+    // Past it, the working memory decides, measured in estimated tokens (with room left for the
+    // reply) rather than by a characters-per-token guess of its own.
+    if prompt.chars().count() > MAX_PROMPT_CHARS {
+        let room = (num_ctx as u64).saturating_mul(3) / 4;
+        if crate::tokens::estimate(prompt) > room {
+            return Err("That's too long to send.".into());
+        }
     }
     Ok(())
 }

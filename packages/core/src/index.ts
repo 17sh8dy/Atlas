@@ -16,6 +16,7 @@
 export * from './models/skill';
 export * from './models/review';
 export { redactSecrets, KEY_HIDDEN } from './redact';
+export { estimateTokens, estimateTokensAs, AGENT_CHARS_PER_TOKEN, type ContentKind } from './tokens';
 export * from './models/elevation';
 export * from './models/plan';
 export * from './models/execution-mode';

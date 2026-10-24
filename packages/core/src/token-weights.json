@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "note": "Starting weights for the token estimator. Milli-tokens per character (1000 = one token), integers so Rust and TypeScript agree exactly. Retuned from scripts/token-calibrate.mjs, never by guesswork. The Rust twin is apps/desktop/src-tauri/src/tokens.rs.",
+  "perChar": {
+    "alnum": 240,
+    "space": 30,
+    "newline": 150,
+    "punct": 400,
+    "latinExt": 500,
+    "cjk": 1000,
+    "otherScript": 700,
+    "emoji": 2500,
+    "joiner": 300,
+    "combining": 300,
+    "other": 600
+  },
+  "kind": {
+    "prose": 1000,
+    "code": 1150,
+    "json": 1250,
+    "logs": 1200
+  },
+  "agentCharsPerToken": 3
+}

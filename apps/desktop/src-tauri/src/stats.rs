@@ -287,7 +287,7 @@ fn apply_model(
 /// What a person's prompt or a reply costs in tokens when the provider did not say: about four
 /// characters each, which is an estimate and is shown as one.
 pub fn estimate_tokens(text: &str) -> u64 {
-    (text.chars().count() as u64).div_ceil(4)
+    crate::tokens::estimate(text)
 }
 
 /// Sum of one metric from the first of this month to today (local). Used by the cloud caps.
@@ -487,6 +487,20 @@ pub struct Lifetime {
     /// Tokens sent to cloud providers, as Atlas counted them (or as the provider reported where it
     /// said). NOT authoritative: the provider's own dashboard and bill are the only real figures.
     pub cloud_tokens: u64,
+    /// Of `cloud_tokens`: how much Atlas estimated because the provider did not report it. Only
+    /// counted from `cloud_split_from` on; earlier days have one combined number.
+    pub cloud_tokens_estimated: u64,
+    /// Of `cloud_tokens` from `cloud_split_from` on: how much the provider reported itself.
+    pub cloud_tokens_confirmed: u64,
+    /// Cloud tokens from days before the split existed: neither confirmed nor estimated is known.
+    pub cloud_tokens_unsplit: u64,
+    /// Of cloud input: the part served from the provider's cache (already inside `cloud_tokens`).
+    pub cloud_tokens_cached: u64,
+    /// Input of requests that may have reached the provider and then failed. They may have been
+    /// billed, so they count toward a monthly limit, but they are NOT in `cloud_tokens`.
+    pub cloud_tokens_uncertain: u64,
+    /// The first day (`YYYY-MM-DD`) recorded with the confirmed/estimated split.
+    pub cloud_split_from: String,
     pub conversations: u64,
     pub tasks_completed: u64,
     pub files_edited: u64,
@@ -702,6 +716,11 @@ fn summarise_with(
     let all = sum_metrics(store, None, i64::MAX);
     let all_providers = provider_rows(&all, label_for, price_for);
     let m = |k: &str| all.get(k).copied().unwrap_or(0);
+    // Days from the split on are the only ones where confirmed and estimated can be told apart.
+    let since_split = match parse_day(&store.split_from) {
+        Some(d) => sum_metrics(store, Some(d), i64::MAX),
+        None => BTreeMap::new(),
+    };
     let lifetime = Lifetime {
         active_seconds: m("app.active_seconds"),
         messages: m("chat.messages_sent"),
@@ -715,6 +734,20 @@ fn summarise_with(
             .sum(),
         local_tokens_reported: m("model.local.tokens_reported"),
         cloud_tokens: m("model.cloud.tokens_in") + m("model.cloud.tokens_out"),
+        cloud_tokens_estimated: m("model.cloud.tokens_in_est") + m("model.cloud.tokens_out_est"),
+        cloud_tokens_confirmed: since_split
+            .get("model.cloud.tokens_in")
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(since_split.get("model.cloud.tokens_out").copied().unwrap_or(0))
+            .saturating_sub(m("model.cloud.tokens_in_est") + m("model.cloud.tokens_out_est")),
+        cloud_tokens_unsplit: (m("model.cloud.tokens_in") + m("model.cloud.tokens_out")).saturating_sub(
+            since_split.get("model.cloud.tokens_in").copied().unwrap_or(0)
+                + since_split.get("model.cloud.tokens_out").copied().unwrap_or(0),
+        ),
+        cloud_tokens_cached: m("model.cloud.tokens_cached_in"),
+        cloud_tokens_uncertain: m("model.cloud.tokens_unc_in"),
+        cloud_split_from: store.split_from.clone(),
         conversations: m("chat.conversations"),
         tasks_completed: m("tasks.completed"),
         files_edited: m("files.edited"),
@@ -890,6 +923,31 @@ pub async fn stats_reset() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn lifetime_cloud_tokens_split_into_confirmed_estimated_and_unsplit() {
+        let mut st = store_with(&[
+            // Before the split existed: 1000 tokens, nobody knows how many were estimated.
+            ("2026-09-01", "model.cloud.tokens_in", 600),
+            ("2026-09-01", "model.cloud.tokens_out", 400),
+            // After: 300 in/200 out, of which 100 in and 50 out were estimated; 40 of the input cached.
+            ("2026-10-21", "model.cloud.tokens_in", 300),
+            ("2026-10-21", "model.cloud.tokens_out", 200),
+            ("2026-10-21", "model.cloud.tokens_in_est", 100),
+            ("2026-10-21", "model.cloud.tokens_out_est", 50),
+            ("2026-10-21", "model.cloud.tokens_cached_in", 40),
+            ("2026-10-21", "model.cloud.tokens_unc_in", 70),
+        ]);
+        st.split_from = "2026-10-20".into();
+        let l = summarise(&st, "lifetime", (2026, 10, 22), &|_| "P".to_string()).unwrap().lifetime;
+        assert_eq!(l.cloud_tokens, 1500, "lifetime total unchanged: confirmed + estimated");
+        assert_eq!(l.cloud_tokens_estimated, 150);
+        assert_eq!(l.cloud_tokens_confirmed, 350, "500 since the split minus the 150 estimated");
+        assert_eq!(l.cloud_tokens_unsplit, 1000, "days before the split are never guessed at");
+        assert_eq!(l.cloud_tokens_cached, 40);
+        assert_eq!(l.cloud_tokens_uncertain, 70);
+        assert_eq!(l.cloud_tokens_confirmed + l.cloud_tokens_estimated + l.cloud_tokens_unsplit, l.cloud_tokens);
+    }
+
     // ---- 2.0.3: confirmed / estimated / uncertain ----------------------------------------
 
     fn applied(counted: crate::usage::Counted, ok: bool) -> BTreeMap<String, u64> {

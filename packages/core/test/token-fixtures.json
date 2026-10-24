@@ -1,0 +1,206 @@
+[
+  {
+    "name": "empty",
+    "text": "",
+    "kind": "prose",
+    "tokens": 0
+  },
+  {
+    "name": "one letter",
+    "text": "a",
+    "kind": "prose",
+    "tokens": 1
+  },
+  {
+    "name": "english sentence",
+    "text": "The quick brown fox jumps over the lazy dog, then goes home for tea.",
+    "kind": "prose",
+    "tokens": 14
+  },
+  {
+    "name": "english paragraphs",
+    "text": "First paragraph about settings.\n\nSecond paragraph about files and folders.\n\nThird.",
+    "kind": "prose",
+    "tokens": 19
+  },
+  {
+    "name": "question",
+    "text": "How do you count tokens?",
+    "kind": "prose",
+    "tokens": 6
+  },
+  {
+    "name": "typo and slang",
+    "text": "hw do u cuont tokens lol",
+    "kind": "prose",
+    "tokens": 5
+  },
+  {
+    "name": "spanish",
+    "text": "Hola, ¿cómo estás? Estoy buscando información sobre el rendimiento del programa.",
+    "kind": "prose",
+    "tokens": 19
+  },
+  {
+    "name": "german",
+    "text": "Die Straße ist größer als erwartet, aber schön.",
+    "kind": "prose",
+    "tokens": 12
+  },
+  {
+    "name": "french",
+    "text": "L'été dernier, nous avons visité la forêt près de Genève.",
+    "kind": "prose",
+    "tokens": 14
+  },
+  {
+    "name": "russian",
+    "text": "Привет, как дела? Я ищу информацию о программе.",
+    "kind": "prose",
+    "tokens": 20
+  },
+  {
+    "name": "greek",
+    "text": "Καλημέρα, πώς είστε σήμερα;",
+    "kind": "prose",
+    "tokens": 12
+  },
+  {
+    "name": "chinese",
+    "text": "你好，世界。这是一个关于令牌计数的测试句子。",
+    "kind": "prose",
+    "tokens": 21
+  },
+  {
+    "name": "japanese",
+    "text": "こんにちは、世界。これはトークンの数え方のテストです。",
+    "kind": "prose",
+    "tokens": 26
+  },
+  {
+    "name": "korean",
+    "text": "안녕하세요, 세계. 토큰 계산 테스트입니다.",
+    "kind": "prose",
+    "tokens": 19
+  },
+  {
+    "name": "arabic",
+    "text": "مرحبا بالعالم، هذا اختبار لعد الرموز.",
+    "kind": "prose",
+    "tokens": 23
+  },
+  {
+    "name": "hebrew",
+    "text": "שלום עולם, זו בדיקה של ספירת אסימונים.",
+    "kind": "prose",
+    "tokens": 22
+  },
+  {
+    "name": "thai",
+    "text": "สวัสดีชาวโลก นี่คือการทดสอบนับโทเค็น",
+    "kind": "prose",
+    "tokens": 25
+  },
+  {
+    "name": "hindi",
+    "text": "नमस्ते दुनिया, यह टोकन गिनती का परीक्षण है।",
+    "kind": "prose",
+    "tokens": 26
+  },
+  {
+    "name": "emoji",
+    "text": "Great job 🎉🎉 see you 😀 soon 🚀",
+    "kind": "prose",
+    "tokens": 15
+  },
+  {
+    "name": "zwj family",
+    "text": "👨‍👩‍👧‍👦",
+    "kind": "prose",
+    "tokens": 11
+  },
+  {
+    "name": "flag and skin tone",
+    "text": "👍🏽 🇺🇸",
+    "kind": "prose",
+    "tokens": 8
+  },
+  {
+    "name": "combining marks",
+    "text": "é ä ñ ô",
+    "kind": "prose",
+    "tokens": 3
+  },
+  {
+    "name": "rust code",
+    "text": "fn main() {\n    let x = vec![1, 2, 3];\n    for i in &x {\n        println!(\"{}\", i);\n    }\n}",
+    "kind": "code",
+    "tokens": 22
+  },
+  {
+    "name": "typescript code",
+    "text": "export function add(a: number, b: number): number {\n  return a + b;\n}\n\nconst x = add(1, 2);",
+    "kind": "code",
+    "tokens": 24
+  },
+  {
+    "name": "json object",
+    "text": "{\"name\":\"atlas\",\"version\":\"2.0.3\",\"tags\":[\"a\",\"b\"],\"nested\":{\"k\":\"v\"}}",
+    "kind": "json",
+    "tokens": 29
+  },
+  {
+    "name": "json array",
+    "text": "[{\"id\":1,\"ok\":true},{\"id\":2,\"ok\":false},{\"id\":3,\"ok\":\"maybe\"}]",
+    "kind": "json",
+    "tokens": 26
+  },
+  {
+    "name": "log lines",
+    "text": "2026-10-21 12:00:01: started\n2026-10-21 12:00:02: ready\n[12:00:03] listening: 8080\n12:00:04: done",
+    "kind": "logs",
+    "tokens": 30
+  },
+  {
+    "name": "mixed prose and code",
+    "text": "Please fix this function.\n\nfn add(a: i32, b: i32) -> i32 {\n    a - b\n}\n\nThanks!",
+    "kind": "code",
+    "tokens": 19
+  },
+  {
+    "name": "fenced code",
+    "text": "Here you go:\n```\nls -la\n```",
+    "kind": "code",
+    "tokens": 8
+  },
+  {
+    "name": "crlf text",
+    "text": "line one\r\nline two\r\n\r\nline three",
+    "kind": "prose",
+    "tokens": 7
+  },
+  {
+    "name": "only whitespace",
+    "text": "   \n\n   \t  ",
+    "kind": "prose",
+    "tokens": 1
+  },
+  {
+    "name": "only punctuation",
+    "text": "!!! ??? ... --- ===",
+    "kind": "code",
+    "tokens": 8
+  },
+  {
+    "name": "long prose",
+    "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "kind": "prose",
+    "tokens": 1980
+  },
+  {
+    "name": "long cjk",
+    "text": "字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字",
+    "kind": "prose",
+    "tokens": 1500
+  }
+]
