@@ -130,7 +130,7 @@ export class KnowledgeIndex {
       if (score <= 0) continue;
       if (named.has(d.chunk.product)) score *= PRODUCT_BOOST;
       if (d.chunk.audience === 'developer' && !developer) score *= DEVELOPER_WEIGHT;
-      if (d.prose < 0.5) score *= 0.5;
+      if (d.prose < 0.25) score *= 0.5;
       // Coverage is judged on what was asked, not on the product's name (which appears everywhere). A question
       // that only names a product is covered by a chunk about that product.
       const coverage = content.length > 0 ? content.filter((t) => d.tf.has(t)).length / content.length : named.has(d.chunk.product) ? 1 : 0;

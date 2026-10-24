@@ -122,7 +122,13 @@ export function relevantWindow(text: string, question: string, max = 650): strin
 }
 
 /** The best window of a chunk, and how many distinct words of the question it contains (0 if the question has none). */
-export function windowWithOverlap(text: string, question: string, max = 650): { text: string; overlap: number } {
+export function windowWithOverlap(
+  text: string,
+  question: string,
+  max = 650,
+  /** The chunk's own heading is about the question, so its opening is the answer: start there, not mid-section. */
+  fromStart = false,
+): { text: string; overlap: number } {
   const clean = plainText(text);
   const q = new Set(tokenize(question));
   const sentences = clean
@@ -132,7 +138,7 @@ export function windowWithOverlap(text: string, question: string, max = 650): { 
   if (q.size === 0) return { text: excerpt(clean, max), overlap: 0 };
   let best = 0;
   let bestScore = -1;
-  const last = Math.max(1, sentences.length - 2);
+  const last = fromStart ? 1 : Math.max(1, sentences.length - 2);
   for (let i = 0; i < last; i++) {
     const score = new Set(tokenize(sentences.slice(i, i + 3).join(' ')).filter((t) => q.has(t))).size;
     if (score > bestScore) {

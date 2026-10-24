@@ -136,9 +136,16 @@ function packAnswer(
     const asked = contentTokens(intent.text).length;
     const need = asked === 0 ? 0 : Math.max(1, Math.ceil(asked * 0.5));
     const top = plan.hits[0]?.score ?? 0;
+    const asking = new Set(tokenize(intent.text));
     const kept = plan.hits
-      .map((h) => ({ h, w: windowWithOverlap(h.chunk.text, intent.text) }))
-      .filter(({ h, w }) => w.text.length > 0 && w.overlap >= need && h.score >= top * 0.8);
+      .map((h) => {
+        // The section's own heading names what was asked: it is that section, so read it from its opening.
+        const headingIsAbout = tokenize(h.chunk.headingPath[h.chunk.headingPath.length - 1] ?? '').some((t) => asking.has(t) && contentTokens(intent.text).includes(t));
+        return { h, headingIsAbout, w: windowWithOverlap(h.chunk.text, intent.text, 650, headingIsAbout) };
+      })
+      // One content word beside a product name is weak evidence (any chunk mentions "computer"): it only counts when
+      // the section's heading is about it too.
+      .filter(({ h, w, headingIsAbout }) => w.text.length > 0 && (asked >= 2 || headingIsAbout || asked === 0) && w.overlap >= Math.min(need, headingIsAbout ? 1 : need) && h.score >= top * 0.8);
     if (kept.length === 0) return { kind: 'none', intent };
     const more = plan.needsModel ? `\n\n${NEEDS_MODEL_LINE}` : '';
     const hits = kept.map((k) => k.h);
