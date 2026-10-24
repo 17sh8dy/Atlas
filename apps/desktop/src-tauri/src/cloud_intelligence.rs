@@ -186,9 +186,70 @@ pub struct CloudReply {
     pub tool_calls: Vec<ToolCall>,
 }
 
+/// Records a request as "may have been billed" if it is dropped (halted) while in flight.
+struct InFlight {
+    provider_id: String,
+    input: u64,
+    armed: bool,
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        if self.armed {
+            crate::stats::record_model(
+                "model.cloud",
+                Some(&self.provider_id),
+                crate::usage::Counted::Uncertain { input: self.input },
+                false,
+            );
+        }
+    }
+}
+
 struct Parsed {
     reply: CloudReply,
-    usage: Option<(u64, u64)>,
+    usage: Option<crate::usage::Usage>,
+}
+
+/// A failed provider call: what to tell the person, and how far the request got, which decides
+/// whether it may have been billed (see `usage.rs`).
+struct Failure {
+    message: String,
+    tx: crate::usage::Transmission,
+    /// If the failed response still said what it used, the provider counted it.
+    usage: Option<crate::usage::Usage>,
+}
+
+impl Failure {
+    fn transport(e: &reqwest::Error) -> Self {
+        Failure { message: send_error(e), tx: crate::usage::classify_transport(e), usage: None }
+    }
+    /// The reply started and then could not be read to the end: the provider got the request.
+    fn unreadable() -> Self {
+        Failure {
+            message: "Couldn't read the provider's response.".to_string(),
+            tx: crate::usage::Transmission::MaybeSent,
+            usage: None,
+        }
+    }
+    fn status(status: u16, body: &str) -> Self {
+        Failure {
+            message: crate::cloud_safety::tag_failure(status, body, provider_error_message(status, body)),
+            tx: crate::usage::classify_status(status),
+            usage: crate::usage::parse(body),
+        }
+    }
+    /// A 2xx whose body wasn't the expected shape: the provider processed the request.
+    fn malformed(body: &str) -> Self {
+        Failure {
+            message: "That provider's response didn't look like what I expected.".to_string(),
+            tx: crate::usage::Transmission::MaybeSent,
+            usage: crate::usage::parse(body),
+        }
+    }
+    fn empty(body: &str) -> Self {
+        Failure { message: empty_reply(), tx: crate::usage::Transmission::MaybeSent, usage: crate::usage::parse(body) }
+    }
 }
 
 fn empty_reply() -> String {
@@ -271,7 +332,7 @@ async fn ask_openai_compatible(
     prompt: &str,
     tools: Option<&serde_json::Value>,
     schema: Option<&serde_json::Value>,
-) -> Result<Parsed, String> {
+) -> Result<Parsed, Failure> {
     let tool_defs = tools.map(openai_tools).filter(|d| !d.is_empty());
     let resp = client
         .post(format!("{base}/v1/chat/completions"))
@@ -291,17 +352,17 @@ async fn ask_openai_compatible(
         })
         .send()
         .await
-        .map_err(|e| send_error(&e))?;
+        .map_err(|e| Failure::transport(&e))?;
 
     let status = resp.status();
-    let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
+    let text = resp.text().await.map_err(|_| Failure::unreadable())?;
     if !status.is_success() {
-        return Err(crate::cloud_safety::tag_failure(status.as_u16(), &text, provider_error_message(status.as_u16(), &text)));
+        return Err(Failure::status(status.as_u16(), &text));
     }
 
     let parsed: OpenAiResponse = serde_json::from_str(&text)
-        .map_err(|_| "That provider's response didn't look like what I expected.".to_string())?;
-    let message = parsed.choices.into_iter().next().map(|c| c.message).ok_or_else(empty_reply)?;
+        .map_err(|_| Failure::malformed(&text))?;
+    let message = parsed.choices.into_iter().next().map(|c| c.message).ok_or_else(|| Failure::empty(&text))?;
     let calls: Vec<ToolCall> = message
         .tool_calls
         .into_iter()
@@ -312,11 +373,11 @@ async fn ask_openai_compatible(
         .collect();
     let said = message.content.unwrap_or_default();
     if said.trim().is_empty() && calls.is_empty() {
-        return Err(empty_reply());
+        return Err(Failure::empty(&text));
     }
     Ok(Parsed {
         reply: CloudReply { text: said, tool_calls: calls },
-        usage: crate::cloud_safety::usage_in(&text),
+        usage: crate::usage::parse(&text),
     })
 }
 
@@ -360,7 +421,7 @@ async fn ask_anthropic(
     model: &str,
     prompt: &str,
     tools: Option<&serde_json::Value>,
-) -> Result<Parsed, String> {
+) -> Result<Parsed, Failure> {
     let defs: Option<Vec<serde_json::Value>> = tools
         .and_then(|t| t.as_array())
         .map(|a| {
@@ -387,16 +448,16 @@ async fn ask_anthropic(
         })
         .send()
         .await
-        .map_err(|e| send_error(&e))?;
+        .map_err(|e| Failure::transport(&e))?;
 
     let status = resp.status();
-    let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
+    let text = resp.text().await.map_err(|_| Failure::unreadable())?;
     if !status.is_success() {
-        return Err(crate::cloud_safety::tag_failure(status.as_u16(), &text, provider_error_message(status.as_u16(), &text)));
+        return Err(Failure::status(status.as_u16(), &text));
     }
 
     let parsed: AnthropicResponse = serde_json::from_str(&text)
-        .map_err(|_| "That provider's response didn't look like what I expected.".to_string())?;
+        .map_err(|_| Failure::malformed(&text))?;
     let mut said = String::new();
     let mut calls = Vec::new();
     for block in parsed.content {
@@ -416,11 +477,11 @@ async fn ask_anthropic(
         }
     }
     if said.trim().is_empty() && calls.is_empty() {
-        return Err(empty_reply());
+        return Err(Failure::empty(&text));
     }
     Ok(Parsed {
         reply: CloudReply { text: said, tool_calls: calls },
-        usage: crate::cloud_safety::usage_in(&text),
+        usage: crate::usage::parse(&text),
     })
 }
 
@@ -466,7 +527,7 @@ async fn ask_gemini(
     key: &str,
     model: &str,
     prompt: &str,
-) -> Result<Parsed, String> {
+) -> Result<Parsed, Failure> {
     let resp = client
         .post(format!("{base}/v1beta/models/{model}:generateContent"))
         .header("x-goog-api-key", key)
@@ -475,26 +536,26 @@ async fn ask_gemini(
         })
         .send()
         .await
-        .map_err(|e| send_error(&e))?;
+        .map_err(|e| Failure::transport(&e))?;
 
     let status = resp.status();
-    let text = resp.text().await.map_err(|_| "Couldn't read the provider's response.".to_string())?;
+    let text = resp.text().await.map_err(|_| Failure::unreadable())?;
     if !status.is_success() {
-        return Err(crate::cloud_safety::tag_failure(status.as_u16(), &text, provider_error_message(status.as_u16(), &text)));
+        return Err(Failure::status(status.as_u16(), &text));
     }
 
     let parsed: GeminiResponse = serde_json::from_str(&text)
-        .map_err(|_| "That provider's response didn't look like what I expected.".to_string())?;
+        .map_err(|_| Failure::malformed(&text))?;
     let said = parsed
         .candidates
         .into_iter()
         .next()
         .and_then(|c| c.content.parts.into_iter().find_map(|p| p.text))
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(empty_reply)?;
+        .ok_or_else(|| Failure::empty(&text))?;
     Ok(Parsed {
         reply: CloudReply { text: said, tool_calls: Vec::new() },
-        usage: crate::cloud_safety::usage_in(&text),
+        usage: crate::usage::parse(&text),
     })
 }
 
@@ -547,6 +608,10 @@ async fn ask_cloud_provider_unraced(
 
     let client = http_client()?;
     let tokens_in = crate::stats::estimate_tokens(&prompt);
+    // The emergency stop drops this future mid-request. A request that was in flight may have
+    // reached the provider, so if we are dropped before an outcome is known it is recorded as
+    // uncertain rather than vanishing from the cap.
+    let mut in_flight = InFlight { provider_id: provider_id.clone(), input: tokens_in, armed: true };
     let outcome = match kind {
         CloudProviderKind::OpenaiCompatible => {
             ask_openai_compatible(&client, &base, &key, &model, &prompt, tools.as_ref(), schema.as_ref()).await
@@ -557,20 +622,24 @@ async fn ask_cloud_provider_unraced(
         CloudProviderKind::Gemini => ask_gemini(&client, &base, &key, &model, &prompt).await,
     };
 
+    in_flight.armed = false;
     match outcome {
         Ok(Parsed { reply, usage }) => {
             // The provider's own figures when it gave them; otherwise an estimate, which the
             // Stats page labels as one.
-            let (inn, out) = usage.unwrap_or((tokens_in, crate::stats::estimate_tokens(&reply.text)));
-            crate::stats::model_request("model.cloud", Some(&provider_id), inn, out, true);
+            let counted = crate::usage::for_success(usage, tokens_in, crate::stats::estimate_tokens(&reply.text));
+            crate::stats::record_model("model.cloud", Some(&provider_id), counted, true);
             Ok(reply)
         }
-        Err(e) => {
-            crate::stats::model_request("model.cloud", Some(&provider_id), tokens_in, 0, false);
+        Err(Failure { message, tx, usage }) => {
+            // A failure is NOT charged an invented token count. What it is counted as depends on
+            // how far it got: nothing if it never left this machine, the request alone if the
+            // provider turned it away, and an "uncertain" input estimate if it may have been billed.
+            crate::stats::record_model("model.cloud", Some(&provider_id), crate::usage::for_failure(tx, usage, tokens_in), false);
             // A spending limit pauses the provider here, natively, so the next request is refused
             // without being sent. It never switches to another provider.
-            crate::cloud_safety::after_failure(&provider_id, &e);
-            Err(e)
+            crate::cloud_safety::after_failure(&provider_id, &message);
+            Err(message)
         }
     }
 }

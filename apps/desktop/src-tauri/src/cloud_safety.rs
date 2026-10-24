@@ -107,28 +107,10 @@ pub fn tag_failure(status: u16, body: &str, message: String) -> String {
     }
 }
 
-/// The token usage a provider reported in a success body, if it did.
+/// The `(input, output)` a provider reported in a success body, if it did. Kept as a thin wrapper
+/// over `usage::parse` for one release; new code uses `usage::parse` and keeps the cache split.
 pub fn usage_in(body: &str) -> Option<(u64, u64)> {
-    let v: serde_json::Value = serde_json::from_str(body).ok()?;
-    let n = |x: Option<&serde_json::Value>| x.and_then(|v| v.as_u64());
-    if let Some(u) = v.get("usage") {
-        // OpenAI-compatible, then Anthropic.
-        let (i, o) = (n(u.get("prompt_tokens")), n(u.get("completion_tokens")));
-        if i.is_some() || o.is_some() {
-            return Some((i.unwrap_or(0), o.unwrap_or(0)));
-        }
-        let (i, o) = (n(u.get("input_tokens")), n(u.get("output_tokens")));
-        if i.is_some() || o.is_some() {
-            return Some((i.unwrap_or(0), o.unwrap_or(0)));
-        }
-    }
-    if let Some(u) = v.get("usageMetadata") {
-        let (i, o) = (n(u.get("promptTokenCount")), n(u.get("candidatesTokenCount")));
-        if i.is_some() || o.is_some() {
-            return Some((i.unwrap_or(0), o.unwrap_or(0)));
-        }
-    }
-    None
+    crate::usage::parse(body).map(|u| (u.input_total, u.output))
 }
 
 // ---- the runaway guard --------------------------------------------------------------------
@@ -198,6 +180,15 @@ pub fn judge(s: &Standing) -> Result<(), String> {
     Ok(())
 }
 
+/// What counts against a monthly token cap: confirmed + estimated, and also the "uncertain"
+/// input of requests that may have reached the provider, because a cap protects money and those
+/// may have cost some. Cached input is already inside `tokens_in`, so it is not added again.
+pub fn month_tokens_of(id: &str) -> u64 {
+    crate::stats::month_total(&format!("cloud:{id}:tokens_in"))
+        + crate::stats::month_total(&format!("cloud:{id}:tokens_out"))
+        + crate::stats::month_total(&format!("cloud:{id}:tokens_unc_in"))
+}
+
 pub fn standing_of(id: &str) -> Option<Standing> {
     let p = crate::provider_bindings::get(id)?;
     Some(Standing {
@@ -205,8 +196,7 @@ pub fn standing_of(id: &str) -> Option<Standing> {
         cap_requests: p.cap_requests,
         cap_tokens: p.cap_tokens,
         month_requests: crate::stats::month_total(&format!("cloud:{id}:requests")),
-        month_tokens: crate::stats::month_total(&format!("cloud:{id}:tokens_in"))
-            + crate::stats::month_total(&format!("cloud:{id}:tokens_out")),
+        month_tokens: month_tokens_of(id),
     })
 }
 

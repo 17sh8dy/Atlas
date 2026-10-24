@@ -142,8 +142,7 @@ fn view_of(id: &str, p: &Provider) -> ProviderView {
         price_in_milli: p.price_in_milli,
         price_out_milli: p.price_out_milli,
         month_requests: crate::stats::month_total(&format!("cloud:{id}:requests")),
-        month_tokens: crate::stats::month_total(&format!("cloud:{id}:tokens_in"))
-            + crate::stats::month_total(&format!("cloud:{id}:tokens_out")),
+        month_tokens: crate::cloud_safety::month_tokens_of(id),
     }
 }
 

@@ -21,6 +21,7 @@ mod cloud_intelligence;
 mod diagnostics;
 mod redact;
 mod stats;
+mod usage;
 mod terminal;
 mod changes;
 mod cloud_safety;

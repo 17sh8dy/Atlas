@@ -33,7 +33,9 @@ use tauri::{AppHandle, Manager};
 
 const FILE: &str = "stats.json";
 const FLUSH_EVERY: Duration = Duration::from_secs(15);
-const VERSION: u32 = 1;
+/// 1 = tokens as one combined count. 2 = adds the confirmed/estimated/uncertain split (see
+/// `usage.rs`); every v1 key keeps its meaning, so a v2 file is still readable by v1.
+const VERSION: u32 = 2;
 
 /// Time with Atlas is counted only while the person is actually using it: a quarter-minute tick
 /// counts when the window is on screen AND some input reached Atlas within the last minute. Leaving
@@ -97,6 +99,10 @@ struct Store {
     /// When the last message was sent, so a conversation carries on across a restart.
     #[serde(default)]
     last_message_ms: u64,
+    /// The first day (`YYYY-MM-DD`) recorded with the confirmed/estimated/uncertain split. Days
+    /// before it only have the combined totals, and are shown as such rather than guessed at.
+    #[serde(default)]
+    split_from: String,
 }
 
 struct Live {
@@ -110,7 +116,7 @@ fn live() -> &'static Mutex<Live> {
     static L: OnceLock<Mutex<Live>> = OnceLock::new();
     L.get_or_init(|| {
         Mutex::new(Live {
-            store: Store { version: VERSION, created_at: now_ms(), ..Default::default() },
+            store: Store { version: VERSION, created_at: now_ms(), split_from: today_key(), ..Default::default() },
             path: None,
             dirty: false,
             last_backup: None,
@@ -203,22 +209,78 @@ pub fn bump(metric: &str, n: u64) {
     }
 }
 
-/// A model request: counted under the group (`model.local`, `model.cloud`, `model.nova`) and,
-/// for a cloud provider, under its own id so a per-provider cap can be enforced.
-pub fn model_request(group: &str, provider_id: Option<&str>, tokens_in: u64, tokens_out: u64, ok: bool) {
-    bump(&format!("{group}.requests"), 1);
-    bump(&format!("{group}.tokens_in"), tokens_in);
-    bump(&format!("{group}.tokens_out"), tokens_out);
-    if !ok {
-        bump(&format!("{group}.failures"), 1);
+/// Brings a loaded store up to the current version. Returns true when it was an older one, so the
+/// caller can keep a copy. Nothing in the old data is rewritten: the new counters only exist from
+/// `split_from` on.
+fn migrate(s: &mut Store, today: &str) -> bool {
+    let was_old = s.version < VERSION || s.split_from.is_empty();
+    if s.split_from.is_empty() {
+        s.split_from = today.to_string();
     }
-    if let Some(id) = provider_id {
-        bump(&format!("cloud:{id}:requests"), 1);
-        bump(&format!("cloud:{id}:tokens_in"), tokens_in);
-        bump(&format!("cloud:{id}:tokens_out"), tokens_out);
-        if !ok {
-            bump(&format!("cloud:{id}:failures"), 1);
+    s.version = VERSION;
+    was_old
+}
+
+/// Record one finished model request. What it counts depends on how sure the figures are:
+///
+///   * Confirmed / Estimated: the request and its tokens. `tokens_in/out` are the lifetime figure
+///     (confirmed + estimated); `_est` is the estimated part; `tokens_cached_in` and
+///     `tokens_cache_write_in` are parts of `tokens_in`, never added to it.
+///   * Uncertain: the request and a failure, and `tokens_unc_in`, which is NOT in `tokens_in` (it
+///     counts toward a monthly cap, not the lifetime total).
+///   * RequestOnly: the request and a failure, no tokens.
+///   * Nothing: it never left the machine, so nothing is recorded.
+pub fn record_model(group: &str, provider_id: Option<&str>, counted: crate::usage::Counted, ok: bool) {
+    if matches!(counted, crate::usage::Counted::Nothing) {
+        return;
+    }
+    let day = today_key();
+    if let Ok(mut l) = live().lock() {
+        apply_model(l.store.days.entry(day).or_default(), group, provider_id, counted, ok);
+        l.dirty = true;
+    }
+}
+
+/// The counting rule itself, on one day's metrics, so it can be tested without the global store.
+fn apply_model(
+    day: &mut BTreeMap<String, u64>,
+    group: &str,
+    provider_id: Option<&str>,
+    counted: crate::usage::Counted,
+    ok: bool,
+) {
+    use crate::usage::Counted;
+    let mut put = |suffix: &str, n: u64| {
+        if n == 0 {
+            return;
         }
+        *day.entry(format!("{group}.{suffix}")).or_insert(0) += n;
+        if let Some(id) = provider_id {
+            *day.entry(format!("cloud:{id}:{suffix}")).or_insert(0) += n;
+        }
+    };
+    if matches!(counted, Counted::Nothing) {
+        return;
+    }
+    put("requests", 1);
+    if !ok {
+        put("failures", 1);
+    }
+    match counted {
+        Counted::Confirmed(u) => {
+            put("tokens_in", u.input_total);
+            put("tokens_out", u.output);
+            put("tokens_cached_in", u.cached_in);
+            put("tokens_cache_write_in", u.cache_write_in);
+        }
+        Counted::Estimated { input, output } => {
+            put("tokens_in", input);
+            put("tokens_out", output);
+            put("tokens_in_est", input);
+            put("tokens_out_est", output);
+        }
+        Counted::Uncertain { input } => put("tokens_unc_in", input),
+        Counted::RequestOnly | Counted::Nothing => {}
     }
 }
 
@@ -273,8 +335,16 @@ pub fn init(app: &AppHandle) {
             if s.created_at == 0 {
                 s.created_at = now_ms();
             }
-            s.version = VERSION;
+            if migrate(&mut s, &today_key()) {
+                // One copy of the v1 file, once, before the first v2 write replaces it.
+                let keep = path.with_file_name("stats.v1.bak.json");
+                if path.exists() && !keep.exists() {
+                    let _ = std::fs::copy(&path, &keep);
+                }
+            }
             l.store = s;
+        } else {
+            l.store.split_from = today_key();
         }
         l.path = Some(path);
         l.dirty = true;
@@ -820,6 +890,90 @@ pub async fn stats_reset() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    // ---- 2.0.3: confirmed / estimated / uncertain ----------------------------------------
+
+    fn applied(counted: crate::usage::Counted, ok: bool) -> BTreeMap<String, u64> {
+        let mut day = BTreeMap::new();
+        apply_model(&mut day, "model.cloud", Some("p"), counted, ok);
+        day
+    }
+    fn g(m: &BTreeMap<String, u64>, k: &str) -> u64 {
+        m.get(k).copied().unwrap_or(0)
+    }
+
+    #[test]
+    fn a_request_that_never_left_the_machine_leaves_every_counter_untouched() {
+        assert!(applied(crate::usage::Counted::Nothing, false).is_empty());
+    }
+
+    #[test]
+    fn a_failure_is_not_charged_an_invented_token_count() {
+        let m = applied(crate::usage::Counted::RequestOnly, false);
+        assert_eq!((g(&m, "model.cloud.requests"), g(&m, "model.cloud.failures")), (1, 1));
+        assert_eq!(g(&m, "model.cloud.tokens_in"), 0);
+        assert_eq!(g(&m, "model.cloud.tokens_unc_in"), 0);
+    }
+
+    #[test]
+    fn uncertain_tokens_are_kept_out_of_the_lifetime_total_but_are_recorded() {
+        let m = applied(crate::usage::Counted::Uncertain { input: 400 }, false);
+        assert_eq!(g(&m, "model.cloud.tokens_unc_in"), 400);
+        assert_eq!(g(&m, "cloud:p:tokens_unc_in"), 400);
+        assert_eq!(g(&m, "model.cloud.tokens_in"), 0, "uncertain is NOT in the lifetime total");
+    }
+
+    #[test]
+    fn estimated_tokens_are_in_the_total_and_marked_as_the_estimated_part() {
+        let m = applied(crate::usage::Counted::Estimated { input: 100, output: 40 }, true);
+        assert_eq!((g(&m, "model.cloud.tokens_in"), g(&m, "model.cloud.tokens_out")), (100, 40));
+        assert_eq!((g(&m, "model.cloud.tokens_in_est"), g(&m, "model.cloud.tokens_out_est")), (100, 40));
+    }
+
+    #[test]
+    fn confirmed_tokens_are_not_marked_estimated_and_cached_is_a_part_not_an_addition() {
+        let u = crate::usage::Usage { input_total: 1000, cached_in: 800, cache_write_in: 50, output: 20, reasoning: None };
+        let m = applied(crate::usage::Counted::Confirmed(u), true);
+        assert_eq!(g(&m, "model.cloud.tokens_in"), 1000, "cached is inside the input, not on top of it");
+        assert_eq!(g(&m, "model.cloud.tokens_cached_in"), 800);
+        assert_eq!(g(&m, "model.cloud.tokens_cache_write_in"), 50);
+        assert_eq!(g(&m, "model.cloud.tokens_in_est"), 0);
+    }
+
+    #[test]
+    fn local_requests_have_no_provider_keys() {
+        let mut day = BTreeMap::new();
+        apply_model(&mut day, "model.local", None, crate::usage::Counted::Estimated { input: 4, output: 4 }, true);
+        assert!(day.keys().all(|k| k.starts_with("model.local.")));
+    }
+
+    #[test]
+    fn a_v1_store_is_migrated_without_rewriting_its_data() {
+        let mut s = Store { version: 1, created_at: 5, ..Default::default() };
+        s.days.entry("2026-09-01".into()).or_default().insert("model.cloud.tokens_in".into(), 123);
+        assert!(migrate(&mut s, "2026-10-21"), "reports that it was an older file");
+        assert_eq!((s.version, s.split_from.as_str()), (2, "2026-10-21"));
+        assert_eq!(s.days["2026-09-01"]["model.cloud.tokens_in"], 123, "old days are untouched");
+        // Running it again changes nothing and does not ask for another backup.
+        assert!(!migrate(&mut s, "2026-12-31"));
+        assert_eq!(s.split_from, "2026-10-21");
+    }
+
+    #[test]
+    fn a_v2_file_still_loads_as_a_v1_reader_would() {
+        // An older build's Store has no split_from; unknown keys are ignored, nothing breaks.
+        #[derive(serde::Deserialize)]
+        struct V1 {
+            #[serde(default)]
+            version: u32,
+            #[serde(default)]
+            days: BTreeMap<String, BTreeMap<String, u64>>,
+        }
+        let mut s = Store { version: 2, split_from: "2026-10-21".into(), ..Default::default() };
+        s.days.entry("2026-10-21".into()).or_default().insert("model.cloud.tokens_unc_in".into(), 9);
+        let back: V1 = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!((back.version, back.days.len()), (2, 1));
+    }
+
     use super::*;
 
     fn store_with(rows: &[(&str, &str, u64)]) -> Store {

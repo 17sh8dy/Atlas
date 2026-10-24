@@ -409,16 +409,20 @@ pub async fn ask_local_model_stream(
     // records how much of the total that is), otherwise an estimate the page labels as one.
     match raced {
         Ok((text, Some((prompt_tokens, reply_tokens)))) => {
-            crate::stats::model_request("model.local", None, prompt_tokens, reply_tokens, true);
+            let reported = crate::usage::Usage { input_total: prompt_tokens, output: reply_tokens, ..Default::default() };
+            crate::stats::record_model("model.local", None, crate::usage::Counted::Confirmed(reported), true);
             crate::stats::bump("model.local.tokens_reported", prompt_tokens + reply_tokens);
             Ok(text)
         }
         Ok((text, None)) => {
-            crate::stats::model_request("model.local", None, tokens_in, crate::stats::estimate_tokens(&text), true);
+            let counted = crate::usage::for_success(None, tokens_in, crate::stats::estimate_tokens(&text));
+            crate::stats::record_model("model.local", None, counted, true);
             Ok(text)
         }
         Err(e) => {
-            crate::stats::model_request("model.local", None, tokens_in, 0, false);
+            // A local model has no bill, and a failed request produced no tokens: it is counted as
+            // a failed request, not as invented usage.
+            crate::stats::record_model("model.local", None, crate::usage::Counted::RequestOnly, false);
             Err(e)
         }
     }
