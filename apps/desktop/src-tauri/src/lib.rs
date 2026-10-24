@@ -24,6 +24,7 @@ mod stats;
 mod usage;
 mod knowledge_signature;
 mod knowledge;
+mod knowledge_live;
 mod tokens;
 mod calibration;
 mod terminal;
@@ -531,6 +532,7 @@ pub fn run() {
             stats::stats_info,
             stats::stats_reset,
             knowledge::knowledge_status,
+            knowledge_live::knowledge_live_fetch,
             knowledge::knowledge_pack,
             knowledge::knowledge_check_now,
             knowledge::knowledge_set_auto_refresh,

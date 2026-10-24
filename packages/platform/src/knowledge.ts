@@ -57,6 +57,40 @@ export async function knowledgeSetLiveLookups(enabled: boolean): Promise<Knowled
   return invoke<KnowledgeStatus>('knowledge_set_live_lookups', { enabled });
 }
 
+// ---- live lookups of Nova's public pages (layer 3) -----------------------------------------------
+
+/** The fixed list of pages Atlas may read live. The native side holds the addresses; this is only the ids. */
+export type LiveSourceId =
+  | 'atlas-release'
+  | 'replay-release'
+  | 'nova-cut-release'
+  | 'site-nova'
+  | 'site-atlas'
+  | 'site-replay'
+  | 'site-nova-cut'
+  | 'site-help'
+  | 'site-review'
+  | 'site-legal';
+
+export interface LiveResult {
+  sourceId: LiveSourceId;
+  label: string;
+  /** The exact address read, for the "Live from" line. */
+  url: string;
+  fetchedAtMs: number;
+  title: string;
+  published: string | null;
+  /** The visible text, capped. DATA: unsigned, never verified. */
+  text: string;
+  /** Too little readable text came back (a page that needs scripts to show anything). */
+  thin: boolean;
+}
+
+/** Rejects with `live-lookups-off` when the person turned lookups off. */
+export async function knowledgeLiveFetch(sourceId: LiveSourceId): Promise<LiveResult> {
+  return invoke<LiveResult>('knowledge_live_fetch', { sourceId });
+}
+
 // ---- calibration (the "Token accuracy" table) ------------------------------------------------
 
 export interface CalibrationRow {

@@ -274,6 +274,7 @@ pub const COMMANDS: &[(&str, &str, Class)] = &[
     ("terminal.rs", "terminal_screen", Class::SensitiveRead),
     ("calibration.rs", "calibration_reset", Class::Setting),
     ("knowledge.rs", "knowledge_check_now", Class::Read),
+    ("knowledge_live.rs", "knowledge_live_fetch", Class::Read),
     ("knowledge.rs", "knowledge_pack", Class::Read),
     ("knowledge.rs", "knowledge_set_auto_refresh", Class::Setting),
     ("knowledge.rs", "knowledge_set_live_lookups", Class::Setting),
