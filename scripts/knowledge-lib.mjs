@@ -184,6 +184,90 @@ export function chunkMarkdown(body, pageTitle) {
   return chunks.map((c, i) => ({ ...c, n: i, anchor: slug(c.headingPath.join(' ')) }));
 }
 
+// ---- verified answers (faq.md) ------------------------------------------------------------
+
+/** Placeholders an answer may use; the engine fills them from live state (K4). */
+export const KNOWN_FACTS = ['atlasVersion', 'packDate', 'autoRefresh', 'liveLookups', 'capabilityCount', 'modelName'];
+
+/**
+ * Reads knowledge/faq.md: entries start at a `## id` heading; `key: value` lines follow; everything after
+ * the `answer:` line up to the next entry is the answer.
+ */
+export function parseFaqMarkdown(source) {
+  const text = source.replace(/\r\n/g, '\n');
+  const parts = text.split(/^## /m).slice(1);
+  const entries = [];
+  const errors = [];
+  for (const part of parts) {
+    const nl = part.indexOf('\n');
+    const id = part.slice(0, nl).trim();
+    const lines = part.slice(nl + 1).split('\n');
+    const e = { id, title: '', topic: '', aspects: [], match: [], since: '', review: '', sources: [], answer: '' };
+    let i = 0;
+    for (; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.trim() === 'answer:') {
+        i++;
+        break;
+      }
+      const m = /^([a-z]+):\s*(.*)$/.exec(line);
+      if (!m) {
+        if (line.trim()) errors.push(`${id}: cannot read line "${line.trim().slice(0, 40)}"`);
+        continue;
+      }
+      const [, k, v] = m;
+      if (k === 'aspects') e.aspects = v.split(',').map((x) => x.trim()).filter(Boolean);
+      else if (k === 'match') e.match = v.split('|').map((x) => x.trim()).filter(Boolean);
+      else if (k === 'sources') e.sources = v.split(/\s+/).filter(Boolean);
+      else if (k in e) e[k] = v.trim();
+      else errors.push(`${id}: unknown field "${k}"`);
+    }
+    e.answer = lines.slice(i).join('\n').trim();
+    entries.push(e);
+  }
+  return { entries, errors };
+}
+
+/** Everything wrong with one verified answer. Empty means valid. */
+export function validateFaq(e) {
+  const errs = [];
+  if (!/^[a-z0-9][a-z0-9.-]*$/.test(e.id)) errs.push('id must be lower-case letters, digits, dots and dashes');
+  for (const k of ['title', 'topic', 'since', 'review', 'answer']) if (!e[k]) errs.push(`missing "${k}"`);
+  if (e.aspects.length === 0) errs.push('missing "aspects"');
+  if (e.match.length === 0) errs.push('missing "match" phrases');
+  if (e.review && !REVIEWS.includes(e.review)) errs.push(`review must be one of ${REVIEWS.join(', ')}`);
+  if (e.since && !/^\d+\.\d+\.\d+$/.test(e.since)) errs.push('since must be a version like 2.0.3');
+  if (e.sources.length === 0) errs.push('missing "sources"');
+  for (const s of e.sources) if (!/^https:\/\/\S+$/.test(s)) errs.push(`source is not an https address: ${s}`);
+  for (const m of e.answer.matchAll(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g)) {
+    if (!KNOWN_FACTS.includes(m[1])) errs.push(`unknown placeholder {${m[1]}}`);
+  }
+  return errs;
+}
+
+/** Numbers an answer states that do not appear in any of its sources (placeholders are not numbers). */
+export function numbersNotInSources(answer, sourceTexts) {
+  const body = answer.replace(/\{[^}]*\}/g, ' ');
+  const have = sourceTexts.join('\n');
+  const out = [];
+  for (const m of body.matchAll(/\b\d+(?:\.\d+)*\b/g)) if (!have.includes(m[0])) out.push(m[0]);
+  return [...new Set(out)];
+}
+
+/** Match phrases two different entries share: an ambiguity to fix, since neither could then answer. */
+export function ambiguousMatches(entries) {
+  const seen = new Map();
+  const out = [];
+  for (const e of entries) {
+    for (const p of e.match) {
+      const key = p.toLowerCase().replace(/\s+/g, ' ');
+      if (seen.has(key) && seen.get(key) !== e.id) out.push(`"${p}" is in both ${seen.get(key)} and ${e.id}`);
+      else seen.set(key, e.id);
+    }
+  }
+  return out;
+}
+
 // ---- the draft gate ---------------------------------------------------------------------------
 
 /**

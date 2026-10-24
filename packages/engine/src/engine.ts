@@ -82,6 +82,7 @@ import { CapabilityIndex } from './capabilities';
 import { chainClauses, shouldRouteToAgent, trustPlan } from './universal/router';
 import { reporterFor, type ActivityEvent } from './planner/executor';
 import { allTemplates } from './templates';
+import { answerKnowledge, notInDocsModelUnreachable, notInDocsNoModel, type KnowledgeDeps } from './knowledge';
 
 /**
  * What the chat model is told when an instruction reached it unresolved.
@@ -220,6 +221,12 @@ export interface EngineOptions {
    * it off keeps a cloud model to conversation and the deterministic planner does the rest.
    * It can only ever make Atlas ask a model *less*, never choose a different provider.
    */
+  /**
+   * Atlas's built-in knowledge (docs/PLAN-2.0.3.md §K). When present, a question about Nova or Atlas is
+   * answered from the signed knowledge pack, and from Nova's public pages when it is about something current,
+   * before any model or web search is needed. Absent means that tier does not exist and nothing changes.
+   */
+  knowledge?: KnowledgeDeps;
   routing?: {
     cloudPlanning?: () => boolean;
     /**
@@ -239,6 +246,7 @@ export class Engine {
   private readonly gateway: ModelGateway;
   private readonly routing: NonNullable<EngineOptions['routing']>;
   private readonly intelligence?: IntelligenceRegistry;
+  private readonly knowledge?: KnowledgeDeps;
   private readonly threshold: number;
   private readonly working: WorkingMemory;
   /**
@@ -275,6 +283,7 @@ export class Engine {
     this.grammar = options.grammar;
     this.bus = options.bus ?? new Bus();
     this.intelligence = options.intelligence;
+    this.knowledge = options.knowledge;
     this.threshold = options.confidenceThreshold ?? 0.5;
     this.working = options.working ?? new WorkingMemory();
     this.phrasing = createPhrasing(options.voice);
@@ -605,6 +614,16 @@ export class Engine {
       return { ok: false, mode: 'chat', error: 'unresolved' };
     }
 
+    // 3b½. Documented knowledge: a question about Nova or Atlas that Atlas can answer from its own signed
+    //     knowledge pack (or, for something current, a public Nova page) is answered here, with no model, no
+    //     web search and no account. It declines (and everything below runs exactly as before) unless the
+    //     question is about Nova/Atlas AND the pack covers it. A successful answer says nothing about whether
+    //     a model is connected: the model is irrelevant to it.
+    if (this.knowledge) {
+      const answered = await this.answerFromKnowledge(raw, io, signal);
+      if (answered) return answered;
+    }
+
     // 3c. Small talk — the last deterministic tier.
     //
     //     Placed here, and not earlier, on purpose: the grammar, the AI
@@ -635,6 +654,30 @@ export class Engine {
 
     // 4. Conversation.
     return this.converse(understood, io, ctx, signal, instruction, options.thinkLonger === true);
+  }
+
+  /** The knowledge tier. Null means "not for me": the caller carries on. */
+  private async answerFromKnowledge(raw: string, io: EngineIO, signal: HaltSignal): Promise<AskOutcome | null> {
+    if (!this.knowledge) return null;
+    const provider = this.intelligence?.active();
+    const modelUsable = Boolean(provider) && canConverse(provider?.capabilities?.()) && this.modelAllowed();
+    let reply;
+    try {
+      reply = await untilHalted(answerKnowledge(raw, this.knowledge, { modelUsable }), signal);
+    } catch (err) {
+      if (err instanceof HaltedError) throw err;
+      return null; // a knowledge problem must never become a problem for the question
+    }
+    if (reply.kind === 'none') return null;
+    if (reply.kind === 'say') {
+      io.say(reply.text);
+      this.bus.emit('knowledge:answered', { how: reply.how });
+      return { ok: true, mode: 'chat', text: reply.text };
+    }
+    // A connected model reads the passages and answers; if it fails, the passages themselves answer.
+    if (!provider) return null;
+    this.bus.emit('knowledge:answered', { how: 'model' });
+    return this.converseWithProvider(provider, this.styled(reply.body), io, signal, reply.footer, reply.fallback, false);
   }
 
   private index(): CapabilityIndex {
@@ -1072,7 +1115,7 @@ export class Engine {
               onOffline
                 ? onOffline()
                 : this.tooShortReply(heard) ??
-                  `I couldn't reach your language model (it's set up in Settings → Intelligence), and that question needs one. ${this.offlineReply()}`,
+                  `${notInDocsModelUnreachable("it's set up in Settings → Intelligence")} ${this.actionsHint()}`,
             );
           } else io.say(`⚠️ ${reason}`);
           resolve({ ok: false, mode: 'chat', error: reason });
@@ -1199,21 +1242,14 @@ export class Engine {
   }
 
   private offlineReply(): string {
-    const n = this.skills.available().length;
     const searchSkill = this.skills.get('research.search');
     const canSearch = searchSkill ? this.skills.isAvailable(searchSkill) : false;
+    // Nothing in the documentation covers it and there is no model: say exactly that, not that "the AI is
+    // unavailable" (which would be untrue for anything the documentation does cover).
+    return `${notInDocsNoModel(canSearch)} ${this.actionsHint()}`;
+  }
 
-    if (canSearch) {
-      return (
-        `I can't answer that one from what's on this machine. I can look it up ` +
-        `though — say “search the web for …” and I'll go and find it. ` +
-        `Otherwise there are ${n} actions I can run; “what can you do?” shows them.`
-      );
-    }
-    return (
-      `I can't answer that one — I work from what's on this machine rather ` +
-      `than from a model. There are ${n} actions I can run though; ` +
-      `“what can you do?” shows them.`
-    );
+  private actionsHint(): string {
+    return `There are ${this.skills.available().length} actions I can run; “what can you do?” shows them.`;
   }
 }

@@ -39,7 +39,11 @@ import {
   parsePage,
   scanText,
   signPack,
+  ambiguousMatches,
+  numbersNotInSources,
+  parseFaqMarkdown,
   unapprovedChunks,
+  validateFaq,
   validatePage,
 } from './knowledge-lib.mjs';
 
@@ -221,6 +225,66 @@ for (const d of cfg.docs) {
       review: 'approved',
     });
     report.packed.push(`${d.repo}:${rel}`);
+  }
+}
+
+// ---- verified answers ------------------------------------------------------------------------
+
+{
+  const rel = 'knowledge/faq.md';
+  if (!existsAtHead(root, rel)) {
+    notes.push('knowledge/faq.md is not committed yet, so no verified answers are packed');
+  } else {
+    const { entries, errors } = parseFaqMarkdown(show(root, rel));
+    for (const e of errors) fail(`${rel}: ${e}`);
+    const ids = new Set();
+    // The text of every doc in the allowlist, for checking that an answer's numbers come from its sources.
+    const sourceText = (url) => {
+      const m = /github\.com\/(17sh8dy\/[^/]+)\/blob\/main\/(.+)$/.exec(url);
+      const d = m && cfg.docs.find((x) => x.repo === m[1]);
+      return d && existsAtHead(d.path, m[2]) ? show(d.path, m[2]) : null;
+    };
+    for (const a of ambiguousMatches(entries)) fail(`${rel}: ambiguous match: ${a}`);
+    for (const e of entries) {
+      const problems = validateFaq(e);
+      if (problems.length) {
+        fail(`${rel} (${e.id}): ${problems.join('; ')}`);
+        continue;
+      }
+      if (ids.has(e.id)) fail(`${rel}: duplicate id ${e.id}`);
+      ids.add(e.id);
+      if (e.review !== 'approved' && !dev) {
+        report.skipped.push(`${rel}#${e.id}: review is "${e.review}", not packed`);
+        continue;
+      }
+      const texts = e.sources.map(sourceText).filter(Boolean);
+      if (texts.length) {
+        const stray = numbersNotInSources(e.answer, texts);
+        if (stray.length) fail(`${rel} (${e.id}): the answer states ${stray.join(', ')}, which none of its sources contains`);
+      } else {
+        report.flagged.push(`${rel}#${e.id}: no source could be read locally, so its numbers were not checked`);
+      }
+      const bad = scanText(e.answer, { allowEmail: cfg.allowEmail ?? [] });
+      if (bad.length) fail(`${rel} (${e.id}): contains ${bad.join(', ')}`);
+      if (injectionFlags(e.answer).length) report.flagged.push(`${rel}#${e.id}: instruction-like text`);
+      chunks.push({
+        id: e.id,
+        product: e.id.startsWith('nova.') ? 'nova' : 'atlas',
+        title: e.title,
+        headingPath: [e.title],
+        text: e.answer,
+        sourceUrl: e.sources[0],
+        sourcePath: `faq:${e.id}`,
+        updated: lastDate(root, rel),
+        status: 'Released',
+        availableIn: e.since,
+        origin: 'faq',
+        anchor: e.id,
+        review: e.review,
+        faq: { topic: e.topic, aspects: e.aspects, match: e.match, since: e.since },
+      });
+      report.packed.push(`${rel}#${e.id} (${e.review})`);
+    }
   }
 }
 

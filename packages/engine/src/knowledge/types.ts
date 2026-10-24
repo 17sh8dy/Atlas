@@ -5,7 +5,7 @@
  */
 
 export type KnowledgeStatus = 'Released' | 'Planned' | 'Unknown';
-export type KnowledgeOrigin = 'nova-knowledge' | 'repo-docs';
+export type KnowledgeOrigin = 'nova-knowledge' | 'repo-docs' | 'faq';
 export type PackSource = 'bundled' | 'refreshed';
 
 export interface KnowledgeChunk {
@@ -25,6 +25,8 @@ export interface KnowledgeChunk {
   anchor: string;
   /** Only `approved` text is ever used; a pack that carries anything else is not trusted for it. */
   review: 'approved';
+  /** Only on `origin: 'faq'`: what the verified answer matches and since when it is true. */
+  faq?: { topic: string; aspects: string[]; match: string[]; since: string };
 }
 
 export interface KnowledgePack {
@@ -44,4 +46,6 @@ export interface PackInfo {
 export interface KnowledgeHit {
   chunk: KnowledgeChunk;
   score: number;
+  /** Share of the question's meaningful words that appear in the chunk (0..1). */
+  coverage?: number;
 }

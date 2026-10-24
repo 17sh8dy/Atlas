@@ -24,12 +24,18 @@ export function tokenize(text: string): string[] {
   return out;
 }
 
+/**
+ * A deliberately crude stem, applied the same way to questions and to pack text: "count", "counts", "counted"
+ * and "counting" meet; so do "update", "updated" and "updating". It only has to be consistent.
+ */
 function fold(w: string): string {
-  if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`;
-  if (w.length > 4 && w.endsWith('ing')) return w.slice(0, -3);
-  if (w.length > 3 && w.endsWith('es') && !w.endsWith('ses')) return w.slice(0, -2);
-  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
-  return w;
+  let s = w;
+  if (s.length > 4 && s.endsWith('ies')) return `${s.slice(0, -3)}y`;
+  if (s.length > 5 && s.endsWith('ing')) s = s.slice(0, -3);
+  else if (s.length > 4 && s.endsWith('ed')) s = s.slice(0, -2);
+  if (s.length > 3 && s.endsWith('s') && !s.endsWith('ss')) s = s.slice(0, -1);
+  if (s.length > 3 && s.endsWith('e')) s = s.slice(0, -1);
+  return s;
 }
 
 /** Words that name a product, so a question about "Replay.GG" prefers Replay.GG chunks. */
@@ -102,7 +108,8 @@ export class KnowledgeIndex {
       }
       if (score <= 0) continue;
       if (named.has(d.chunk.product)) score *= PRODUCT_BOOST;
-      hits.push({ chunk: d.chunk, score });
+      const present = unique.filter((t) => d.tf.has(t)).length;
+      hits.push({ chunk: d.chunk, score, coverage: present / unique.length });
     }
     hits.sort((a, b) => b.score - a.score || a.chunk.id.localeCompare(b.chunk.id));
     return hits.slice(0, opts.limit ?? 5);

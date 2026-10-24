@@ -2077,7 +2077,7 @@ test('with no provider, a question leads with what still works', async () => {
   // Never opens on what is missing. It names the one route that would
   // actually answer the question, and the actions that work regardless.
   assert.notMatch(said, MODEL_EXCUSE);
-  assert.match(said, /can't answer that one/i);
+  assert.match(said, /isn't in my documentation/i);
   assert.match(said, /search the web/i);
   assert.match(said, /\d+ actions/);
 });
@@ -3329,7 +3329,7 @@ test('errors: a real question is answered honestly, without blaming a model', as
   // The reply Atlas cannot give is still a reply. What it must not be is an
   // explanation of an unconfigured setting the user never asked about.
   assert.notMatch(said, MODEL_EXCUSE);
-  assert.match(said, /can't answer that one/i);
+  assert.match(said, /isn't in my documentation/i);
   assert.match(said, /search the web/i);
 });
 

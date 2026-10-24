@@ -7,6 +7,19 @@ const MAX_TEXT = 4_000;
 
 const str = (v: unknown, max = 500): string | null => (typeof v === 'string' && v.length <= max ? v : null);
 
+const strList = (v: unknown, max: number): string[] | null =>
+  Array.isArray(v) && v.length <= max && v.every((x) => typeof x === 'string' && x.length <= 200) ? (v as string[]) : null;
+
+function parseFaq(v: unknown): { topic: string; aspects: string[]; match: string[]; since: string } | null {
+  if (!v || typeof v !== 'object') return null;
+  const f = v as Record<string, unknown>;
+  const topic = str(f.topic, 80);
+  const since = str(f.since, 20);
+  const aspects = strList(f.aspects, 12);
+  const match = strList(f.match, 40);
+  return topic && since && aspects && match && match.length > 0 ? { topic, aspects, match, since } : null;
+}
+
 function parseChunk(v: unknown): KnowledgeChunk | null {
   if (!v || typeof v !== 'object') return null;
   const c = v as Record<string, unknown>;
@@ -19,7 +32,7 @@ function parseChunk(v: unknown): KnowledgeChunk | null {
   const updated = str(c.updated, 10);
   const anchor = str(c.anchor, 300) ?? '';
   const status = typeof c.status === 'string' && (STATUSES as string[]).includes(c.status) ? (c.status as KnowledgeStatus) : null;
-  const origin = c.origin === 'nova-knowledge' || c.origin === 'repo-docs' ? c.origin : null;
+  const origin = c.origin === 'nova-knowledge' || c.origin === 'repo-docs' || c.origin === 'faq' ? c.origin : null;
   const path = Array.isArray(c.headingPath) && c.headingPath.every((h) => typeof h === 'string' && h.length <= 300) ? (c.headingPath as string[]) : null;
   // Defence in depth: the builder never packs a draft, and the engine would not use one anyway.
   if (c.review !== 'approved') return null;
@@ -27,7 +40,9 @@ function parseChunk(v: unknown): KnowledgeChunk | null {
   // A source address that is not https is not something Atlas will cite as a link.
   if (!/^https:\/\//.test(sourceUrl)) return null;
   const availableIn = str(c.availableIn, 20) ?? undefined;
-  return { id, product, title, headingPath: path, text, sourceUrl, sourcePath, updated, status, ...(availableIn ? { availableIn } : {}), origin, anchor, review: 'approved' };
+  const faq = origin === 'faq' ? parseFaq(c.faq) : undefined;
+  if (origin === 'faq' && !faq) return null;
+  return { id, product, title, headingPath: path, text, sourceUrl, sourcePath, updated, status, ...(availableIn ? { availableIn } : {}), origin, anchor, review: 'approved', ...(faq ? { faq } : {}) };
 }
 
 /**

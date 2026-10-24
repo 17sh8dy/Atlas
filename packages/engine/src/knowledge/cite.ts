@@ -52,7 +52,7 @@ function niceDate(iso: string): string {
 }
 
 function labelFor(c: KnowledgeChunk): string {
-  if (c.origin === 'nova-knowledge') return c.title;
+  if (c.origin !== 'repo-docs') return c.title;
   // A repo doc: "Atlas documentation (Token accounting)".
   const product =
     c.product === 'nova'
