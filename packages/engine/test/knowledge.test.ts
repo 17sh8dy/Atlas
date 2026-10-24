@@ -26,6 +26,7 @@ const chunk = (over: Partial<KnowledgeChunk> = {}): KnowledgeChunk => ({
   origin: 'repo-docs',
   anchor: 'a',
   review: 'approved',
+  audience: 'user',
   ...over,
 });
 

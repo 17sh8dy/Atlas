@@ -132,12 +132,12 @@ function packAnswer(
   }
   if (plan.kind === 'passages') {
     const more = plan.needsModel ? `\n\n${NEEDS_MODEL_LINE}` : '';
-    return { kind: 'say', how: 'passages', text: `${passagesText(plan.hits, plan.partial)}${more}\n\n${line(plan.hits)}`, links: sourceLinks(plan.hits) };
+    return { kind: 'say', how: 'passages', text: `${passagesText(plan.hits, plan.partial, intent.text)}${more}\n\n${line(plan.hits)}`, links: sourceLinks(plan.hits) };
   }
   if (plan.kind === 'model') {
     const body = `${referenceBlock(plan.hits)}\n\nAnswer the question using only the reference material above. If it does not say, say that it does not.\n\nQuestion: ${intent.text}`;
     const footer = `\n\n${line(plan.hits)}${plan.partial ? ' · partly from the documentation' : ''}`;
-    const fallback = `${passagesText(plan.hits, plan.partial)}\n\n${line(plan.hits)}`;
+    const fallback = `${passagesText(plan.hits, plan.partial, intent.text)}\n\n${line(plan.hits)}`;
     return { kind: 'ask-model', body, footer, fallback };
   }
   return { kind: 'none', intent };

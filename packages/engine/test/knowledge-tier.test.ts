@@ -33,6 +33,7 @@ const base = (over: Partial<KnowledgeChunk>): KnowledgeChunk => ({
   origin: 'repo-docs',
   anchor: 'a',
   review: 'approved',
+  audience: 'user',
   ...over,
 });
 
@@ -224,14 +225,22 @@ describe('what it will not do', () => {
     expect(t.said.join('\n')).not.toMatch(/Source:/);
   });
 
-  it('a partial match is labelled as the closest thing, never as the answer, and says nothing about the model', async () => {
+  it('a question about a Nova product the pack says nothing relevant on is declined honestly, not answered with something unrelated', async () => {
     const t = engine(deps(), null);
     await t.ask('Does Replay.GG support Linux?');
     const said = t.said.join('\n');
-    expect(said).toMatch(/^Here is the closest thing I have:/);
-    expect(said).toMatch(/Windows installer/);
-    expect(said).not.toMatch(MODEL_REMARK);
+    expect(said).toMatch(/isn't in my documentation/);
+    expect(said).not.toMatch(/Source:/);
     expect(said).not.toMatch(/can't answer that one/i);
+  });
+
+  it('a partial match is labelled as the closest thing, never as the answer, and says nothing about the model', async () => {
+    const t = engine(deps(), null);
+    await t.ask('Does Replay.GG record gameplay and stream it?');
+    const said = t.said.join('\n');
+    expect(said).toMatch(/^Here is the closest thing I have:/);
+    expect(said).toMatch(/records gameplay/);
+    expect(said).not.toMatch(MODEL_REMARK);
   });
 
   it('with a model that cannot be reached and nothing in the docs, names both facts', async () => {

@@ -120,7 +120,7 @@ const cfg = JSON.parse(readFileSync(join(root, 'knowledge', 'sources.json'), 'ut
 const chunks = [];
 const report = { packed: [], skipped: [], flagged: [] };
 
-function addChunks({ idBase, product, title, body, origin, sourceUrl, sourcePath, updated, status, availableIn, review }) {
+function addChunks({ idBase, product, title, body, origin, sourceUrl, sourcePath, updated, status, availableIn, review, audience = 'user' }) {
   for (const c of chunkMarkdown(body, title)) {
     const bad = scanText(c.text, { allowEmail: cfg.allowEmail ?? [] });
     if (bad.length) fail(`${sourcePath} (${c.headingPath.join(' > ')}): contains ${bad.join(', ')}`);
@@ -141,6 +141,7 @@ function addChunks({ idBase, product, title, body, origin, sourceUrl, sourcePath
       origin,
       anchor: c.anchor,
       review,
+      audience,
     });
   }
 }
@@ -201,7 +202,9 @@ const lastDate = (dir, rel) => {
 
 for (const d of cfg.docs) {
   checkRepo(d.path, d.repo, d.product);
-  for (const rel of d.files) {
+  for (const file of d.files) {
+    const rel = typeof file === 'string' ? file : file.path;
+    const audience = typeof file === 'string' ? 'developer' : file.audience === 'user' ? 'user' : 'developer';
     if (!existsAtHead(d.path, rel)) {
       fail(`${d.product}: ${rel} is listed but does not exist`);
       continue;
@@ -223,6 +226,7 @@ for (const d of cfg.docs) {
       updated: lastDate(d.path, rel),
       status: 'Released',
       review: 'approved',
+      audience,
     });
     report.packed.push(`${d.repo}:${rel}`);
   }
@@ -281,6 +285,7 @@ for (const d of cfg.docs) {
         origin: 'faq',
         anchor: e.id,
         review: e.review,
+        audience: 'user',
         faq: { topic: e.topic, aspects: e.aspects, match: e.match, since: e.since },
       });
       report.packed.push(`${rel}#${e.id} (${e.review})`);

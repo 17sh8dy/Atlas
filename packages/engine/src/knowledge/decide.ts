@@ -8,6 +8,7 @@
  */
 
 import type { Intent } from './intent';
+import { tokenize } from './search';
 import type { FaqMatch } from './faq';
 import type { KnowledgeHit } from './types';
 
@@ -108,8 +109,49 @@ export function excerpt(text: string, max = 650): string {
   return `${(stop > max * 0.5 ? cut.slice(0, stop + 1) : cut.replace(/\s+\S*$/, '')).trim()}…`;
 }
 
-export function passagesText(hits: KnowledgeHit[], partial: boolean): string {
-  const body = hits.map((h) => excerpt(h.chunk.text)).join('\n\n');
+/** Markdown made readable as plain text: tables dropped (a grid of pipes is not an answer), emphasis and headings unwrapped. */
+export function plainText(markdown: string): string {
+  return markdown
+    .split('\n')
+    .filter((l) => !/^\s*\|/.test(l) && !/^\s*[-*_]{3,}\s*$/.test(l))
+    .map((l) =>
+      l
+        .replace(/^\s{0,3}#{1,6}\s+/, '')
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'),
+    )
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** The few sentences of a chunk that best match the question, so the answer starts where it is relevant. */
+export function relevantWindow(text: string, question: string, max = 650): string {
+  const clean = plainText(text);
+  const q = new Set(tokenize(question));
+  const sentences = clean
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (sentences.length <= 3 || q.size === 0) return excerpt(clean, max);
+  let best = 0;
+  let bestScore = -1;
+  for (let i = 0; i < sentences.length; i++) {
+    const score = tokenize(sentences.slice(i, i + 3).join(' ')).filter((t) => q.has(t)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  return excerpt(sentences.slice(best, best + 3).join(' '), max);
+}
+
+export function passagesText(hits: KnowledgeHit[], partial: boolean, question = ''): string {
+  const body = hits
+    .map((h) => relevantWindow(h.chunk.text, question))
+    .filter(Boolean)
+    .join('\n\n');
   return partial ? `Here is the closest thing I have:\n\n${body}` : body;
 }
 

@@ -50,6 +50,13 @@ const PRODUCT_WORDS: Record<string, string[]> = {
   'nova-legal': ['legal', 'novalegal'],
 };
 
+/** The folded tokens that merely name a product; they say which product, not what is being asked. */
+const PRODUCT_TOKENS = new Set(Object.values(PRODUCT_WORDS).flat().flatMap((w) => tokenize(w)));
+/** A question about how Atlas is built, which is allowed to land in the developer documentation. */
+const DEVELOPER_QUESTION = /(?:architecture|source code|code|api|rust|typescript|tauri|implement(?:ed|ation)?|internals?|modules?|functions?|repo(?:sitory)?|developers?|contribut\w*|build it)/i;
+/** Developer documentation answers a person's question less directly, so it ranks below user documentation. */
+const DEVELOPER_WEIGHT = 0.7;
+
 const K1 = 1.4;
 const B = 0.75;
 const TITLE_BOOST = 3;
@@ -93,6 +100,9 @@ export class KnowledgeIndex {
     const q = tokenize(question);
     if (q.length === 0) return [];
     const unique = [...new Set(q)];
+    // What is being asked, apart from which product it is about.
+    const content = unique.filter((t) => !PRODUCT_TOKENS.has(t));
+    const developer = DEVELOPER_QUESTION.test(question);
     const n = this.docs.length;
     const named = namedProducts(question);
     const hits: KnowledgeHit[] = [];
@@ -108,8 +118,11 @@ export class KnowledgeIndex {
       }
       if (score <= 0) continue;
       if (named.has(d.chunk.product)) score *= PRODUCT_BOOST;
-      const present = unique.filter((t) => d.tf.has(t)).length;
-      hits.push({ chunk: d.chunk, score, coverage: present / unique.length });
+      if (d.chunk.audience === 'developer' && !developer) score *= DEVELOPER_WEIGHT;
+      // Coverage is judged on what was asked, not on the product's name (which appears everywhere). A question
+      // that only names a product is covered by a chunk about that product.
+      const coverage = content.length > 0 ? content.filter((t) => d.tf.has(t)).length / content.length : named.has(d.chunk.product) ? 1 : 0;
+      hits.push({ chunk: d.chunk, score, coverage });
     }
     hits.sort((a, b) => b.score - a.score || a.chunk.id.localeCompare(b.chunk.id));
     return hits.slice(0, opts.limit ?? 5);

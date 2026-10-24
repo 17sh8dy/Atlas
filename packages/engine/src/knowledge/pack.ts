@@ -40,9 +40,10 @@ function parseChunk(v: unknown): KnowledgeChunk | null {
   // A source address that is not https is not something Atlas will cite as a link.
   if (!/^https:\/\//.test(sourceUrl)) return null;
   const availableIn = str(c.availableIn, 20) ?? undefined;
+  const audience = c.audience === 'developer' ? 'developer' : 'user';
   const faq = origin === 'faq' ? parseFaq(c.faq) : undefined;
   if (origin === 'faq' && !faq) return null;
-  return { id, product, title, headingPath: path, text, sourceUrl, sourcePath, updated, status, ...(availableIn ? { availableIn } : {}), origin, anchor, review: 'approved', ...(faq ? { faq } : {}) };
+  return { id, product, title, headingPath: path, text, sourceUrl, sourcePath, updated, status, ...(availableIn ? { availableIn } : {}), origin, anchor, review: 'approved', audience, ...(faq ? { faq } : {}) };
 }
 
 /**

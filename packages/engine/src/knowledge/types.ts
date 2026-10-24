@@ -25,6 +25,8 @@ export interface KnowledgeChunk {
   anchor: string;
   /** Only `approved` text is ever used; a pack that carries anything else is not trusted for it. */
   review: 'approved';
+  /** Who the text is written for: `user` answers a person's question; `developer` is internals, which rank lower. */
+  audience: 'user' | 'developer';
   /** Only on `origin: 'faq'`: what the verified answer matches and since when it is true. */
   faq?: { topic: string; aspects: string[]; match: string[]; since: string };
 }

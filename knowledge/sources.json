@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "The explicit allowlist for the Atlas/Nova knowledge pack (docs/PLAN-2.0.3.md §J-1, §N). Nothing is crawled: a file is in the pack only if it is named here. Every repo must have a PUBLIC GitHub remote, or the build fails. Atlas docs that are NOT listed (ROADMAP, TODO-2.0-RELEASE, INCIDENT-*, PLAN-*) are internal and never packed. LIFE and Nova Engine are not here: Nova Engine is private and gets only a hand-written, reviewed overview.",
+  "note": "The explicit allowlist for the Atlas/Nova knowledge pack (docs/PLAN-2.0.3.md §J-1, §N). Nothing is crawled: a file is in the pack only if it is named here. Every repo must have a PUBLIC GitHub remote, or the build fails. Atlas docs that are NOT listed (ROADMAP, TODO-2.0-RELEASE, INCIDENT-*, PLAN-*) are internal and never packed. LIFE and Nova Engine are not here: Nova Engine is private and gets only a hand-written, reviewed overview. Each file has an audience: \"user\" documentation answers a person's question directly; \"developer\" documentation (architecture, internals, READMEs) is searched too but ranks lower unless the question is a developer's.",
   "knowledgeRepo": {
     "path": "D:/Dev/NovaKnowledge",
     "repo": "17sh8dy/Nova-Knowledge",
@@ -13,30 +13,140 @@
       "path": "D:/Dev/Atlas",
       "repo": "17sh8dy/Atlas",
       "files": [
-        "README.md",
-        "docs/ARCHITECTURE.md",
-        "docs/CAPABILITY-SYSTEM-2.0.2.md",
-        "docs/CAPABILITY-COVERAGE.md",
-        "docs/CLOUD-SAFETY-AND-STATS.md",
-        "docs/MODEL-GATEWAY.md",
-        "docs/NATIVE-AUTHORIZATION.md",
-        "docs/NATIVE-AUTHORIZATION-INVENTORY.md",
-        "docs/SECURITY-HARDENING-2.0.md",
-        "docs/TOOL-CATALOG.md",
-        "docs/WEB-AND-BUILD.md",
-        "docs/WORKFLOW-UNIFICATION.md",
-        "docs/PLUGINS.md",
-        "docs/INSTALL.md",
-        "docs/TOKEN-ACCOUNTING.md",
-        "docs/TOKEN-ACCURACY.md"
+        {
+          "path": "README.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/ARCHITECTURE.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/CAPABILITY-SYSTEM-2.0.2.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/CAPABILITY-COVERAGE.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/CLOUD-SAFETY-AND-STATS.md",
+          "audience": "user"
+        },
+        {
+          "path": "docs/MODEL-GATEWAY.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/NATIVE-AUTHORIZATION.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/NATIVE-AUTHORIZATION-INVENTORY.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/SECURITY-HARDENING-2.0.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/TOOL-CATALOG.md",
+          "audience": "user"
+        },
+        {
+          "path": "docs/WEB-AND-BUILD.md",
+          "audience": "user"
+        },
+        {
+          "path": "docs/WORKFLOW-UNIFICATION.md",
+          "audience": "developer"
+        },
+        {
+          "path": "docs/PLUGINS.md",
+          "audience": "user"
+        },
+        {
+          "path": "docs/INSTALL.md",
+          "audience": "user"
+        },
+        {
+          "path": "docs/TOKEN-ACCOUNTING.md",
+          "audience": "user"
+        },
+        {
+          "path": "docs/TOKEN-ACCURACY.md",
+          "audience": "user"
+        }
       ]
     },
-    { "product": "replay-gg", "path": "D:/Dev/ReplayGG", "repo": "17sh8dy/Replay.GG", "files": ["README.md"] },
-    { "product": "nova-cut", "path": "D:/Dev/NovaCut", "repo": "17sh8dy/NovaCut", "files": ["README.md"] },
-    { "product": "nova-help", "path": "D:/Dev/NovaHelp", "repo": "17sh8dy/Nova.Help", "files": ["README.md"] },
-    { "product": "nova-review", "path": "D:/Dev/Nova.Review", "repo": "17sh8dy/Nova.Review", "files": ["README.md"] },
-    { "product": "novaos", "path": "D:/Dev/NovaOS", "repo": "17sh8dy/NovaOS", "files": ["README.md"] },
-    { "product": "nova-legal", "path": "D:/Dev/NovaLegal", "repo": "17sh8dy/NovaLegal", "files": ["README.md"] }
+    {
+      "product": "replay-gg",
+      "path": "D:/Dev/ReplayGG",
+      "repo": "17sh8dy/Replay.GG",
+      "files": [
+        {
+          "path": "README.md",
+          "audience": "developer"
+        }
+      ]
+    },
+    {
+      "product": "nova-cut",
+      "path": "D:/Dev/NovaCut",
+      "repo": "17sh8dy/NovaCut",
+      "files": [
+        {
+          "path": "README.md",
+          "audience": "developer"
+        }
+      ]
+    },
+    {
+      "product": "nova-help",
+      "path": "D:/Dev/NovaHelp",
+      "repo": "17sh8dy/Nova.Help",
+      "files": [
+        {
+          "path": "README.md",
+          "audience": "developer"
+        }
+      ]
+    },
+    {
+      "product": "nova-review",
+      "path": "D:/Dev/Nova.Review",
+      "repo": "17sh8dy/Nova.Review",
+      "files": [
+        {
+          "path": "README.md",
+          "audience": "developer"
+        }
+      ]
+    },
+    {
+      "product": "novaos",
+      "path": "D:/Dev/NovaOS",
+      "repo": "17sh8dy/NovaOS",
+      "files": [
+        {
+          "path": "README.md",
+          "audience": "developer"
+        }
+      ]
+    },
+    {
+      "product": "nova-legal",
+      "path": "D:/Dev/NovaLegal",
+      "repo": "17sh8dy/NovaLegal",
+      "files": [
+        {
+          "path": "README.md",
+          "audience": "developer"
+        }
+      ]
+    }
   ],
-  "allowEmail": ["getnovasupport@gmail.com"]
+  "allowEmail": [
+    "getnovasupport@gmail.com"
+  ]
 }
