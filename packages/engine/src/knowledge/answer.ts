@@ -153,7 +153,7 @@ ${sourceLine({ hits: h, pack: loaded.info, now, refreshing: deps.refreshing() })
     return { kind: 'say', how: 'verified', text: `${plan.faq.text}\n\n${line(h)} · Verified answer`, links: sourceLinks(h) };
   }
   if (plan.kind === 'passages') {
-    const shown = showable(plan.hits, intent);
+    const shown = showable(plan.hits, intent, loaded.index);
     if (shown.length === 0) return { kind: 'none', intent };
     const more = plan.needsModel ? `\n\n${NEEDS_MODEL_LINE}` : '';
     const hits = shown.map((k) => k.h);
@@ -166,7 +166,7 @@ ${sourceLine({ hits: h, pack: loaded.info, now, refreshing: deps.refreshing() })
     const footer = `\n\n${line(plan.hits)}${plan.partial ? ' · partly from the documentation' : ''}`;
     // If the model cannot answer, the documentation answers only if it really has something to show; otherwise
     // there is no fallback, and the engine says honestly that the model could not be reached and the docs do not cover it.
-    const shown = showable(plan.hits, intent);
+    const shown = showable(plan.hits, intent, loaded.index);
     const fallback = shown.length
       ? `${plan.partial ? 'Here is the closest thing I have:\n\n' : ''}${shown.map((k) => k.text).join('\n\n')}\n\n${line(shown.map((k) => k.h))}`
       : '';
@@ -196,9 +196,14 @@ function latestReleaseNotes(loaded: LoadedKnowledge, product: string): Knowledge
  * nothing. One content word beside a product name is weak evidence (any chunk mentions "computer"), so it only
  * counts when the section's own heading is about it too.
  */
-function showable(hits: KnowledgeHit[], intent: Intent): Array<{ h: KnowledgeHit; text: string }> {
+function showable(hits: KnowledgeHit[], intent: Intent, index: KnowledgeIndex): Array<{ h: KnowledgeHit; text: string }> {
   const content = contentTokens(intent.text);
   const asked = content.length;
+  // The question's most telling word must be in what is shown, or it is not an answer to THIS question.
+  const key = index.rarest(content);
+  // When half or more of what was asked is a word the documentation never uses ("Linux"), it is not about what is
+  // documented, however well the other words match.
+  if (asked > 0 && index.unknownCount(content) * 2 >= asked) return [];
   const need = asked === 0 ? 0 : Math.max(1, Math.ceil(asked * 0.5));
   const top = hits[0]?.score ?? 0;
   const out: Array<{ h: KnowledgeHit; text: string }> = [];
@@ -210,6 +215,8 @@ function showable(hits: KnowledgeHit[], intent: Intent): Array<{ h: KnowledgeHit
     const headingIsAbout = tokenize(h.chunk.headingPath[h.chunk.headingPath.length - 1] ?? '').some((t) => content.includes(t));
     const w = windowWithOverlap(h.chunk.text, intent.text, 650, headingIsAbout);
     if (w.text.length === 0) continue;
+    // (The word may be in the section's heading rather than its sentences: that is the section being about it.)
+    if (key && !tokenize(w.text).includes(key) && !tokenize(h.chunk.headingPath.join(' ')).includes(key)) continue;
     if (!(asked >= 2 || headingIsAbout || asked === 0)) continue;
     if (w.overlap < (headingIsAbout ? Math.min(need, 1) : need)) continue;
     out.push({ h, text: w.text });

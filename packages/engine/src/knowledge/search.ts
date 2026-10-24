@@ -12,7 +12,7 @@ import type { KnowledgeHit, KnowledgeChunk, KnowledgePack } from './types';
 const STOP = new Set(
   ('a an and are as at be but by do does did for from has have how i if in into is it its me my of on or our so than that the their ' +
     'them then there these they this to us was we were what when where which who whom why will with would you your about can could ' +
-    'should tell please').split(' '),
+    'should tell please why who whom whose when where which').split(' '),
 );
 
 /** Lower-case word tokens, with a very light plural/suffix fold so "tokens" finds "token". */
@@ -100,6 +100,32 @@ export class KnowledgeIndex {
       for (const t of tf.keys()) this.df.set(t, (this.df.get(t) ?? 0) + 1);
     }
     this.avgLen = this.docs.length ? Math.max(1, total / this.docs.length) : 1;
+  }
+
+  /**
+   * Of these (already folded) question words, the rarest in the pack: the one that most narrows what the question is
+   * about. A word nowhere in the pack is the rarest of all, which is how a question about something the docs never
+   * mention ("Linux") is recognised as not covered.
+   */
+  rarest(tokens: string[]): string | null {
+    const n = this.docs.length;
+    let best: string | null = null;
+    let bestIdf = -1;
+    for (const t of tokens) {
+      const df = this.df.get(t) ?? 0;
+      if (df === 0) continue; // a word the pack never uses cannot be required of a passage
+      const idf = Math.log(1 + (n - df + 0.5) / (df + 0.5));
+      if (idf > bestIdf) {
+        bestIdf = idf;
+        best = t;
+      }
+    }
+    return best;
+  }
+
+  /** How many of these (already folded) words the pack never uses at all. */
+  unknownCount(tokens: string[]): number {
+    return tokens.filter((t) => (this.df.get(t) ?? 0) === 0).length;
   }
 
   /** Every chunk of one product whose title matches (used to find a product's release notes). */
