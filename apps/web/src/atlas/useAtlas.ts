@@ -13,6 +13,7 @@
  * the executor) rather than reimplemented per button.
  */
 
+import { createKnowledgeDeps } from './knowledgeDeps';
 import { CLIPBOARD_HISTORY_CHANGED, readClipboardHistoryEnabled } from './clipboardHistory';
 import { appChecks } from './selfchecks';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -927,6 +928,8 @@ export function useAtlas(
       isPreapproved,
       probes: createProbeRunner(platform),
       routing: { cloudPlanning: () => cloudPlanningRef.current, universalAgent: () => universalAgentRef.current },
+      // Built-in knowledge about Nova and Atlas (signed pack, verified natively). Desktop only: it needs the native side.
+      ...(platform.id === 'tauri' ? { knowledge: createKnowledgeDeps({ capabilityCount: () => skills.available().length }) } : {}),
     });
     return built;
   }, [
