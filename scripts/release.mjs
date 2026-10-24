@@ -134,6 +134,28 @@ if (!process.env.ATLAS_UPDATE_SIGNING_KEY || !existsSync(process.env.ATLAS_UPDAT
 }
 console.log('  public key compiled in; private key found');
 
+// 4c. The knowledge pack, same rule: an installer must not ship a pack it cannot verify (or none).
+// The pair is built from COMMITTED, approved content and bundled; publishing it for the daily
+// refresh is a separate act (`node scripts/build-knowledge.mjs --publish`), never part of this one.
+step('Building the signed knowledge pack');
+const knowledgeSource = readFileSync(
+  join(root, 'apps/desktop/src-tauri/src/knowledge_signature.rs'),
+  'utf8',
+);
+if (!/PUBLIC_KEY_HEX: &str = "[0-9a-f]{64}"/.test(knowledgeSource)) {
+  fail('knowledge_signature.rs has no PUBLIC_KEY_HEX. Run `node scripts/knowledge-signing.mjs keygen --out <file outside the repo>` and paste the public key in.');
+}
+if (!process.env.ATLAS_KNOWLEDGE_SIGNING_KEY || !existsSync(process.env.ATLAS_KNOWLEDGE_SIGNING_KEY)) {
+  fail('Set ATLAS_KNOWLEDGE_SIGNING_KEY to the knowledge private key file so the pack can be signed.');
+}
+run('node', ['scripts/build-knowledge.mjs']);
+for (const f of ['knowledge-pack.json', 'knowledge-pack.sig']) {
+  if (!existsSync(join(root, 'apps/desktop/src-tauri/resources/knowledge', f))) {
+    fail(`The knowledge pack step finished but resources/knowledge/${f} is not there, so the installer would ship without a verifiable pack.`);
+  }
+}
+console.log('  pack built, signed and bundled');
+
 // 4. Build.
 step('Building the installer (a few minutes)');
 run('pnpm', ['bundle'], join(root, 'apps/desktop'));
