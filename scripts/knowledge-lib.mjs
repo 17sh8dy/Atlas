@@ -184,6 +184,16 @@ export function chunkMarkdown(body, pageTitle) {
   return chunks.map((c, i) => ({ ...c, n: i, anchor: slug(c.headingPath.join(' ')) }));
 }
 
+// ---- the draft gate ---------------------------------------------------------------------------
+
+/**
+ * A second, independent check that nothing unreviewed is in a real pack: whatever the page filter
+ * above did, a non-dev pack with even one chunk that is not \`approved\` is refused. Returns the ids.
+ */
+export function unapprovedChunks(chunks, dev) {
+  return dev ? [] : chunks.filter((c) => c.review !== 'approved').map((c) => c.id);
+}
+
 // ---- the pack and its signature ---------------------------------------------------------------
 
 export const sha256Hex = (bytes) => createHash('sha256').update(bytes).digest('hex');

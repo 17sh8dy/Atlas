@@ -25,6 +25,7 @@ const chunk = (over: Partial<KnowledgeChunk> = {}): KnowledgeChunk => ({
   status: 'Released',
   origin: 'repo-docs',
   anchor: 'a',
+  review: 'approved',
   ...over,
 });
 
@@ -42,6 +43,16 @@ describe('reading a pack', () => {
     expect(parsePack('not json')).toBeNull();
     expect(parsePack(JSON.stringify({ schema: 2, seq: 1, builtAt: 'x', chunks: [chunk()] }))).toBeNull();
     expect(parsePack(JSON.stringify({ schema: 1, seq: 1, builtAt: 'x', chunks: [] }))).toBeNull();
+  });
+});
+
+describe('drafts never reach an answer', () => {
+  it('drops a chunk that is not review-approved', () => {
+    const text = JSON.stringify({ schema: 1, seq: 1, builtAt: 'x', chunks: [chunk(), chunk({ id: 'draft', review: 'draft' as 'approved' })] });
+    expect(parsePack(text)?.chunks.map((c) => c.id)).toEqual(['c1']);
+  });
+  it('refuses a pack made only of drafts', () => {
+    expect(parsePack(JSON.stringify({ schema: 1, seq: 1, builtAt: 'x', chunks: [chunk({ review: 'draft' as 'approved' })] }))).toBeNull();
   });
 });
 

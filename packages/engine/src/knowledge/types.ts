@@ -23,6 +23,8 @@ export interface KnowledgeChunk {
   availableIn?: string;
   origin: KnowledgeOrigin;
   anchor: string;
+  /** Only `approved` text is ever used; a pack that carries anything else is not trusted for it. */
+  review: 'approved';
 }
 
 export interface KnowledgePack {

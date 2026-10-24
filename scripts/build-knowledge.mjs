@@ -39,6 +39,7 @@ import {
   parsePage,
   scanText,
   signPack,
+  unapprovedChunks,
   validatePage,
 } from './knowledge-lib.mjs';
 
@@ -230,6 +231,7 @@ mkdirSync(out, { recursive: true });
 const builtAt = new Date().toISOString();
 const seq = Math.floor(Date.now() / 1000);
 const pack = { schema: SCHEMA, seq, builtAt, keyId: KEY_ID, dev, chunks };
+for (const id of unapprovedChunks(chunks, dev)) fail(`${id}: not review-approved but in a non-dev pack`);
 const bytes = Buffer.from(JSON.stringify(pack), 'utf8');
 if (bytes.length > LIMITS.packBytes) fail(`the pack is ${bytes.length} bytes, over the ${LIMITS.packBytes} cap`);
 

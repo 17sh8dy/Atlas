@@ -21,11 +21,13 @@ function parseChunk(v: unknown): KnowledgeChunk | null {
   const status = typeof c.status === 'string' && (STATUSES as string[]).includes(c.status) ? (c.status as KnowledgeStatus) : null;
   const origin = c.origin === 'nova-knowledge' || c.origin === 'repo-docs' ? c.origin : null;
   const path = Array.isArray(c.headingPath) && c.headingPath.every((h) => typeof h === 'string' && h.length <= 300) ? (c.headingPath as string[]) : null;
+  // Defence in depth: the builder never packs a draft, and the engine would not use one anyway.
+  if (c.review !== 'approved') return null;
   if (!id || !product || !title || !text || !sourceUrl || !sourcePath || !updated || !status || !origin || !path) return null;
   // A source address that is not https is not something Atlas will cite as a link.
   if (!/^https:\/\//.test(sourceUrl)) return null;
   const availableIn = str(c.availableIn, 20) ?? undefined;
-  return { id, product, title, headingPath: path, text, sourceUrl, sourcePath, updated, status, ...(availableIn ? { availableIn } : {}), origin, anchor };
+  return { id, product, title, headingPath: path, text, sourceUrl, sourcePath, updated, status, ...(availableIn ? { availableIn } : {}), origin, anchor, review: 'approved' };
 }
 
 /**

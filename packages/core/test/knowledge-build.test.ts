@@ -139,6 +139,15 @@ describe('chunking', () => {
   });
 });
 
+describe('the draft gate', () => {
+  it('refuses a non-dev pack with any unapproved chunk, and ignores the check in a dev build', () => {
+    const chunks = [{ id: 'a', review: 'approved' }, { id: 'b', review: 'draft' }];
+    expect(lib.unapprovedChunks(chunks, false)).toEqual(['b']);
+    expect(lib.unapprovedChunks(chunks, true)).toEqual([]);
+    expect(lib.unapprovedChunks([{ id: 'a', review: 'approved' }], false)).toEqual([]);
+  });
+});
+
 describe('signing', () => {
   it('signs the pack file hash, seq and build time, in a fixed text', () => {
     expect(lib.canonicalPayload({ keyId: 'atlas-knowledge-1', seq: 7, builtAt: '2026-10-23T00:00:00.000Z', sha256: 'ab' })).toBe(
