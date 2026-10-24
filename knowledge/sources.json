@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "The explicit allowlist for the Atlas/Nova knowledge pack (docs/PLAN-2.0.3.md §J-1, §N). Nothing is crawled: a file is in the pack only if it is named here. Every repo must have a PUBLIC GitHub remote, or the build fails. Atlas docs that are NOT listed (ROADMAP, TODO-2.0-RELEASE, INCIDENT-*, PLAN-*) are internal and never packed. LIFE and Nova Engine are not here: Nova Engine is private and gets only a hand-written, reviewed overview. Each file has an audience: \"user\" documentation answers a person's question directly; \"developer\" documentation (architecture, internals, READMEs) is searched too but ranks lower unless the question is a developer's.",
+  "note": "The explicit allowlist for the Atlas/Nova knowledge pack (docs/PLAN-2.0.3.md §J-1, §N). Nothing is crawled: a file is in the pack only if it is named here. Every repo must have a PUBLIC GitHub remote, or the build fails. Atlas docs that are NOT listed (ROADMAP, TODO-2.0-RELEASE, INCIDENT-*, PLAN-*) are internal and never packed. LIFE and Nova Engine are not here: Nova Engine is private and gets only a hand-written, reviewed overview. Each file has an audience: \"user\" documentation answers a person's question directly; \"developer\" documentation (architecture, internals, READMEs) is searched too but ranks lower unless the question is a developer's. docs/INSTALL.md is deliberately NOT packed: it is the Atlas 1.0.2 install guide and out of date. Only reviewed, user-written text (the knowledge pages, verified answers and the token docs) is allowed to answer a question on its own; developer documentation can only be read by a connected model.",
   "knowledgeRepo": {
     "path": "D:/Dev/NovaKnowledge",
     "repo": "17sh8dy/Nova-Knowledge",
@@ -31,7 +31,7 @@
         },
         {
           "path": "docs/CLOUD-SAFETY-AND-STATS.md",
-          "audience": "user"
+          "audience": "developer"
         },
         {
           "path": "docs/MODEL-GATEWAY.md",
@@ -51,11 +51,11 @@
         },
         {
           "path": "docs/TOOL-CATALOG.md",
-          "audience": "user"
+          "audience": "developer"
         },
         {
           "path": "docs/WEB-AND-BUILD.md",
-          "audience": "user"
+          "audience": "developer"
         },
         {
           "path": "docs/WORKFLOW-UNIFICATION.md",
@@ -63,11 +63,7 @@
         },
         {
           "path": "docs/PLUGINS.md",
-          "audience": "user"
-        },
-        {
-          "path": "docs/INSTALL.md",
-          "audience": "user"
+          "audience": "developer"
         },
         {
           "path": "docs/TOKEN-ACCOUNTING.md",

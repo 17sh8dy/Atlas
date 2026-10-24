@@ -6,6 +6,7 @@
  * names counts for more than one that merely mentions it. Everything is deterministic.
  */
 
+import { substance } from './plain';
 import type { KnowledgeHit, KnowledgeChunk, KnowledgePack } from './types';
 
 const STOP = new Set(
@@ -28,6 +29,11 @@ export function tokenize(text: string): string[] {
  * A deliberately crude stem, applied the same way to questions and to pack text: "count", "counts", "counted"
  * and "counting" meet; so do "update", "updated" and "updating". It only has to be consistent.
  */
+/** The distinct words of a question apart from product names: what is being asked. */
+export function contentTokens(question: string): string[] {
+  return [...new Set(tokenize(question))].filter((t) => !PRODUCT_TOKENS.has(t));
+}
+
 function fold(w: string): string {
   let s = w;
   if (s.length > 4 && s.endsWith('ies')) return `${s.slice(0, -3)}y`;
@@ -60,12 +66,15 @@ const DEVELOPER_WEIGHT = 0.7;
 const K1 = 1.4;
 const B = 0.75;
 const TITLE_BOOST = 3;
+const LEAF_BOOST = 3;
 const PRODUCT_BOOST = 1.6;
 
 interface Doc {
   chunk: KnowledgeChunk;
   tf: Map<string, number>;
   len: number;
+  /** Share of the chunk that is readable prose (a mostly-table or mostly-code chunk is a poor answer). */
+  prose: number;
 }
 
 export class KnowledgeIndex {
@@ -81,10 +90,12 @@ export class KnowledgeIndex {
         for (const t of tokens) tf.set(t, (tf.get(t) ?? 0) + weight);
       };
       add(tokenize(chunk.text), 1);
-      add(tokenize(`${chunk.title} ${chunk.headingPath.join(' ')}`), TITLE_BOOST);
+      add(tokenize(`${chunk.title} ${chunk.headingPath.join(" ")}`), TITLE_BOOST);
+      // The section's own heading is the best sign it is the section the question is about.
+      add(tokenize(chunk.headingPath[chunk.headingPath.length - 1] ?? ""), LEAF_BOOST);
       let len = 0;
       for (const n of tf.values()) len += n;
-      this.docs.push({ chunk, tf, len });
+      this.docs.push({ chunk, tf, len, prose: substance(chunk.text) });
       total += len;
       for (const t of tf.keys()) this.df.set(t, (this.df.get(t) ?? 0) + 1);
     }
@@ -119,6 +130,7 @@ export class KnowledgeIndex {
       if (score <= 0) continue;
       if (named.has(d.chunk.product)) score *= PRODUCT_BOOST;
       if (d.chunk.audience === 'developer' && !developer) score *= DEVELOPER_WEIGHT;
+      if (d.prose < 0.5) score *= 0.5;
       // Coverage is judged on what was asked, not on the product's name (which appears everywhere). A question
       // that only names a product is covered by a chunk about that product.
       const coverage = content.length > 0 ? content.filter((t) => d.tf.has(t)).length / content.length : named.has(d.chunk.product) ? 1 : 0;

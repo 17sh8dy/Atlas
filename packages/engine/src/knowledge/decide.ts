@@ -8,6 +8,7 @@
  */
 
 import type { Intent } from './intent';
+import { plainText } from './plain';
 import { tokenize } from './search';
 import type { FaqMatch } from './faq';
 import type { KnowledgeHit } from './types';
@@ -19,6 +20,9 @@ export function confidenceOf(hits: KnowledgeHit[]): Confidence {
   const top = hits[0];
   if (!top) return 'low';
   const coverage = top.coverage ?? 0;
+  // Developer documentation (internals, READMEs) is searched but never offered as a direct answer: at best it is
+  // "the closest thing I have". User documentation and reviewed answers are what a person should be told.
+  if (top.chunk.audience === 'developer') return coverage >= 0.5 && top.score >= 2.5 ? 'medium' : 'low';
   if (coverage >= 0.8 && top.score >= 4) return 'high';
   if (coverage >= 0.5 && top.score >= 2.5) return 'medium';
   return 'low';
@@ -88,6 +92,9 @@ export function decide({ intent, hits, faq, modelUsable, liveAllowed }: DecideIn
 
   const confidence = confidenceOf(hits);
   if (confidence === 'low') return { kind: 'decline' };
+  // Developer documentation is never shown as an answer by itself (it is written for the people who build Atlas,
+  // and raw quotes from it mislead). A connected model may still read it, inside the reference block.
+  if (hits[0]?.chunk.audience === 'developer' && !modelUsable) return { kind: 'decline' };
   const top = hits.slice(0, confidence === 'high' ? 2 : 3);
   const partial = confidence === 'medium';
   if (intent.needsReasoning) {
@@ -109,42 +116,31 @@ export function excerpt(text: string, max = 650): string {
   return `${(stop > max * 0.5 ? cut.slice(0, stop + 1) : cut.replace(/\s+\S*$/, '')).trim()}…`;
 }
 
-/** Markdown made readable as plain text: tables dropped (a grid of pipes is not an answer), emphasis and headings unwrapped. */
-export function plainText(markdown: string): string {
-  return markdown
-    .split('\n')
-    .filter((l) => !/^\s*\|/.test(l) && !/^\s*[-*_]{3,}\s*$/.test(l))
-    .map((l) =>
-      l
-        .replace(/^\s{0,3}#{1,6}\s+/, '')
-        .replace(/\*\*(.+?)\*\*/g, '$1')
-        .replace(/`([^`]+)`/g, '$1')
-        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'),
-    )
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
 /** The few sentences of a chunk that best match the question, so the answer starts where it is relevant. */
 export function relevantWindow(text: string, question: string, max = 650): string {
+  return windowWithOverlap(text, question, max).text;
+}
+
+/** The best window of a chunk, and how many distinct words of the question it contains (0 if the question has none). */
+export function windowWithOverlap(text: string, question: string, max = 650): { text: string; overlap: number } {
   const clean = plainText(text);
   const q = new Set(tokenize(question));
   const sentences = clean
     .split(/(?<=[.!?])\s+|\n+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
-  if (sentences.length <= 3 || q.size === 0) return excerpt(clean, max);
+  if (q.size === 0) return { text: excerpt(clean, max), overlap: 0 };
   let best = 0;
   let bestScore = -1;
-  for (let i = 0; i < sentences.length; i++) {
-    const score = tokenize(sentences.slice(i, i + 3).join(' ')).filter((t) => q.has(t)).length;
+  const last = Math.max(1, sentences.length - 2);
+  for (let i = 0; i < last; i++) {
+    const score = new Set(tokenize(sentences.slice(i, i + 3).join(' ')).filter((t) => q.has(t))).size;
     if (score > bestScore) {
       bestScore = score;
       best = i;
     }
   }
-  return excerpt(sentences.slice(best, best + 3).join(' '), max);
+  return { text: excerpt(sentences.slice(best, best + 3).join(' '), max), overlap: Math.max(0, bestScore) };
 }
 
 export function passagesText(hits: KnowledgeHit[], partial: boolean, question = ''): string {

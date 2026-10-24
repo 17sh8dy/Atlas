@@ -7,11 +7,11 @@
  * or calls a tool. Everything it shows a person is built in code from verified text or labelled live text.
  */
 
-import { decide, excerpt, liveLine, passagesText, NEEDS_MODEL_LINE, type LiveSourceId } from './decide';
+import { decide, excerpt, liveLine, passagesText, windowWithOverlap, NEEDS_MODEL_LINE, type LiveSourceId } from './decide';
 import { matchFaq, type Facts, type FaqEntry } from './faq';
 import { classifyIntent, type Intent } from './intent';
 import { referenceBlock, sourceLine, sourceLinks } from './cite';
-import { tokenize, type KnowledgeIndex } from './search';
+import { contentTokens, tokenize, type KnowledgeIndex } from './search';
 import type { KnowledgeHit, PackInfo } from './types';
 
 /** What the engine needs to hand over. */
@@ -131,8 +131,20 @@ function packAnswer(
     return { kind: 'say', how: 'verified', text: `${plan.faq.text}\n\n${line(h)} · Verified answer`, links: sourceLinks(h) };
   }
   if (plan.kind === 'passages') {
+    // Only passages whose best sentences actually contain what was asked are shown: a chunk that matched on a
+    // stray word is not an answer, and showing it would be worse than saying nothing.
+    const asked = contentTokens(intent.text).length;
+    const need = asked === 0 ? 0 : Math.max(1, Math.ceil(asked * 0.5));
+    const top = plan.hits[0]?.score ?? 0;
+    const kept = plan.hits
+      .map((h) => ({ h, w: windowWithOverlap(h.chunk.text, intent.text) }))
+      .filter(({ h, w }) => w.text.length > 0 && w.overlap >= need && h.score >= top * 0.8);
+    if (kept.length === 0) return { kind: 'none', intent };
     const more = plan.needsModel ? `\n\n${NEEDS_MODEL_LINE}` : '';
-    return { kind: 'say', how: 'passages', text: `${passagesText(plan.hits, plan.partial, intent.text)}${more}\n\n${line(plan.hits)}`, links: sourceLinks(plan.hits) };
+    const hits = kept.map((k) => k.h);
+    const body = kept.map((k) => k.w.text).join('\n\n');
+    const lead = plan.partial ? 'Here is the closest thing I have:\n\n' : '';
+    return { kind: 'say', how: 'passages', text: `${lead}${body}${more}\n\n${line(hits)}`, links: sourceLinks(hits) };
   }
   if (plan.kind === 'model') {
     const body = `${referenceBlock(plan.hits)}\n\nAnswer the question using only the reference material above. If it does not say, say that it does not.\n\nQuestion: ${intent.text}`;
