@@ -405,7 +405,12 @@ pub async fn ask_local_model_stream(
     tools: Option<serde_json::Value>,
     format: Option<serde_json::Value>,
 ) -> Result<String, String> {
-    let tokens_in = crate::stats::estimate_tokens(&prompt);
+    // The estimate is scaled by what this model's own reported counts have taught Atlas, once it has
+    // enough of them; the raw figure is what a reported count is compared against.
+    let kind = crate::tokens::classify(&prompt).as_str();
+    let model_name = model.clone();
+    let raw_in = crate::stats::estimate_tokens(&prompt);
+    let tokens_in = crate::calibration::apply("local", &model_name, kind, raw_in);
     let raced = crate::halt::global()
         .race(ask_local_model_unraced(app, base_url, model, prompt, think, stream_id, num_ctx, tools, format))
         .await;
@@ -414,6 +419,7 @@ pub async fn ask_local_model_stream(
     // records how much of the total that is), otherwise an estimate the page labels as one.
     match raced {
         Ok((text, Some((prompt_tokens, reply_tokens)))) => {
+            crate::calibration::observe("local", &model_name, kind, raw_in, prompt_tokens);
             let reported = crate::usage::Usage { input_total: prompt_tokens, output: reply_tokens, ..Default::default() };
             crate::stats::record_model("model.local", None, crate::usage::Counted::Confirmed(reported), true);
             crate::stats::bump("model.local.tokens_reported", prompt_tokens + reply_tokens);

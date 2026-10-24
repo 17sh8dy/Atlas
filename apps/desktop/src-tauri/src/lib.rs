@@ -23,6 +23,7 @@ mod redact;
 mod stats;
 mod usage;
 mod tokens;
+mod calibration;
 mod terminal;
 mod changes;
 mod cloud_safety;
@@ -527,6 +528,8 @@ pub fn run() {
             terminal::dev_tools_probe,
             stats::stats_info,
             stats::stats_reset,
+            calibration::calibration_status,
+            calibration::calibration_reset,
             provider_bindings::provider_unbind,
         ])
         .manage(StorageState(std::sync::Mutex::new(())))

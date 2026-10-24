@@ -19,6 +19,7 @@ const WEIGHTS_JSON: &str = include_str!("../../../../packages/core/src/token-wei
 #[serde(rename_all = "camelCase")]
 struct PerChar {
     alnum: u64,
+    digit: u64,
     space: u64,
     newline: u64,
     punct: u64,
@@ -91,7 +92,10 @@ fn char_weight(c: char) -> u64 {
     if cp == 0x0a || cp == 0x0d {
         return w.newline;
     }
-    if (0x30..=0x39).contains(&cp) || (0x41..=0x5a).contains(&cp) || (0x61..=0x7a).contains(&cp) {
+    if (0x30..=0x39).contains(&cp) {
+        return w.digit;
+    }
+    if (0x41..=0x5a).contains(&cp) || (0x61..=0x7a).contains(&cp) {
         return w.alnum;
     }
     if cp < 0x80 {
@@ -253,7 +257,7 @@ mod tests {
     fn cjk_costs_far_more_per_character_than_english() {
         let english = "the quick brown fox jumps over";
         let cjk = "你好世界你好世界你好世界你好世界你好世界你好世界你好";
-        assert!(estimate(cjk) as f64 / cjk.chars().count() as f64 > 3.0 * (estimate(english) as f64 / english.len() as f64));
+        assert!(estimate(cjk) as f64 / cjk.chars().count() as f64 > 2.0 * (estimate(english) as f64 / english.len() as f64));
     }
 
     #[test]

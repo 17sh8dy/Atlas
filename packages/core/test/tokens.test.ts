@@ -79,7 +79,7 @@ describe('token estimator', () => {
   it('charges CJK far more per character than English', () => {
     const en = 'the quick brown fox jumps over';
     const zh = '你好世界你好世界你好世界你好世界你好世界';
-    expect(estimateTokens(zh) / [...zh].length).toBeGreaterThan(3 * (estimateTokens(en) / en.length));
+    expect(estimateTokens(zh) / [...zh].length).toBeGreaterThan(2 * (estimateTokens(en) / en.length));
   });
 
   it('applies calibration', () => {

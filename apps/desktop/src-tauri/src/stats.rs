@@ -320,6 +320,7 @@ pub fn init(app: &AppHandle) {
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join(FILE);
     let backup = dir.join("stats.json.bak");
+    crate::calibration::init(dir.clone());
 
     let loaded = load_file(&path).or_else(|| {
         let b = load_file(&backup);
@@ -914,7 +915,7 @@ pub async fn stats_reset() -> Result<(), String> {
     crate::consent::ask(crate::consent::Request::ResetStats).await?;
     {
         let mut l = live().lock().map_err(|_| "Stats are unavailable right now.".to_string())?;
-        l.store = Store { version: VERSION, created_at: now_ms(), ..Default::default() };
+        l.store = Store { version: VERSION, created_at: now_ms(), split_from: today_key(), ..Default::default() };
         l.dirty = true;
     }
     flush();

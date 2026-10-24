@@ -19,7 +19,8 @@ type PerChar = typeof weights.perChar;
 function charClass(cp: number): keyof PerChar {
   if (cp === 0x20 || cp === 0x09) return 'space';
   if (cp === 0x0a || cp === 0x0d) return 'newline';
-  if ((cp >= 0x30 && cp <= 0x39) || (cp >= 0x41 && cp <= 0x5a) || (cp >= 0x61 && cp <= 0x7a)) return 'alnum';
+  if (cp >= 0x30 && cp <= 0x39) return 'digit';
+  if ((cp >= 0x41 && cp <= 0x5a) || (cp >= 0x61 && cp <= 0x7a)) return 'alnum';
   if (cp < 0x80) return 'punct';
   if (cp === 0x200d || cp === 0xfe0f || cp === 0xfe0e || (cp >= 0x1f3fb && cp <= 0x1f3ff)) return 'joiner';
   if ((cp >= 0x0300 && cp <= 0x036f) || (cp >= 0x20d0 && cp <= 0x20ff)) return 'combining';

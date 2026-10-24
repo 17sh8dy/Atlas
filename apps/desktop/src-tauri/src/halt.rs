@@ -1020,7 +1020,7 @@ mod tests {
             "provider_binding", "provider_bind", "provider_add", "provider_unbind", "provider_list",
             "provider_update", "provider_resume", "provider_set_caps", "provider_set_prices",
             // Local statistics: reading and recording them never acts on the machine.
-            "stats_summary", "stats_record", "stats_touch", "stats_info", "stats_reset",
+            "calibration_status", "calibration_reset", "stats_summary", "stats_record", "stats_touch", "stats_info", "stats_reset",
             // Checkpoint history: reading it and marking a change as reviewed act on nothing. The
             // commands that write to a file or record one check the stop themselves.
             "change_get", "change_list", "change_keep", "terminal_read", "terminal_list", "terminal_screen",

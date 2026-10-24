@@ -608,7 +608,9 @@ async fn ask_cloud_provider_unraced(
 
     let client = http_client()?;
     // Everything the request sends is billed as input: the prompt and any tool or schema JSON.
-    let tokens_in = crate::tokens::estimate_request(&prompt, tools.as_ref(), schema.as_ref());
+    let raw_in = crate::tokens::estimate_request(&prompt, tools.as_ref(), schema.as_ref());
+    let kind_name = crate::tokens::classify(&prompt).as_str();
+    let tokens_in = crate::calibration::apply(&provider_id, &model, kind_name, raw_in);
     // The emergency stop drops this future mid-request. A request that was in flight may have
     // reached the provider, so if we are dropped before an outcome is known it is recorded as
     // uncertain rather than vanishing from the cap.
@@ -628,6 +630,9 @@ async fn ask_cloud_provider_unraced(
         Ok(Parsed { reply, usage }) => {
             // The provider's own figures when it gave them; otherwise an estimate, which the
             // Stats page labels as one.
+            if let Some(u) = usage {
+                crate::calibration::observe(&provider_id, &model, kind_name, raw_in, u.input_total);
+            }
             let counted = crate::usage::for_success(usage, tokens_in, crate::stats::estimate_tokens(&reply.text));
             crate::stats::record_model("model.cloud", Some(&provider_id), counted, true);
             Ok(reply)

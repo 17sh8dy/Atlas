@@ -272,6 +272,8 @@ pub const COMMANDS: &[(&str, &str, Class)] = &[
     ("terminal.rs", "terminal_open", Class::ProcessOrSystem),
     ("terminal.rs", "terminal_read", Class::SensitiveRead),
     ("terminal.rs", "terminal_screen", Class::SensitiveRead),
+    ("calibration.rs", "calibration_reset", Class::Setting),
+    ("calibration.rs", "calibration_status", Class::Read),
     ("stats.rs", "stats_info", Class::Read),
     ("stats.rs", "stats_record", Class::Setting),
     ("stats.rs", "stats_reset", Class::Setting),
