@@ -5,9 +5,15 @@ nothing may be until Brandon says so.** Plan: `docs/PLAN-2.0.3.md`. Workstreams 
 knowledge pack, refresh, live lookups) and K (knowledge-first answering) are built and real-app verified; C (private
 folders) is 2.0.4.
 
-## Tomorrow, in this order
+## Done 2026-10-24
 
-1. **Knowledge settings tab** (`apps/web/src/pages/settings/Knowledge.tsx`). The native side and the
+- Knowledge settings tab built (`settings/Knowledge.tsx`, `knowledgeView.ts`, test `knowledge-tab.test.ts`); real-app drive pending.
+- K7 built: `knowledge/verify.ts`; a model's knowledge reply is held (not streamed), numbers and `code` names must appear in the passages, else the passages are shown instead.
+- `release.mjs` now builds and requires the signed pack before bundling (publishing the pack stays manual).
+
+## Still to do, in this order
+
+1. ~~**Knowledge settings tab**~~ (built, see above; keep for the spec) (`apps/web/src/pages/settings/Knowledge.tsx`). The native side and the
    `@atlas/platform` bindings already exist (`knowledgeStatus`, `knowledgeCheckNow`, `knowledgeSetAutoRefresh`,
    `knowledgeSetLiveLookups`, `calibrationStatus`, `calibrationReset`). The tab needs:
    - Auto-refresh toggle (default on) and "Look up current information from Nova's public pages" toggle (default on).
@@ -34,7 +40,7 @@ folders) is 2.0.4.
 - **Only reviewed user-written text answers on its own.** Developer documentation (architecture, READMEs) is read by a
   connected model only and is never shown to a person. If a model is not connected, those questions are declined.
   Decide whether more docs should be rewritten for users and marked `audience: user` in `knowledge/sources.json`.
-- **K7 not built:** a model's reply is not yet checked against the passages (numbers, version strings and setting names
+- **K7 built (2026-10-24), limits:** it catches invented numbers and code names only, not a wrong sentence made of right words. Original note: a model's reply is not yet checked against the passages (numbers, version strings and setting names
   in the reply should appear in the reference, else the reply is replaced by the verbatim passage).
 - **Live lookups seen only failing safe.** The network was blocked on purpose in the real-app run, so a successful live
   read of a release page was never seen in the app (the unit tests and `cargo test --lib knowledge_live -- --ignored`
@@ -56,8 +62,7 @@ folders) is 2.0.4.
 
 1. Approve pages and `faq.md`; commit; `ATLAS_KNOWLEDGE_SIGNING_KEY=<key file> node scripts/build-knowledge.mjs`.
    The builder reads committed content only, and refuses any non-approved chunk.
-2. Add the pack step to `scripts/release.mjs` (build, sign, refuse to ship an unsigned or unprovisioned pack, same
-   rule as the update key). Publish with `node scripts/build-knowledge.mjs --publish` (attaches the pack to the
+2. (`release.mjs` pack step is done.) Publish with `node scripts/build-knowledge.mjs --publish` (attaches the pack to the
    `knowledge` release of the Nova-Knowledge repo; this is what the daily refresh reads).
 3. **Back up the knowledge signing key** (`C:\Users\Brandon\.atlas-keys\atlas-knowledge-1.pem`) with
    `node scripts/signing-key-backup.mjs backup` and copy it off this PC. Lose it and installed copies can never verify
