@@ -38,6 +38,7 @@ export {
   // the machine
   ListChecks,
   BarChart3,
+  BookOpen,
   Cpu,
   HardDrive,
   MemoryStick,
