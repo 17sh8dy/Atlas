@@ -82,7 +82,7 @@ import { CapabilityIndex } from './capabilities';
 import { chainClauses, shouldRouteToAgent, trustPlan } from './universal/router';
 import { reporterFor, type ActivityEvent } from './planner/executor';
 import { allTemplates } from './templates';
-import { answerKnowledge, isProductNews, notInDocsModelUnreachable, notInDocsNoModel, type KnowledgeDeps } from './knowledge';
+import { answerKnowledge, isProductNews, unbackedClaims, notInDocsModelUnreachable, notInDocsNoModel, type KnowledgeDeps } from './knowledge';
 
 /**
  * What the chat model is told when an instruction reached it unresolved.
@@ -689,7 +689,9 @@ export class Engine {
     // A connected model reads the passages and answers; if it fails, the passages themselves answer.
     if (!provider) return null;
     this.bus.emit('knowledge:answered', { how: 'model' });
-    return this.converseWithProvider(provider, this.styled(reply.body), io, signal, reply.footer, reply.fallback, false);
+    // K7: the reply is held back and checked against the passages; an invented number or name swaps in the passages.
+    const grounded = (full: string) => unbackedClaims(full, reply.reference, reply.question).length === 0;
+    return this.converseWithProvider(provider, this.styled(reply.body), io, signal, reply.footer, reply.fallback, false, undefined, '', undefined, grounded);
   }
 
   private index(): CapabilityIndex {
@@ -1044,6 +1046,11 @@ export class Engine {
      * answer — whatever the reason (not set up, unreachable, a provider error).
      */
     replyOnFailure?: () => string,
+    /**
+     * When set, the reply is not streamed: it is held until it is whole, then shown only if this says it is
+     * grounded. Otherwise `fallback` is shown in its place (the knowledge tier's passages).
+     */
+    grounded?: (full: string) => boolean,
   ): Promise<AskOutcome> {
     io.typing?.(true);
     return new Promise<AskOutcome>((resolve, reject) => {
@@ -1075,6 +1082,7 @@ export class Engine {
         onDelta: (chunk: string) => {
           if (over) return;
           soFar += chunk;
+          if (grounded) return;
           if (!stream) {
             io.typing?.(false);
             stream = io.stream?.() ?? null;
@@ -1085,6 +1093,13 @@ export class Engine {
           if (over) return;
           settle();
           io.typing?.(false);
+          if (grounded && !grounded(full)) {
+            const instead =
+              fallback || "I started to answer, but part of it isn't in my documentation, so I'd rather not guess.";
+            io.say(instead);
+            resolve({ ok: true, mode: 'chat', text: instead });
+            return;
+          }
           const withSources = sourcesFooter ? full + sourcesFooter : full;
           if (stream) stream.finish(withSources);
           else if (withSources) io.say(withSources);

@@ -52,7 +52,7 @@ export type KnowledgeReply =
   /** Answered. `text` is the whole reply, source line included. */
   | { kind: 'say'; text: string; links: Array<{ label: string; url: string }>; how: 'verified' | 'passages' | 'live' }
   /** A connected model answers from the passages. `body` is the prompt; `footer` is appended to its reply. */
-  | { kind: 'ask-model'; body: string; footer: string; fallback: string }
+  | { kind: 'ask-model'; body: string; footer: string; fallback: string; reference: string; question: string }
   /** Not covered: carry on with the rest of Atlas. */
   | { kind: 'none'; intent: Intent };
 
@@ -170,7 +170,14 @@ ${sourceLine({ hits: h, pack: loaded.info, now, refreshing: deps.refreshing() })
     const fallback = shown.length
       ? `${plan.partial ? 'Here is the closest thing I have:\n\n' : ''}${shown.map((k) => k.text).join('\n\n')}\n\n${line(shown.map((k) => k.h))}`
       : '';
-    return { kind: 'ask-model', body, footer, fallback };
+    return {
+      kind: 'ask-model',
+      body,
+      footer,
+      fallback,
+      reference: plan.hits.map((h) => `${h.chunk.title}\n${h.chunk.text}`).join('\n\n'),
+      question: intent.text,
+    };
   }
   return { kind: 'none', intent };
 }

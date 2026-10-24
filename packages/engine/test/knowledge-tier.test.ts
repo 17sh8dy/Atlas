@@ -294,6 +294,16 @@ describe('questions that need more than a fact', () => {
     expect(said).toMatch(/Source: Atlas documentation \(Token accounting\)/);
   });
 
+  it('K7: a reply with an invented number is never shown; the passages are shown instead', async () => {
+    const p = provider({ reply: 'Because a limit protects money, and it resets every 47 days.' });
+    const t = engine(deps(), p);
+    await t.ask('Why does Atlas count uncertain tokens toward the monthly limit?');
+    const said = t.said.join('\n');
+    expect(said).not.toContain('47 days');
+    expect(said).toMatch(/limit protects money/);
+    expect(said).toMatch(/^Source: /m);
+  });
+
   it('if the model fails, the documentation itself answers', async () => {
     const t = engine(deps(), provider({ error: 'offline' }));
     await t.ask('Why does Atlas count uncertain tokens toward the monthly limit?');
