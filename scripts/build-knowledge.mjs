@@ -269,6 +269,11 @@ if (dev) {
 } else {
   const sig = signPack(bytes, { seq, builtAt }, readFileSync(keyFile, 'utf8'));
   writeFileSync(join(out, 'knowledge-pack.sig'), JSON.stringify(sig, null, 2) + '\n', 'utf8');
+  // The same signed pair is bundled into the installer as the offline pack.
+  const bundle = join(root, 'apps', 'desktop', 'src-tauri', 'resources', 'knowledge');
+  mkdirSync(bundle, { recursive: true });
+  writeFileSync(join(bundle, 'knowledge-pack.json'), bytes);
+  writeFileSync(join(bundle, 'knowledge-pack.sig'), JSON.stringify(sig, null, 2) + '\n', 'utf8');
   console.log(`Signed with ${KEY_ID}.`);
 }
 console.log(`✔ ${chunks.length} chunks, ${bytes.length} bytes → ${relative(process.cwd(), out)}`);

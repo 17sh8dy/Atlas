@@ -37,3 +37,7 @@ apps/desktop/Atlas.exe
 # Disposable folders for real-app tests (scripts/e2e)
 .e2e-sandbox/
 knowledge/dist/
+
+# the bundled knowledge pack is copied here by scripts/build-knowledge.mjs
+apps/desktop/src-tauri/resources/knowledge/*
+!apps/desktop/src-tauri/resources/knowledge/.gitkeep

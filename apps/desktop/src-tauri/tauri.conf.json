@@ -55,7 +55,8 @@
       "vendor/whisper/ggml-cpu-*.dll": "vendor/whisper/",
       "vendor/kokoro/kokoro.onnx": "vendor/kokoro/kokoro.onnx",
       "vendor/kokoro/onnxruntime.dll": "vendor/kokoro/onnxruntime.dll",
-      "vendor/kokoro/voices/*.bin": "vendor/kokoro/voices/"
+      "vendor/kokoro/voices/*.bin": "vendor/kokoro/voices/",
+      "resources/knowledge/*": "knowledge/"
     }
   }
 }

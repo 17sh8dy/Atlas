@@ -23,6 +23,7 @@ mod redact;
 mod stats;
 mod usage;
 mod knowledge_signature;
+mod knowledge;
 mod tokens;
 mod calibration;
 mod terminal;
@@ -529,6 +530,11 @@ pub fn run() {
             terminal::dev_tools_probe,
             stats::stats_info,
             stats::stats_reset,
+            knowledge::knowledge_status,
+            knowledge::knowledge_pack,
+            knowledge::knowledge_check_now,
+            knowledge::knowledge_set_auto_refresh,
+            knowledge::knowledge_set_live_lookups,
             calibration::calibration_status,
             calibration::calibration_reset,
             provider_bindings::provider_unbind,
@@ -596,6 +602,7 @@ pub fn run() {
             secrets::adopt_legacy_session(&handle);
             // Counting starts here: local file, no network, no account (stats.rs).
             stats::init(&handle);
+            knowledge::init(&handle);
             // Checkpoints for file edits, in Atlas's own folder (changes.rs).
             changes::init(&handle);
 
