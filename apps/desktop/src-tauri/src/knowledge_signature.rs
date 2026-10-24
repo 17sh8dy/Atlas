@@ -257,6 +257,10 @@ mod tests {
         let (Ok(pack), Ok(sig)) = (std::fs::read(dir.join("knowledge-pack.json")), std::fs::read_to_string(dir.join("knowledge-pack.sig"))) else {
             return;
         };
+        // A development pack (never signed) is not a release candidate.
+        if String::from_utf8_lossy(&pack).contains("\"dev\":true") {
+            return;
+        }
         let got = verify(&pack, &sig).expect("the pack in knowledge/dist verifies");
         assert!(got.seq > 0);
     }

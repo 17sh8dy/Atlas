@@ -27,7 +27,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -329,6 +329,8 @@ if (failures.length) {
 writeFileSync(join(out, 'knowledge-pack.json'), bytes);
 const keyFile = process.env.ATLAS_KNOWLEDGE_SIGNING_KEY;
 if (dev) {
+  // A dev pack must never sit beside a signature that belongs to an earlier, different pack.
+  rmSync(join(out, 'knowledge-pack.sig'), { force: true });
   console.log('Dev build: not signed.');
 } else if (!keyFile || !existsSync(keyFile)) {
   notes.push('ATLAS_KNOWLEDGE_SIGNING_KEY is not set, so NO signature was written. Atlas will refuse this pack.');
