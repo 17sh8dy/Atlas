@@ -24,6 +24,13 @@
 
 export interface ClapOptions {
   sampleRate: number;
+  /**
+   * Numbers only (levels, sharpness, which test failed), for tuning on a real microphone. Never audio. Called at
+   * most every ~150 ms and only for sounds loud enough to have been a candidate.
+   */
+  onTrace?: (line: string) => void;
+  /** A single clap was recognised (before it is known whether a second follows). For on-screen feedback. */
+  onClap?: () => void;
   /** 1 (needs a loud, clean clap) to 5 (a soft clap in a quiet room). Default 3. */
   sensitivity?: number;
 }
@@ -31,7 +38,10 @@ export interface ClapOptions {
 /** Louder than the room by this much, per sensitivity step. */
 const RISE_MULTIPLE = [0, 10, 8, 6, 4.5, 3.5];
 /** …and louder than this in absolute terms (full scale is 1). */
-const MIN_LEVEL = [0, 0.12, 0.08, 0.05, 0.035, 0.025];
+// Measured on a line-level interface input with its gain at a normal setting (room 0.002, claps 0.05 to 0.23). The
+// room-relative test above does most of the work, so the absolute floor only has to keep a silent room from being
+// infinitely sensitive.
+const MIN_LEVEL = [0, 0.09, 0.05, 0.03, 0.02, 0.012];
 
 const BLOCK_MS = 8;
 const MIN_GAP_MS = 150;
@@ -43,10 +53,15 @@ const CONFIRM_MS = 600;
 const DECAY_CHECK_MS = 96;
 const DECAY_TO = 0.4;
 /** Sharpness: how much of the block is high-frequency (≈1.4 for white noise, ≈0.04 for a low thud). */
-const MIN_SHARPNESS = 0.7;
+const MIN_SHARPNESS = 0.6;
 
 export class ClapDetector {
   private readonly block: number;
+  /** The sample distance sharpness is measured over: about 1/16000 s whatever the device rate. */
+  private readonly lag: number;
+  private readonly onTrace?: (line: string) => void;
+  private readonly onClap?: () => void;
+  private lastTraceAt = -1000;
   private readonly rise: number;
   private readonly minLevel: number;
 
@@ -67,6 +82,12 @@ export class ClapDetector {
   constructor(options: ClapOptions) {
     const s = Math.min(5, Math.max(1, Math.round(options.sensitivity ?? 3)));
     this.block = Math.max(32, Math.round((options.sampleRate * BLOCK_MS) / 1000));
+    // Sharpness is how much of a block is HIGH frequency. Comparing neighbouring samples measures that at 16 kHz, but
+    // at 48 kHz (what real devices run) the same sound has far smaller neighbour differences, so a real clap fell below
+    // the threshold. Comparing samples a third of the way apart at 48 kHz gives the same answer at any rate.
+    this.lag = Math.max(1, Math.round(options.sampleRate / 16000));
+    this.onTrace = options.onTrace;
+    this.onClap = options.onClap;
     this.rise = RISE_MULTIPLE[s]!;
     this.minLevel = MIN_LEVEL[s]!;
   }
@@ -102,13 +123,13 @@ export class ClapDetector {
     for (let i = 0; i < block.length; i++) {
       const v = block[i]!;
       sum += v * v;
-      if (i > 0) {
-        const d = v - block[i - 1]!;
+      if (i >= this.lag) {
+        const d = v - block[i - this.lag]!;
         diff += d * d;
       }
     }
     const rms = Math.sqrt(sum / block.length);
-    const sharp = rms > 1e-6 ? Math.sqrt(diff / (block.length - 1)) / rms : 0;
+    const sharp = rms > 1e-6 ? Math.sqrt(diff / (block.length - this.lag)) / rms : 0;
     const quiet = rms < Math.max(this.background * 2, this.minLevel * 0.35);
     let doubled = false;
 
@@ -126,9 +147,14 @@ export class ClapDetector {
       if (p.blocks * BLOCK_MS >= DECAY_CHECK_MS) {
         // Confirmed only if it has fallen away since the peak; a sound that is still loud is not a clap.
         const fell = rms < p.peak * DECAY_TO;
+        this.onTrace?.(
+          `${fell ? 'clap' : 'sustained (not a clap)'} peak=${p.peak.toFixed(3)} after=${rms.toFixed(3)}`,
+        );
         this.pending = null;
-        if (fell) this.registerClap(p.at);
-        else this.waitForQuiet = true;
+        if (fell) {
+          this.onClap?.();
+          this.registerClap(p.at);
+        } else this.waitForQuiet = true;
       }
     } else {
       if (this.waitForQuiet && quiet) this.waitForQuiet = false;
@@ -139,8 +165,32 @@ export class ClapDetector {
         rms > this.background * this.rise &&
         this.prevRms < rms * 0.85 &&
         sharp >= MIN_SHARPNESS;
-      if (onset) this.pending = { at: this.t, peak: rms, blocks: 0, sharp: true };
-      else if (!this.waitForQuiet) {
+      if (
+        this.onTrace &&
+        !onset &&
+        rms > Math.max(this.background * 2.5, this.minLevel * 0.3) &&
+        this.t - this.lastTraceAt >= 150
+      ) {
+        // Which of the tests a loud-enough sound failed: the whole point of the trace.
+        const failed = [
+          this.waitForQuiet && 'waiting-for-quiet',
+          this.t < this.lockedUntil && 'cooldown',
+          !(rms > this.minLevel) && 'too-quiet',
+          !(rms > this.background * this.rise) && 'not-above-room',
+          !(this.prevRms < rms * 0.85) && 'not-sudden',
+          !(sharp >= MIN_SHARPNESS) && 'not-sharp',
+        ].filter(Boolean);
+        this.lastTraceAt = this.t;
+        this.onTrace(
+          `rejected rms=${rms.toFixed(3)} sharp=${sharp.toFixed(2)} room=${this.background.toFixed(4)} need>${this.minLevel} and >${(this.background * this.rise).toFixed(3)}: ${failed.join(',')}`,
+        );
+      }
+      if (onset) {
+        this.pending = { at: this.t, peak: rms, blocks: 0, sharp: true };
+        this.onTrace?.(
+          `onset rms=${rms.toFixed(3)} sharp=${sharp.toFixed(2)} room=${this.background.toFixed(4)}`,
+        );
+      } else if (!this.waitForQuiet) {
         // The room's own level follows slowly, and only while nothing is happening.
         this.background = Math.max(0.002, this.background * 0.98 + rms * 0.02);
       }

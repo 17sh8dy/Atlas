@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import type { ActivationMode, ListeningPreferences } from '@atlas/core';
 import { validWakePhrase } from '@atlas/core';
 import { SegmentedControl } from '@atlas/ui';
+import { CLAP_HEARD } from '../../../speech/activation/useClapActivation';
 
 const OPTIONS: ReadonlyArray<{ value: ActivationMode; label: string }> = [
   { value: 'off', label: 'Off' },
@@ -26,6 +27,20 @@ export function Activation({ listening, onChange }: Props) {
   const [phrase, setPhrase] = useState(listening.wakePhrase);
   const [problem, setProblem] = useState<string | null>(null);
   useEffect(() => setPhrase(listening.wakePhrase), [listening.wakePhrase]);
+
+  // "Try it": what the detector just heard, so sensitivity can be tuned on THIS microphone without guessing.
+  const [heard, setHeard] = useState<{ kind: 'clap' | 'double'; at: number } | null>(null);
+  useEffect(() => {
+    const on = (e: Event) =>
+      setHeard({ kind: (e as CustomEvent<'clap' | 'double'>).detail, at: Date.now() });
+    window.addEventListener(CLAP_HEARD, on);
+    return () => window.removeEventListener(CLAP_HEARD, on);
+  }, []);
+  useEffect(() => {
+    if (!heard) return;
+    const t = setTimeout(() => setHeard(null), 2500);
+    return () => clearTimeout(t);
+  }, [heard]);
 
   const wake = listening.activation === 'wake' || listening.activation === 'both';
   const clap = listening.activation === 'clap' || listening.activation === 'both';
@@ -58,7 +73,10 @@ export function Activation({ listening, onChange }: Props) {
       {clap && (
         <p className="text-foreground-subtle text-xs leading-relaxed">
           Double clap: two sharp claps about half a second apart. Speech, knocks and applause are
-          ignored.
+          ignored. Try it now: this shows what Atlas hears.{' '}
+          <span className="text-foreground" aria-live="polite">
+            {heard ? (heard.kind === 'double' ? '✓ Heard a double clap' : '✓ Heard a clap') : ''}
+          </span>
         </p>
       )}
 

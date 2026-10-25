@@ -652,6 +652,12 @@ function Ready({
    */
   const [clapActivated, setClapActivated] = useState(0);
   const clapPending = useRef(false);
+  /**
+   * Bringing the window forward makes the native side announce "summoned", and the summoned handler returns to the
+   * conversation (right for Ctrl+Space). For a moment after a clap or the phrase that must not happen, or the voice
+   * screen opens and is closed again a split second later.
+   */
+  const holdVoiceScreenUntil = useRef(0);
   const clap = useClapActivation({
     enabled:
       listeningPrefs.enabled &&
@@ -661,7 +667,9 @@ function Ready({
     // Atlas is using the microphone or the speakers itself: close this stream meanwhile, so there is never two of them.
     paused: listening.state !== 'idle' || voice.state === 'speaking' || voice.state === 'loading' || screen === 'voice',
     sensitivity: listeningPrefs.clapSensitivity,
+    trace: (line) => void platform.logDiagnostic?.('clap', line).catch(() => {}),
     onDouble: () => {
+      holdVoiceScreenUntil.current = Date.now() + 3000;
       void platform.showWindow?.().catch(() => {});
       voice.prime();
       void platform.warmSpeech?.().catch(() => {});
@@ -698,6 +706,7 @@ function Ready({
     phrase: listeningPrefs.wakePhrase,
     platform,
     onWake: (rest) => {
+      holdVoiceScreenUntil.current = Date.now() + 3000;
       void platform.showWindow?.().catch(() => {});
       voice.prime();
       void platform.warmSpeech?.().catch(() => {});
@@ -829,7 +838,11 @@ function Ready({
     let unlisten: (() => void) | undefined;
     void (async () => {
       const { listen } = await import('@tauri-apps/api/event');
-      unlisten = await listen('atlas://summoned', () => setScreen('conversation'));
+      unlisten = await listen('atlas://summoned', () => {
+        // A clap or the wake phrase brought the window up on purpose and is opening the voice screen.
+        if (Date.now() < holdVoiceScreenUntil.current) return;
+        setScreen('conversation');
+      });
     })();
     return () => unlisten?.();
   }, [platform.id]);

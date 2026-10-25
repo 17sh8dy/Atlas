@@ -19,9 +19,14 @@ function rng(seed: number) {
 class Scene {
   samples: number[] = [];
   private rand = rng(7);
-  constructor(private roomNoise = 0.01) {}
+  /** `bandHz` > 0 low-passes the clap the way a real microphone and a real hand do (most energy under ~6 kHz). */
+  constructor(
+    private roomNoise = 0.01,
+    private sr = SR,
+    private bandHz = 0,
+  ) {}
   at(ms: number) {
-    return Math.round((ms / 1000) * SR);
+    return Math.round((ms / 1000) * this.sr);
   }
   silence(ms: number) {
     for (let i = 0; i < this.at(ms); i++) this.samples.push(this.rand() * 2 * this.roomNoise);
@@ -30,9 +35,14 @@ class Scene {
   /** A clap: a broadband burst that dies away in a few tens of milliseconds. */
   clap(amp = 0.6) {
     const n = this.at(120);
+    const a = this.bandHz > 0 ? 1 - Math.exp((-2 * Math.PI * this.bandHz) / this.sr) : 1;
+    let y = 0;
     for (let i = 0; i < n; i++) {
-      const env = Math.exp(-i / (0.012 * SR));
-      this.samples.push(this.rand() * 2 * amp * env + this.rand() * 2 * this.roomNoise);
+      const env = Math.exp(-i / (0.012 * this.sr));
+      // A one-pole low-pass, scaled back up so the loudness stays what `amp` says.
+      y += a * (this.rand() * 2 * amp * env - y);
+      const body = this.bandHz > 0 ? y * Math.sqrt(2 / a) * 0.6 : y;
+      this.samples.push(body + this.rand() * 2 * this.roomNoise);
     }
     return this;
   }
@@ -41,7 +51,7 @@ class Scene {
     const n = this.at(150);
     for (let i = 0; i < n; i++)
       this.samples.push(
-        amp * Math.sin((2 * Math.PI * 90 * i) / SR) * Math.exp(-i / (0.02 * SR)) +
+        amp * Math.sin((2 * Math.PI * 90 * i) / this.sr) * Math.exp(-i / (0.02 * this.sr)) +
           this.rand() * 2 * this.roomNoise,
       );
     return this;
@@ -50,9 +60,9 @@ class Scene {
   speech(ms: number, amp = 0.4) {
     const n = this.at(ms);
     for (let i = 0; i < n; i++) {
-      const syllable = 0.55 + 0.45 * Math.sin((2 * Math.PI * 4 * i) / SR);
+      const syllable = 0.55 + 0.45 * Math.sin((2 * Math.PI * 4 * i) / this.sr);
       let v = 0;
-      for (let h = 1; h <= 8; h++) v += Math.sin((2 * Math.PI * 140 * h * i) / SR) / h;
+      for (let h = 1; h <= 8; h++) v += Math.sin((2 * Math.PI * 140 * h * i) / this.sr) / h;
       this.samples.push(amp * syllable * v * 0.5 + this.rand() * 2 * this.roomNoise);
     }
     return this;
@@ -64,7 +74,7 @@ class Scene {
     return this;
   }
   run(sensitivity = 3): number {
-    const d = new ClapDetector({ sampleRate: SR, sensitivity });
+    const d = new ClapDetector({ sampleRate: this.sr, sensitivity });
     const all = Float32Array.from(this.samples);
     let fired = 0;
     // In odd-sized chunks, like a real audio callback.
@@ -172,5 +182,90 @@ describe('sensitivity', () => {
         .silence(1500)
         .run(),
     ).toBe(1);
+  });
+});
+
+describe('at the rate a real microphone runs (48 kHz), with a clap that is not white noise', () => {
+  const real = (noise = 0.01) => new Scene(noise, 48000, 5000);
+
+  it('a double clap is heard', () => {
+    for (const gap of [200, 300, 450, 600]) {
+      expect(
+        real().silence(1500).clap(0.5).silence(gap).clap(0.5).silence(1500).run(),
+        `gap ${gap}`,
+      ).toBe(1);
+    }
+  });
+  it('a moderate double clap is heard at the default setting', () => {
+    expect(real().silence(1500).clap(0.25).silence(300).clap(0.25).silence(1500).run()).toBe(1);
+  });
+  it('a quiet room still hears it, and a noisier one too', () => {
+    expect(real(0.003).silence(1500).clap(0.3).silence(300).clap(0.3).silence(1500).run()).toBe(1);
+    expect(real(0.02).silence(1500).clap(0.6).silence(300).clap(0.6).silence(1500).run()).toBe(1);
+  });
+  it('speech, knocks and a hiss are still ignored', () => {
+    expect(new Scene(0.01, 48000).silence(500).speech(3000).silence(500).run()).toBe(0);
+    expect(
+      new Scene(0.01, 48000).silence(1500).knock().silence(300).knock().silence(1500).run(),
+    ).toBe(0);
+    expect(new Scene(0.01, 48000).silence(500).hiss(3000).silence(500).run()).toBe(0);
+  });
+  it('applause is still not a command', () => {
+    expect(
+      real()
+        .silence(1500)
+        .clap()
+        .silence(250)
+        .clap()
+        .silence(250)
+        .clap()
+        .silence(250)
+        .clap()
+        .silence(2000)
+        .run(),
+    ).toBe(0);
+  });
+});
+
+describe('other microphones', () => {
+  it('a very quiet line-level input (room 0.002, soft claps)', () => {
+    expect(
+      new Scene(0.002, 48000, 5000)
+        .silence(1500)
+        .clap(0.18)
+        .silence(300)
+        .clap(0.18)
+        .silence(1500)
+        .run(),
+    ).toBe(1);
+  });
+  it('a laptop array or a noisy headset (room 0.03, firm claps)', () => {
+    expect(
+      new Scene(0.03, 44100, 5000)
+        .silence(1500)
+        .clap(0.9)
+        .silence(300)
+        .clap(0.9)
+        .silence(1500)
+        .run(),
+    ).toBe(1);
+  });
+  it('a 44.1 kHz and a 16 kHz device behave alike', () => {
+    for (const sr of [16000, 22050, 44100, 48000, 96000]) {
+      expect(
+        new Scene(0.008, sr, 5000)
+          .silence(1500)
+          .clap(0.4)
+          .silence(300)
+          .clap(0.4)
+          .silence(1500)
+          .run(),
+        String(sr),
+      ).toBe(1);
+      expect(
+        new Scene(0.008, sr).silence(500).speech(2500).silence(500).run(),
+        `speech ${sr}`,
+      ).toBe(0);
+    }
   });
 });

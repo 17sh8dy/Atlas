@@ -10,6 +10,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ClapListener } from './clapListener';
 
+/** Fired on `window` whenever a clap or a double clap is recognised (detail: 'clap' | 'double'). */
+export const CLAP_HEARD = 'atlas:clap-heard';
+
 export interface ClapActivation {
   /** The stream is genuinely open and analysing right now. */
   live: boolean;
@@ -23,6 +26,17 @@ interface Options {
   paused: boolean;
   sensitivity: number;
   onDouble(): void;
+  /** Where tuning numbers go when `atlas.debug.clap` is set in local storage (off by default). */
+  trace?(line: string): void;
+}
+
+/** Tuning numbers are recorded only when this is switched on (localStorage `atlas.debug.clap` = 1). */
+function tracing(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('atlas.debug.clap') === '1';
+  } catch {
+    return false;
+  }
 }
 
 export function useClapActivation({
@@ -30,12 +44,15 @@ export function useClapActivation({
   paused,
   sensitivity,
   onDouble,
+  trace,
 }: Options): ClapActivation {
   const listener = useMemo(() => new ClapListener(), []);
   const [live, setLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const latest = useRef(onDouble);
   latest.current = onDouble;
+  const traceRef = useRef(trace);
+  traceRef.current = trace;
 
   const wanted = enabled && !paused;
   useEffect(() => {
@@ -48,6 +65,8 @@ export function useClapActivation({
     void listener.start(
       {
         onDouble: () => latest.current(),
+        onHeard: (kind) => window.dispatchEvent(new CustomEvent(CLAP_HEARD, { detail: kind })),
+        ...(tracing() ? { onTrace: (line: string) => traceRef.current?.(line) } : {}),
         onLive: setLive,
         onError: (message) => {
           setError(message);

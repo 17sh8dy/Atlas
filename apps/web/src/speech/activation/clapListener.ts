@@ -19,6 +19,10 @@ export interface ClapListenerHandlers {
   onDouble(): void;
   /** The stream opened or closed, or failed. Drives the visible indicator. */
   onLive(live: boolean): void;
+  /** Tuning numbers (never audio), only when asked for. */
+  onTrace?(line: string): void;
+  /** A clap was recognised, and a double clap was recognised. Drives the "try it" feedback in Settings. */
+  onHeard?(kind: 'clap' | 'double'): void;
   onError(message: string): void;
 }
 
@@ -74,13 +78,20 @@ export class ClapListener {
       const ctx = new AudioContext();
       this.ctx = ctx;
       if (ctx.state === 'suspended') await ctx.resume();
-      this.detector = new ClapDetector({ sampleRate: ctx.sampleRate, sensitivity });
+      this.detector = new ClapDetector({
+        sampleRate: ctx.sampleRate,
+        sensitivity,
+        ...(handlers.onTrace ? { onTrace: handlers.onTrace } : {}),
+        ...(handlers.onHeard ? { onClap: () => handlers.onHeard?.('clap') } : {}),
+      });
       this.source = ctx.createMediaStreamSource(stream);
       // See Recorder.build for why this is a ScriptProcessor and not a worklet.
       this.processor = ctx.createScriptProcessor(2048, 1, 1);
       this.processor.onaudioprocess = (event) => {
-        if (this.detector?.process(event.inputBuffer.getChannelData(0)) === 'double')
+        if (this.detector?.process(event.inputBuffer.getChannelData(0)) === 'double') {
+          handlers.onHeard?.('double');
           handlers.onDouble();
+        }
       };
       this.source.connect(this.processor);
       const mute = ctx.createGain();

@@ -408,7 +408,7 @@ pub const KEYS: &[Key] = &[
 
 /// `atlas.`-prefixed literals that are not storage keys: a skill id and a fact subject inside
 /// `atlas.preferences`. (The older storage sweep skips skill ids the same way.)
-pub const NOT_STORAGE_KEYS: &[&str] = &["atlas.hide", "atlas.name"];
+pub const NOT_STORAGE_KEYS: &[&str] = &["atlas.hide", "atlas.name", "atlas.debug.clap"];
 
 /// Commands that can reach a trust-bearing value or widen reach **without** going through the
 /// dedicated command for it. Each is a place a native consent would have to cover; none is
