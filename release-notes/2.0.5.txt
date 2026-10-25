@@ -1,0 +1,6 @@
+# What the update prompt says. One plain-language line per change; the first four are shown.
+New: Atlas answers more questions with no AI model. It can count and list folders and files, find the newest file, check whether something exists and list your drives, and it looks up general questions on the web and answers from what the sources say, naming the source.
+New: start Atlas by voice, in Settings > Voice (off by default). Clap twice, or say a phrase you type yourself such as "Hey Atlas", and add a request after it to have it done straight away. Atlas shows when the microphone is open for this, and nothing is recorded or stored.
+New: "draw me a house" asks your connected model to draw a simple picture as code, shown in the chat with Save and Copy. It always says that how good it looks depends on the model.
+New: more ways to make Atlas yours: Formal, Casual, Light humour, Dry and Custom tones, plus how you like to be addressed ("sir", "boss"). Tone only changes wording, never what Atlas asks before doing something.
+New: in Settings > General, start Atlas with Windows (hidden in the tray), choose whether closing the window quits it, and use Quiet or Privacy mode and quiet hours. Reminders can be read aloud if you turn that on; alarms always sound.
