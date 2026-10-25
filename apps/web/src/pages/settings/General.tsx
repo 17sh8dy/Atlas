@@ -32,6 +32,7 @@ import { DEFAULT_EXECUTION_MODE, EXECUTION_MODES, EXECUTION_MODE_META } from '@a
 import { Button, Icons, Input, SegmentedControl, Switch } from '@atlas/ui';
 import { readClipboardHistoryEnabled, writeClipboardHistoryEnabled } from '../../atlas/clipboardHistory';
 import { EmergencyStop } from './general/EmergencyStop';
+import { Background } from './general/Background';
 import { SummonKeyNotice } from './general/SummonKeyNotice';
 import { WebSearch } from './general/WebSearch';
 
@@ -178,6 +179,8 @@ export function General({
       <ClipboardHistorySetting storage={storage} />
 
       <SummonKeyNotice platform={platform} />
+
+      <Background platform={platform} storage={storage} />
 
       <EmergencyStop platform={platform} />
 

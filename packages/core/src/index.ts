@@ -28,6 +28,7 @@ export * from './models/speech';
 export * from './models/segment';
 export * from './models/speech-text';
 export * from './models/listening';
+export * from './models/presence';
 export * from './models/network';
 export * from './models/service';
 export * from './models/window';

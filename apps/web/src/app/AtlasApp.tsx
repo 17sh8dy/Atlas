@@ -62,6 +62,8 @@ import { withAlerts } from '../atlas/alerts';
 import { useSpeech } from '../speech/useSpeech';
 import { useListening } from '../speech/useListening';
 import { useClapActivation } from '../speech/activation/useClapActivation';
+import { usePresence } from '../atlas/presence';
+import { mayListenByItself } from '@atlas/core';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { WatchIndicator } from '../components/WatchIndicator';
 import { UpdateBubble } from '../components/UpdateBubble';
@@ -291,6 +293,8 @@ function Ready({
   // Counts time spent using Atlas, not time it is left open (see useActivityPulse).
   useActivityPulse();
 
+  const presence = usePresence(storage, platform);
+
   const atlas = useAtlas(
     platform,
     capabilities,
@@ -306,6 +310,7 @@ function Ready({
     // A halt silences Atlas too. Talking on about a task that was just
     // emergency-stopped would read as not having stopped.
     voice.stop,
+    presence,
   );
 
   /**
@@ -647,7 +652,11 @@ function Ready({
   const [clapActivated, setClapActivated] = useState(0);
   const clapPending = useRef(false);
   const clap = useClapActivation({
-    enabled: listeningPrefs.enabled && listeningPrefs.activation === 'clap' && listening.supported,
+    enabled:
+      listeningPrefs.enabled &&
+      listeningPrefs.activation === 'clap' &&
+      listening.supported &&
+      mayListenByItself(presence),
     // Atlas is using the microphone or the speakers itself: close this stream meanwhile, so there is never two of them.
     paused: listening.state !== 'idle' || voice.state === 'speaking' || voice.state === 'loading' || screen === 'voice',
     sensitivity: listeningPrefs.clapSensitivity,

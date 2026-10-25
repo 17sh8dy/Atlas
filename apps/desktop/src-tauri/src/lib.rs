@@ -100,6 +100,8 @@ mod speech;
 mod authz_inventory;
 mod storage;
 #[cfg(windows)]
+mod startup;
+#[cfg(windows)]
 mod searxng;
 mod web;
 #[cfg(windows)]
@@ -540,6 +542,9 @@ pub fn run() {
             calibration::calibration_status,
             calibration::calibration_reset,
             provider_bindings::provider_unbind,
+            startup::startup_status,
+            startup::set_startup,
+            startup::set_quit_on_close,
         ])
         .manage(StorageState(std::sync::Mutex::new(())))
         .setup(move |app| {
@@ -636,6 +641,14 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Started by the Windows startup entry (or given --background): stay out of sight. Atlas is then
+            // reachable from the tray icon and Ctrl+Space, like any other time its window is put away.
+            if startup::started_in_background() {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -643,8 +656,14 @@ pub fn run() {
             // engine keeps its memory and the summon key keeps working, which
             // is what "resident" means in practice.
             if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                // Unless the person chose "closing the window quits Atlas" (Settings → General).
+                if startup::quit_on_close() {
+                    stats::flush();
+                    window.app_handle().exit(0);
+                } else {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())

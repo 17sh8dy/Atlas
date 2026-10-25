@@ -120,6 +120,14 @@ export interface FileDragEvent {
   y: number;
 }
 
+export interface StartupStatus {
+  /** The entry exists and starts THIS copy of Atlas. */
+  enabled: boolean;
+  /** An entry exists but starts something else (an old install, a dev build). */
+  pointsElsewhere: boolean;
+  command: string | null;
+}
+
 export interface PathInfo {
   path: string;
   name: string;
@@ -1081,6 +1089,15 @@ export interface Platform {
    * nothing reads it back automatically.
    */
   logDiagnostic?(scope: string, message: string): Promise<void>;
+
+  /**
+   * Launch at Windows startup (a value under the current user's Run key, started hidden). `setStartup` reads the
+   * registry back and rejects unless it now holds what was asked for.
+   */
+  startupStatus?(): Promise<StartupStatus>;
+  setStartup?(enabled: boolean): Promise<StartupStatus>;
+  /** Tell the native side what the window's close button does: quit (true) or put Atlas away (false, the default). */
+  setQuitOnClose?(quit: boolean): Promise<void>;
 
   /** Atlas's own window. */
   showWindow?(): Promise<void>;

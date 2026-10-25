@@ -989,6 +989,9 @@ mod tests {
             // Reads and refusals: what rights Atlas has, whether a target may be sent
             // input, and dropping an approval. Cancelling can only ever make less happen.
             "elevation_status", "elevation_cancel", "input_probe", "summon_key_status",
+            // Launch-at-startup: reading it, and the person's own choice of what the close button does. (Writing the
+            // startup entry itself IS gated: set_startup checks the halt latch.)
+            "startup_status", "set_quit_on_close",
             // Ends the one server Atlas itself started, never anything else. A stop that
             // could not stop Atlas's own model server would be the wrong way round.
             "nova_intelligence_stop",

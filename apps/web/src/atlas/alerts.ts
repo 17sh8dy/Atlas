@@ -18,6 +18,8 @@
  */
 
 import type { Platform, Storage } from '@atlas/core';
+import { DEFAULT_PRESENCE, mayChime } from '@atlas/core';
+import { readPresencePreferences } from '@atlas/data';
 
 export const ALERT_SOUNDS = ['chime', 'bell', 'beep', 'soft', 'alarm', 'system'] as const;
 export type AlertSound = (typeof ALERT_SOUNDS)[number];
@@ -89,7 +91,10 @@ export function withAlerts(base: Platform, storage: Storage): Platform {
     ...base,
     notify: async (title: string, body?: string) => {
       const s = await readAlerts(storage);
-      if (s.sound && base.playSound) {
+      const presence = await readPresencePreferences(storage).catch(() => DEFAULT_PRESENCE);
+      const isAlarm = /^alarm\b/i.test(title);
+      // Quiet mode and quiet hours silence Atlas's own chimes. An alarm the person set still sounds.
+      if (s.sound && base.playSound && mayChime(presence, new Date(), isAlarm)) {
         void base.playSound(soundFor(title, s.kind), s.volume).catch(() => false);
       }
       if (!s.notify) return s.sound; // the sound was the notification

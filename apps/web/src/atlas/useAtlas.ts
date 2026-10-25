@@ -143,7 +143,8 @@ import {
   type FileJournal,
   type JournalBatch,
 } from '@atlas/engine';
-import type { CapabilityName, ConfirmOptions, ReviewPayload, SketchPayload } from '@atlas/core';
+import type { CapabilityName, ConfirmOptions, PresencePreferences, ReviewPayload, SketchPayload } from '@atlas/core';
+import { DEFAULT_PRESENCE, maySpeakUnprompted } from '@atlas/core';
 
 const FILE_JOURNAL_KEY = 'atlas.file-journal';
 
@@ -338,6 +339,8 @@ export function useAtlas(
   executionMode: ExecutionMode = DEFAULT_EXECUTION_MODE,
   /** Called on every halt, for what lives outside the engine — a voice mid-sentence. */
   onHalt: () => void = () => {},
+  /** When Atlas may speak a reminder on its own (Settings → General → Background). */
+  presence: PresencePreferences = DEFAULT_PRESENCE,
 ) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -980,7 +983,13 @@ export function useAtlas(
 
   // Watches speak into the conversation; a restored one says so once, after
   // the saved transcript is back (see `transcriptReady`).
-  announceRef.current = (text: string) => push({ kind: 'atlas', text });
+  // A reminder, timer or watch result is spoken only if the person switched that on and it is not a quiet moment.
+  const presenceRef = useRef(presence);
+  presenceRef.current = presence;
+  announceRef.current = (text: string) => {
+    push({ kind: 'atlas', text });
+    if (maySpeakUnprompted(presenceRef.current, new Date())) speakIfEnabled(text);
+  };
   // A watch that stopped to ask arrives as its question *with* the answers —
   // the same row "what are you watching?" shows — not a line to go and act on
   // somewhere else.

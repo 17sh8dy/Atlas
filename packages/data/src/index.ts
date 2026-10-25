@@ -20,6 +20,7 @@ export { MemoryStore } from './memory-store';
 export { readSpeechPreferences, writeSpeechPreferences } from './speech-preferences';
 export { readExecutionMode, writeExecutionMode } from './execution-mode-preference';
 export { readListeningPreferences, writeListeningPreferences } from './listening-preferences';
+export { readPresencePreferences, writePresencePreferences } from './presence-preferences';
 export {
   readLocalAiSettings,
   writeLocalModelsEnabled,

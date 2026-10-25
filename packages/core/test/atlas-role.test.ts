@@ -49,7 +49,8 @@ test('assistant has no farewell — the default role changes nothing about how A
 });
 
 test('every non-default role has a usable, distinct farewell, with and without a name', () => {
-  const nonDefault = ATLAS_ROLES.filter((r) => r !== DEFAULT_ATLAS_ROLE);
+  // `custom` takes its style from the person and keeps Atlas's own lines neutral, so it has no farewell of its own.
+  const nonDefault = ATLAS_ROLES.filter((r) => r !== DEFAULT_ATLAS_ROLE && r !== 'custom');
   const withNames: string[] = [];
   for (const role of nonDefault) {
     const farewell = ATLAS_ROLE_META[role].farewell;

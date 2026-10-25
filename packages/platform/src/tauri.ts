@@ -68,6 +68,7 @@ import type {
   EnvironmentScope,
   EnvVar,
   FolderSize,
+  StartupStatus,
   LargestFiles,
   SpeechVoice,
   Transcript,
@@ -475,6 +476,10 @@ export function createTauriPlatform(): Platform {
       invokeInput<boolean>('uia_scroll', { windowId, path, vertical, horizontal }),
 
     summonKeyStatus: () => invoke<string | null>('summon_key_status'),
+
+    startupStatus: () => invoke<StartupStatus>('startup_status'),
+    setStartup: (enabled) => invoke<StartupStatus>('set_startup', { enabled }),
+    setQuitOnClose: (quit) => invoke<void>('set_quit_on_close', { quit }),
 
     inputProbe: (target) =>
       invoke<InputProbe>('input_probe', {
