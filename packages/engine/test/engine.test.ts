@@ -1689,8 +1689,9 @@ test('conversation: a freshness question with no provider still searches and sho
   assert.equal(h.web.searchedQueries[1], 'what happened in the latest Fortnite update?');
   assert.equal(h.rows.length, 2);
   assert.match(h.said.join(' '), /Found 2 results/);
-  // No model to use them, so no pages were fetched.
-  assert.deepEqual(h.web.fetchedUrls, []);
+  // With no model, the pages are still read (src/general) so an answer can be written from them; here nothing
+  // they said answered the question, so the links are what is shown.
+  assert.isAbove(h.web.fetchedUrls.length, 0);
 });
 
 test('conversation: a freshness question with a provider augments the prompt and appends sources', async () => {
@@ -2077,8 +2078,8 @@ test('with no provider, a question leads with what still works', async () => {
   // Never opens on what is missing. It names the one route that would
   // actually answer the question, and the actions that work regardless.
   assert.notMatch(said, MODEL_EXCUSE);
-  assert.match(said, /isn't in my documentation/i);
-  assert.match(said, /search the web/i);
+  // A general question is looked up (src/general), so the reply says what was done, not what is missing.
+  assert.match(said, /I searched/i);
   assert.match(said, /\d+ actions/);
 });
 
@@ -3329,8 +3330,7 @@ test('errors: a real question is answered honestly, without blaming a model', as
   // The reply Atlas cannot give is still a reply. What it must not be is an
   // explanation of an unconfigured setting the user never asked about.
   assert.notMatch(said, MODEL_EXCUSE);
-  assert.match(said, /isn't in my documentation/i);
-  assert.match(said, /search the web/i);
+  assert.match(said, /I searched/i);
 });
 
 // ---- leading-verb typo correction (text/verb-typo.ts) -----------------------
@@ -5019,7 +5019,9 @@ test('smalltalk: a real question is still a question, not small talk', async () 
   assert.isNull(readSmallTalk('what is the capital of France?'));
   const h = harness();
   const outcome = await h.engine.ask('what is the capital of France?', io(h));
-  assert.equal(outcome.error, 'not-configured');
+  // Not a greeting or a joke: it was looked up like any other question.
+  assert.match(h.said.join(' '), /I searched/i);
+  assert.equal(outcome.mode, 'chat');
 });
 
 test('smalltalk: a failed command reports the failure, it does not chat', async () => {

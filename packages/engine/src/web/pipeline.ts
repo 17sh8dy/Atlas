@@ -37,6 +37,14 @@ export interface ResearchOptions {
   readTimeoutMs?: number;
   /** False when nothing will use the page text (no model connected): search only. */
   read?: boolean;
+  /** Search with exactly this instead of rewriting the question (the general-question path chooses its own). */
+  query?: string;
+  /** How much of each page to keep as its excerpt. */
+  excerptChars?: number;
+  /** Higher first: which results are worth reading before the others (default: the search order). */
+  prefer?: (result: WebSearchResult) => number;
+  /** Builds each page's excerpt (default: the passages that share words with the query). */
+  excerptOf?: (pageText: string, query: string) => string;
 }
 
 export type ResearchResult =
@@ -131,7 +139,7 @@ export async function gatherEvidence(
 
   ctx.activity?.note('Checking the web', decision.reason);
 
-  const query = rewriteQuery(question, decision.category, now);
+  const query = o.query ?? rewriteQuery(question, decision.category, now);
   let found = await search(query, decision.topic, skills, ctx);
 
   // A tidied query can miss what the person's own words would have hit.
@@ -141,7 +149,10 @@ export async function gatherEvidence(
   if (!found.ok) return { status: 'unavailable' };
   if (!found.results.length) return { status: 'no-results' };
 
-  const chosen = chooseSources(found.results, o.maxSources);
+  const ordered = o.prefer
+    ? found.results.map((r, i) => ({ r, i, p: o.prefer!(r) })).sort((a, b) => b.p - a.p || a.i - b.i).map((x) => x.r)
+    : found.results;
+  const chosen = chooseSources(ordered, o.maxSources);
   const inputs: EvidenceInput[] = chosen.map((result) => ({ result }));
 
   if (o.read) {
@@ -167,6 +178,8 @@ export async function gatherEvidence(
     providerLabel: providerLabelFor(first.provider),
     inputs,
     now,
+    excerptChars: o.excerptChars,
+    excerptOf: o.excerptOf,
   });
 
   const v = packet.verification;

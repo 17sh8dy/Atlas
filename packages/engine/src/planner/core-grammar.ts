@@ -576,9 +576,10 @@ export function createCoreGrammar(working: WorkingMemory): GrammarRule[] {
       order: -7.5,
       questionSafe: ['calculate'],
       test(_lower, raw) {
-        const captured = raw.match(
-          /^\s*(?:what(?:'s| is)|whats|how\s+much\s+is|calculate|calc|compute|evaluate|solve|work\s+out)\s+(.+?)\s*[?]*$/i,
-        )?.[1];
+        const captured = raw
+          .match(/^\s*(?:what(?:'s| is)|whats|how\s+much\s+is|calculate|calc|compute|evaluate|solve|work\s+out)\s+(.+?)\s*[?]*$/i)?.[1]
+          ?.replace(/^(?:the\s+)?(?:value|result|answer)\s+of\s+/i, '')
+          .replace(/^the\s+/i, '');
         if (captured && /\d/.test(captured) && evaluateExpression(captured) !== null) {
           return plan(step('math.calculate', { expression: captured.trim() }), 'calculate');
         }

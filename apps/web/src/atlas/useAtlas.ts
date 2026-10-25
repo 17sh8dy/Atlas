@@ -98,6 +98,7 @@ import {
   createServiceSkills,
   createEnvironmentSkills,
   createStorageSkills,
+  createFileFactSkills,
   createOrganizeSkills,
   withFileJournal,
   createDevToolsSkills,
@@ -763,6 +764,7 @@ export function useAtlas(
     skills.registerMany(createServiceSkills(platform));
     skills.registerMany(createEnvironmentSkills(platform));
     skills.registerMany(createStorageSkills(platform));
+    skills.registerMany(createFileFactSkills(platform));
     skills.registerMany(createOrganizeSkills(platform, fileJournal));
     // The developer skills may leave the folder out (the current project fills in)
     // or speak it ("atlas"); a successful run makes its folder the current project.

@@ -68,7 +68,11 @@ import type { TaskHost } from './task/kernel';
 import { SkillRegistry } from './skills/registry';
 import { createPhrasing, type Phrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
-import { routeQuestion } from './web/router';
+import { routeQuestion, type ResearchCategory } from './web/router';
+import { readQuestion, type QuestionShape } from './general/shape';
+import { answerGeneral, nothingFoundText } from './general/answer';
+import { rewriteQuery } from './web/query';
+import { resultRows } from './skills/web-search-skills';
 import { gatherEvidence } from './web/pipeline';
 import { buildEvidencePrompt, formatEvidenceFallback, formatEvidenceFooter } from './web/evidence';
 import { refusalFor, screenRequest } from './safety/content-policy';
@@ -897,6 +901,17 @@ export class Engine {
     const canSearch = searchSkill ? this.skills.isAvailable(searchSkill) : false;
 
     const decision = routeQuestion(text);
+    // The question as a general-knowledge question Atlas could look up, if it is one (src/general).
+    const general = !social && canSearch && !asInstruction ? readQuestion(text) : null;
+    // A question about something current ("who is the president of France", "what season is Fortnite on") used to
+    // end in a list of links when no model was there to write it up. Read the pages and answer from them first;
+    // links are still what "search the web for ..." gets, and what is left when nothing answered.
+    if (!social && canSearch && decision.search && decision.category !== 'explicit' && (!provider || !this.modelAllowed())) {
+      if (general) {
+        const answered = await this.answerWithoutModel(text, general, io, ctx, signal, undefined, { category: decision.category });
+        if (answered) return answered;
+      }
+    }
     if (!social && canSearch && decision.search) {
       // Only render the raw result rows when there's no model to turn them
       // into an actual answer — with a provider, the synthesized reply plus
@@ -953,6 +968,14 @@ export class Engine {
             formatEvidenceFooter(research.packet),
             formatEvidenceFallback(research.packet),
             deeper,
+            undefined,
+            '',
+            undefined,
+            undefined,
+            // The model could not be reached: answer from the pages instead of listing what was found.
+            general
+              ? () => this.answerWithoutModel(text, general, io, ctx, signal, provider, { category: decision.category })
+              : undefined,
           );
         }
         io.say(
@@ -962,6 +985,15 @@ export class Engine {
       }
       // No backend answered, or nothing was found — fall through below rather
       // than a dead end; a stale answer or an honest "I can't" both beat that.
+    }
+
+    // A general-knowledge question with no model: look it up and answer from what the sources say
+    // (src/general). A model that IS connected still answers first; this is only for when there is none.
+    if (!provider || !this.modelAllowed()) {
+      if (general) {
+        const answered = await this.answerWithoutModel(text, general, io, ctx, signal);
+        if (answered) return answered;
+      }
     }
 
     if (!provider) {
@@ -994,7 +1026,73 @@ export class Engine {
       asInstruction ? () => this.unresolvedReply(text) : undefined,
       text,
       social?.fallback,
+      undefined,
+      general ? () => this.answerWithoutModel(text, general, io, ctx, signal, provider) : undefined,
     );
+  }
+
+  /**
+   * The model is not there (none connected, not allowed, or it could not be reached) and the question is
+   * a general one: search, read and answer from the sources. Null means "could not": the caller then says
+   * what it always said. The web search is the same one the model-backed path uses, so the same providers,
+   * the same source check and the same untrusted-text handling apply.
+   */
+  private async answerWithoutModel(
+    text: string,
+    shape: QuestionShape,
+    io: EngineIO,
+    ctx: SkillContext,
+    signal: HaltSignal,
+    /** Set when a model IS configured but could not be reached: said after "nothing found", since it is also true. */
+    unreachable?: IntelligenceProvider,
+    /**
+     * Set when the question is about now: one search, worded for freshness; the answer says it was read just now;
+     * and when nothing answers, the results are shown as links instead of "nothing found".
+     */
+    current?: { category: ResearchCategory | null },
+  ): Promise<AskOutcome | null> {
+    const emit = (event: ActivityEvent) => this.bus.emit('activity:step', event);
+    const parent = (state: ActivityEvent['state'], detail?: string) =>
+      emit({ index: 0, total: 1, skill: 'research.web', label: 'Looking this up', detail, state, at: Date.now() });
+    parent('running', 'no model is needed for this');
+    let result;
+    try {
+      result = await untilHalted(
+        answerGeneral(
+          text,
+          shape,
+          this.skills,
+          { ...ctx, activity: reporterFor(0, 1, 'research.web', emit) },
+          current ? { queries: [rewriteQuery(text, current.category)], attempts: 1 } : {},
+        ),
+        signal,
+      );
+    } catch (err) {
+      parent('failed');
+      if (err instanceof HaltedError) throw err;
+      return null;
+    }
+    if (result.kind === 'answer') {
+      parent('done', 'answered from the sources');
+      const said = current ? `${result.text}\nRead from the web just now; this kind of answer changes, so check the source.` : result.text;
+      io.say(said);
+      return { ok: true, mode: 'chat', text: said, via: 'atlas' };
+    }
+    if (result.kind === 'nothing') {
+      parent('done', 'nothing clear found');
+      if (current) {
+        // Nothing read answered it, so do what was always done: list what was found.
+        if (!result.results.length) return null;
+        ctx.showResults?.(resultRows(result.results), { title: `Web results for "${text.trim().slice(0, 80)}"`, subtitle: `${result.results.length} found` });
+        io.say(`Found ${result.results.length} result${result.results.length === 1 ? '' : 's'} for that — see below.`);
+        return { ok: true, mode: 'chat', text: 'search-results-shown' };
+      }
+      const reply = `${nothingFoundText(result.links)}${unreachable ? ` I also couldn't reach your language model (it's set up in Settings → Intelligence).` : ''} ${this.actionsHint()}`;
+      io.say(reply);
+      return { ok: true, mode: 'chat', text: reply, via: 'atlas' };
+    }
+    parent('failed', 'search unavailable');
+    return null;
   }
 
   /**
@@ -1051,6 +1149,11 @@ export class Engine {
      * grounded. Otherwise `fallback` is shown in its place (the knowledge tier's passages).
      */
     grounded?: (full: string) => boolean,
+    /**
+     * Tried when the model cannot be reached or is not set up, before any apology: a question Atlas can
+     * look up does not need it. Null means it could not either.
+     */
+    withoutModel?: () => Promise<AskOutcome | null>,
   ): Promise<AskOutcome> {
     io.typing?.(true);
     return new Promise<AskOutcome>((resolve, reject) => {
@@ -1114,38 +1217,50 @@ export class Engine {
           // another provider; that is the person's decision (see cloud-limits.ts).
           const limitNote = describeProviderFailure(reason, provider.label);
           if (limitNote) io.say(limitNote);
-          if (replyOnFailure) {
-            const reply = replyOnFailure();
-            io.say(reply);
-            resolve({ ok: true, mode: 'chat', text: reply });
-            return;
-          }
-          if (fallback) {
-            io.say(fallback);
-            resolve({ ok: true, mode: 'chat', text: fallback });
-            return;
-          }
-          if (limitNote) {
+          // What is said when no model answered and nothing else could either (in this order): Atlas's own reply
+          // for small talk, what the caller was already holding (a search's evidence), the money note alone, and
+          // finally the plain account of why there is no answer.
+          const conclude = (): void => {
+            if (replyOnFailure) {
+              const reply = replyOnFailure();
+              io.say(reply);
+              resolve({ ok: true, mode: 'chat', text: reply });
+              return;
+            }
+            if (fallback) {
+              io.say(fallback);
+              resolve({ ok: true, mode: 'chat', text: fallback });
+              return;
+            }
+            if (limitNote) {
+              resolve({ ok: false, mode: 'chat', error: reason });
+              return;
+            }
+            // 'not-configured'/'offline' are the two sentinel reasons this interface always understood;
+            // anything else is a real provider error (a rejected key, a rate limit) worth showing verbatim
+            // rather than flattening into one generic line — see ProviderStreamHandlers.onError's own doc comment.
+            if (reason === 'not-configured') io.say(onOffline ? onOffline() : (this.tooShortReply(heard) ?? this.offlineReply()));
+            else if (reason === 'offline') {
+              // A command never needed the model: say what Atlas can do about it. A question that does need one
+              // gets told so, plainly, with what still works.
+              io.say(
+                onOffline
+                  ? onOffline()
+                  : this.tooShortReply(heard) ??
+                    `${notInDocsModelUnreachable("it's set up in Settings → Intelligence")} ${this.actionsHint()}`,
+              );
+            } else io.say(`⚠️ ${reason}`);
             resolve({ ok: false, mode: 'chat', error: reason });
+          };
+          // A question Atlas can look up does not need the model: try that before any of the above.
+          if (withoutModel && (reason === 'offline' || reason === 'not-configured')) {
+            withoutModel().then(
+              (outcome) => (outcome ? resolve(outcome) : conclude()),
+              () => conclude(),
+            );
             return;
           }
-          // 'not-configured'/'offline' are the two sentinel reasons this
-          // interface always understood; anything else is a real provider
-          // error (a rejected key, a rate limit) worth showing verbatim
-          // rather than flattening into one generic line — see
-          // ProviderStreamHandlers.onError's own doc comment.
-          if (reason === 'not-configured') io.say(onOffline ? onOffline() : (this.tooShortReply(heard) ?? this.offlineReply()));
-          else if (reason === 'offline') {
-            // A command never needed the model: say what Atlas can do about it. A question
-            // that does need one gets told so, plainly, with what still works.
-            io.say(
-              onOffline
-                ? onOffline()
-                : this.tooShortReply(heard) ??
-                  `${notInDocsModelUnreachable("it's set up in Settings → Intelligence")} ${this.actionsHint()}`,
-            );
-          } else io.say(`⚠️ ${reason}`);
-          resolve({ ok: false, mode: 'chat', error: reason });
+          conclude();
         },
       };
       // The provider is asked for extended thinking if it has such a mode; the

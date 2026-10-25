@@ -12,7 +12,7 @@
  * re-checks what the platform already checks.
  */
 
-import type { Platform, ResultRow, Skill } from '@atlas/core';
+import type { Platform, ResultRow, Skill, WebSearchResult } from '@atlas/core';
 import { filterDestinations, isExplicitDestination, refusalFor } from '../safety/content-policy';
 import { createSearchManager } from '../web/providers';
 import type { SearchAttempt, SearchManager } from '../web/search-manager';
@@ -42,6 +42,20 @@ function fallbackNote(attempts: SearchAttempt[], usedLabel: string): string | nu
     blocked: `${failed.label} asked for a human check`,
   };
   return `${why[failed.outcome]} — used ${usedLabel} instead`;
+}
+
+/** The rows a list of search results is shown as (also used when an answer could not be written from them). */
+export function resultRows(results: WebSearchResult[]): ResultRow[] {
+  return results.map((r) => ({
+    title: r.title,
+    subtitle: r.snippet || r.url,
+    icon: '🌐',
+    payload: r,
+    actions: [
+      { label: 'Open', skill: 'web.open', args: { url: r.url } },
+      { label: 'Read', skill: 'research.open', args: { url: r.url } },
+    ],
+  }));
 }
 
 export function createWebSearchSkills(
@@ -121,17 +135,7 @@ export function createWebSearchSkills(
           ctx.activity?.note('Sources', hosts.slice(0, 6).join(', '));
         }
 
-        const rows: ResultRow[] = results.map((r) => ({
-          title: r.title,
-          subtitle: r.snippet || r.url,
-          icon: '🌐',
-          payload: r,
-          actions: [
-            { label: 'Open', skill: 'web.open', args: { url: r.url } },
-            { label: 'Read', skill: 'research.open', args: { url: r.url } },
-          ],
-        }));
-        ctx.showResults?.(rows, {
+        ctx.showResults?.(resultRows(results), {
           title: `Web results for "${query}"`,
           subtitle: `${results.length} found`,
         });

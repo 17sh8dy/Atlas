@@ -35,6 +35,8 @@ import { createEverydayGrammar } from './everyday-grammar';
 import { createCreatorGrammar } from './creator-grammar';
 import { createCoverageGrammar } from './coverage-grammar';
 import { createCatalogGrammar } from './catalog-grammar';
+import { createFactsGrammar } from './facts-grammar';
+import { resolveZone } from '../skills/zones';
 import type { GrammarRule } from './grammar';
 import { plan, step } from './grammar';
 
@@ -125,6 +127,9 @@ export function createExtraGrammar(): GrammarRule[] {
 
     // The tool-catalog pass: more system tools, restart an app, lint / typecheck / format, search a site.
     ...createCatalogGrammar(),
+
+    // Read-only questions about files and folders ("how many folders are in D:\Dev"), no model needed.
+    ...createFactsGrammar(),
 
     {
       // "run notepad as administrator" used to open it normally: the words that
@@ -489,6 +494,8 @@ export function createExtraGrammar(): GrammarRule[] {
           /^\s*(?:what(?:'s| is)\s+the\s+)?(?:time\s+)?difference\s+between\s+([a-z .'/_-]+?)\s+and\s+([a-z .'/_-]+?)\s*[?.!]*$/i,
         );
         if (!m) return null;
+        // "difference between a virus and a bacteria" is not about time zones: both sides must be places.
+        if (!resolveZone(m[1]!.trim()) || !resolveZone(m[2]!.trim())) return null;
         return plan(step('time.zoneDiff', { from: m[1]!.trim(), to: m[2]!.trim() }), 'zone-diff');
       },
     },

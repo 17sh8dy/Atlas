@@ -267,7 +267,7 @@ describe('what stays offline', () => {
 });
 
 describe('without a model', () => {
-  test('results are shown as rows and no pages are fetched', async () => {
+  test('the pages are read and the answer comes with its source', async () => {
     const r = rig({
       withModel: false,
       providers: { tavily: () => [FORTNITE_GG, IGN] },
@@ -276,9 +276,12 @@ describe('without a model', () => {
       },
     });
     await r.run('What season of Fortnite is it?');
-    expect(r.rows).toHaveLength(2);
-    expect(r.fetched).toEqual([]);
-    expect(r.said.join(' ')).toMatch(/Found 2 results/);
+    // Pages are read now, and the answer is written from them (src/general): an answer with its source, not a
+    // list of links. The links are what is left only when nothing the pages said answered the question.
+    expect(r.fetched.length).toBeGreaterThan(0);
+    expect(r.said.join(' ')).toMatch(/Season 2 of Chapter 6/);
+    expect(r.said.join(' ')).toMatch(/Source: ign\.com/);
+    expect(r.said.join(' ')).toMatch(/Read from the web just now/);
   });
 });
 
@@ -391,11 +394,10 @@ describe('the model is off but the search worked', () => {
     const said = r.said.join(' ');
 
     expect(said).not.toMatch(/couldn.t reach that provider|Settings . Developer/);
-    expect(said).toMatch(/AI model isn.t available/);
-    // what the sources agreed on is stated outright, computed not generated
-    expect(said).toMatch(/From the sources: .*season 2/i);
+    // The sources are read and the answer is written from them (src/general), with where it came from.
+    expect(said).toMatch(/Chapter 6 Season 2/i);
     expect(said).toContain('https://fortnite.gg/season');
-    expect(said).toMatch(/Sources \(/);
+    expect(said).toMatch(/Source: fortnite\.gg/);
     expect(out.ok).toBe(true);
   });
 

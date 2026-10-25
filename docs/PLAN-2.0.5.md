@@ -192,5 +192,34 @@ Atlas already answers from three layers, built and released in 2.0.3:
 3. **Live lookups of Nova's public pages**, from a fixed list compiled into Atlas (never a URL taken from a page): nova-legal, nova-help, atlas-website, nova-780.pages.dev, replay-gg-site, nova-review, nova-cut-site, plus the GitHub latest-release pages for Atlas, Replay.GG and Nova Cut. Answers name their source and when it was read.
 For 2.0.5 the only knowledge tasks are (a) voice answers must use the same tier (a spoken question gets the same cited answer, source spoken briefly and shown in full on screen), (b) check a successful live read online once, (c) publish the pack after Brandon finishes the Nova-Knowledge pages. The private-folder question (old 2.0.4) is still open.
 
+## G. General Atlas — answers with no model (added 2026-10-25, Brandon: "urgent")
+
+**The rule:** Atlas must be the best general-purpose assistant it can be with *no* model connected. A language model is an accessory; it must never be the reason a question that can be answered goes unanswered. Brandon's two examples ("how many folders are there in: D:\Dev?" and "what is a Reel from Instagram?") were refused with "I couldn't reach your language model". The fix is not those sentences, it is two general mechanisms (his instruction: do not fix the two questions, upgrade general usage).
+
+### G1. Questions about this PC → answered from the file system
+`src/general/file-facts.ts` (parser) + `src/skills/file-facts-skills.ts` (`files.facts`, read-only, `risk: safe`) + one grammar rule (`planner/facts-grammar.ts`).
+- Understands: how many folders/files/items in a place (direct, plus the recursive total when it can be measured), how many of one kind (mp4, photos, documents… direct level), list the folders/files, newest/oldest file or folder, does X exist / is there a folder called X, when was X last changed, what drives do I have.
+- Any phrasing with a count word + a kind of thing + a place (`D:\Dev`, `my downloads folder`, `D:`) is read the same way; instructions (delete, move, open…) are never read as questions.
+- Honest about limits: `listDir` returns at most 500 entries, so a bigger folder says "at least"; the recursive walk can be partial and says so; a place outside Allowed Folders gives the normal "Add it?" offer.
+- "largest/biggest" and "recent" stay with `storage.*` / `files.recent` (they scan properly).
+- Also fixed on the way: "list the folders in D:\Dev" passed the whole phrase as the path; "difference between a virus and a bacteria" was read as a time-zone question; "what is the square root of 144" did not reach the calculator.
+
+### G2. Questions about the world → looked up, read, answered, cited
+`src/general/` : `shape.ts` (what kind of question, what is it about, what to search, in order), `answer.ts` (search → read the best pages → compose), `compose.ts` (extractive answer).
+- Runs whenever no model can answer: none connected, cloud planning off, or the configured one cannot be reached (the old apology only appears when the web cannot be reached either). A connected, reachable model still answers first, exactly as before.
+- **Extractive, never generative:** every word of the answer is a sentence a source wrote, chosen by a readable score (subject coverage, definition shape, position in the page, title fit — "Reels (Meta)" beats "List of most-viewed Instagram reels" —, source trust, agreement across independent sites). A sentence that is a fragment, chrome, or about something else with the same word (a fishing reel) is never a candidate. Nothing can be invented; the source line under it lets the person judge.
+- Honest labels: "I'm not sure this is the answer, but it is the closest thing I found", "I can't work this out myself, but here is what the sources say" (why / yes-no / compare), "one source, not cross-checked". When nothing relevant is found it says what it did ("I searched, but nothing I read answered that clearly") plus the closest links.
+- Current-information questions ("who is the president of France", "what season is Fortnite on") now read the pages and answer with "read from the web just now", instead of a bare list of links; the links remain the fallback and what "search the web for …" gets.
+- Providers: the existing order (SearXNG if set up → Tavily if a key is saved → DuckDuckGo → Wikipedia backstop). Pages are read for the top results, the lead of each page is always kept (an encyclopedia's first sentences are the definition).
+- Verified against real Wikipedia text for ~20 questions (definitions, people, measurements, dates, yes/no, how/why). Weak spot, stated plainly: *why/how* questions are only as good as the top page — Wikipedia as a backstop explains "why is the sky blue" badly; DuckDuckGo/Tavily results do better. DuckDuckGo is CAPTCHA-blocked on this machine, so the DuckDuckGo path was tested with fakes only.
+
+### G3. Not done yet (next, in order)
+1. Recursive counts by file type ("how many mp4 files in D:\Videos including subfolders") need a native `count_entries` command (Rust, authorization inventory entry); today it counts the folder itself and says so.
+2. Live check of the DuckDuckGo / Tavily path in the real app with a real key.
+3. A small answer cache (same question twice in a day should not re-search) and "tell me more" (the next sentences of the same source).
+4. Offline reference data that needs no web at all: the 2.0.3 knowledge pack pattern could carry a few thousand common definitions and facts (capitals, units, constants, periodic table, calendar facts).
+5. Spoken answers (V2) should read the first sentence and the source name only.
+6. Broader local intelligence: system questions beyond the existing specs/disk/uptime, "what is using my CPU/RAM", "what changed in this folder since yesterday".
+
 ## Release rules reminder
 Additive only; defaults unchanged (every listener, startup entry and tray-resident option OFF). **No Atlas code, commit, push or deploy until Brandon approves the plan; the spike runs only in its throwaway folder, only after he says go.**

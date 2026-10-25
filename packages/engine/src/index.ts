@@ -91,6 +91,7 @@ export { createKbmSkills } from './skills/kbm-skills';
 export { createScreenSkills } from './skills/screen-skills';
 export { createEnvironmentSkills } from './skills/environment-skills';
 export { createStorageSkills } from './skills/storage-skills';
+export { createFileFactSkills } from './skills/file-facts-skills';
 export {
   createOrganizeSkills,
   createMemoryJournal,

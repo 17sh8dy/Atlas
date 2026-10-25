@@ -333,6 +333,9 @@ export function buildPacket(args: {
   providerLabel: string;
   inputs: EvidenceInput[];
   now: Date;
+  excerptChars?: number;
+  /** Builds the excerpt from a page's text; the default keeps the passages that share words with the query. */
+  excerptOf?: (pageText: string, query: string) => string;
 }): EvidencePacket {
   const evidence: WebEvidence[] = args.inputs.map(({ result, pageText }, i) => ({
     id: i + 1,
@@ -341,7 +344,7 @@ export function buildPacket(args: {
     host: hostOf(result.url),
     provider: result.provider,
     publishedDate: result.publishedDate,
-    excerpt: pageText?.trim() ? extractPassages(pageText, args.query) : result.snippet.trim(),
+    excerpt: pageText?.trim() ? (args.excerptOf ?? extractPassages)(pageText, args.query, args.excerptChars) : result.snippet.trim(),
     readPage: Boolean(pageText?.trim()),
   }));
   return {
