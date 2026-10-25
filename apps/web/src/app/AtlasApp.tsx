@@ -62,6 +62,7 @@ import { withAlerts } from '../atlas/alerts';
 import { useSpeech } from '../speech/useSpeech';
 import { useListening } from '../speech/useListening';
 import { useClapActivation } from '../speech/activation/useClapActivation';
+import { useWakeActivation } from '../speech/activation/useWakeActivation';
 import { usePresence } from '../atlas/presence';
 import { mayListenByItself } from '@atlas/core';
 import { ThemeToggle } from '../components/ThemeToggle';
@@ -654,7 +655,7 @@ function Ready({
   const clap = useClapActivation({
     enabled:
       listeningPrefs.enabled &&
-      listeningPrefs.activation === 'clap' &&
+      (listeningPrefs.activation === 'clap' || listeningPrefs.activation === 'both') &&
       listening.supported &&
       mayListenByItself(presence),
     // Atlas is using the microphone or the speakers itself: close this stream meanwhile, so there is never two of them.
@@ -677,6 +678,48 @@ function Ready({
     // Only a clap starts this (the flag is cleared here); opening the voice screen by hand must not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clapActivated, screen]);
+
+  /**
+   * The typed wake phrase (Settings → Voice, off by default). Heard alone, it does what a double clap does: bring
+   * Atlas up and listen for one request. Heard WITH a request ("Hey Atlas, open Spotify"), the request is asked
+   * straight away, through the same path as anything said on the voice screen, so it passes the same checks and
+   * confirmations as if it had been typed. Same rule as the clap: the voice screen is opened first, and what
+   * follows is done from an effect, because changing screens closes the microphone.
+   */
+  const [wakeActivated, setWakeActivated] = useState(0);
+  const wakeRest = useRef<string | null>(null);
+  const wake = useWakeActivation({
+    enabled:
+      listeningPrefs.enabled &&
+      (listeningPrefs.activation === 'wake' || listeningPrefs.activation === 'both') &&
+      listening.supported &&
+      mayListenByItself(presence),
+    paused: listening.state !== 'idle' || voice.state === 'speaking' || voice.state === 'loading' || screen === 'voice',
+    phrase: listeningPrefs.wakePhrase,
+    platform,
+    onWake: (rest) => {
+      void platform.showWindow?.().catch(() => {});
+      voice.prime();
+      void platform.warmSpeech?.().catch(() => {});
+      wakeRest.current = rest;
+      setScreen('voice');
+      setWakeActivated((n) => n + 1);
+    },
+  });
+  useEffect(() => {
+    if (wakeRest.current === null || screen !== 'voice') return;
+    const rest = wakeRest.current;
+    wakeRest.current = null;
+    if (rest) {
+      setHeard(rest);
+      atlas.ask(rest);
+    } else {
+      wantHints();
+      void listening.start();
+    }
+    // Only the phrase starts this (the ref is cleared here); opening the voice screen by hand must not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wakeActivated, screen]);
 
   // Switching the microphone off in Settings closes one that is already open —
   // "while this is off Atlas never opens it" has to include one open right now.
@@ -889,17 +932,17 @@ function Ready({
             )}
             {/* The truth about the microphone, whenever Atlas has it open for a double clap: read from the real stream,
                 and a click switches the clap trigger off (which closes the stream). */}
-            {clap.live && (
+            {(clap.live || wake.live) && (
               <button
                 type="button"
                 onClick={() => onListeningChange({ activation: 'off' })}
-                title="The microphone is open to hear a double clap. Nothing is recorded. Click to switch it off."
-                aria-label="Listening for a double clap. Click to switch off."
+                title={`The microphone is open to hear ${clap.live && wake.live ? 'a double clap or' : clap.live ? 'a double clap' : ''}${wake.live ? ` "${listeningPrefs.wakePhrase}"` : ''}. Nothing is stored. Click to switch it off.`}
+                aria-label="The microphone is open for a hands-free start. Click to switch off."
                 className="border-border text-foreground-muted hover:text-foreground flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs transition"
               >
                 <span className="bg-accent h-1.5 w-1.5 animate-pulse rounded-full" />
                 <Icons.Mic className="h-3 w-3" />
-                Listening for a clap
+                {clap.live && wake.live ? 'Listening for a clap or phrase' : clap.live ? 'Listening for a clap' : `Listening for “${listeningPrefs.wakePhrase}”`}
               </button>
             )}
             {/* Listening is a place, so it gets a door in the chrome next to

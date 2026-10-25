@@ -653,7 +653,7 @@ export interface Platform {
    * hear, because a transcriber that mishears the thing you own is a
    * transcriber you stop using.
    */
-  transcribeSpeech?(audio: ArrayBuffer, hints?: string): Promise<Transcript>;
+  transcribeSpeech?(audio: ArrayBuffer, hints?: string, wakePhrase?: string): Promise<Transcript>;
 
   /**
    * The machine's networking, gated by `network`.

@@ -54,3 +54,26 @@ test('a silly sensitivity is pulled back into 1 to 5', async () => {
     DEFAULT_LISTENING.clapSensitivity,
   );
 });
+
+test('every activation mode round-trips, and nothing else is accepted', async () => {
+  for (const mode of ['off', 'clap', 'wake', 'both'] as const) {
+    const storage = makeStorage();
+    await writeListeningPreferences(storage, { activation: mode });
+    assert.equal((await readListeningPreferences(storage)).activation, mode);
+  }
+  const storage = makeStorage();
+  await writeListeningPreferences(storage, { activation: 'clap' });
+  await writeListeningPreferences(storage, { activation: 'always' as never });
+  assert.equal((await readListeningPreferences(storage)).activation, 'clap');
+});
+
+test('the wake phrase: any valid words, tidied; an invalid one is never saved or read', async () => {
+  const storage = makeStorage();
+  assert.equal((await readListeningPreferences(storage)).wakePhrase, DEFAULT_LISTENING.wakePhrase);
+  await writeListeningPreferences(storage, { wakePhrase: '  Wake   up   Jarvis ' });
+  assert.equal((await readListeningPreferences(storage)).wakePhrase, 'Wake up Jarvis');
+  await writeListeningPreferences(storage, { wakePhrase: 'hey' });
+  assert.equal((await readListeningPreferences(storage)).wakePhrase, 'Wake up Jarvis');
+  await new MemoryStore(storage).remember('preference', 'listening.wakePhrase', '<script>');
+  assert.equal((await readListeningPreferences(storage)).wakePhrase, DEFAULT_LISTENING.wakePhrase);
+});

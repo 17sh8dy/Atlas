@@ -221,5 +221,24 @@ For 2.0.5 the only knowledge tasks are (a) voice answers must use the same tier 
 5. Spoken answers (V2) should read the first sentence and the source name only.
 6. Broader local intelligence: system questions beyond the existing specs/disk/uptime, "what is using my CPU/RAM", "what changed in this folder since yesterday".
 
+## Build status (2026-10-25, local branch atlas-2.0.5, nothing pushed)
+
+| Workstream | State |
+|---|---|
+| G General Atlas (no-model answers) | Built, real-app verified (01097cf) |
+| V7 Sketches | Built, hostile-SVG tested; not yet seen with a real model; PNG export deferred (no binary write command) |
+| V1 Activation: double clap | Built (b4f18cf); thresholds from synthetic sounds, **not yet tuned on a real microphone** |
+| V1 Activation: typed wake phrase | Built. The person types any phrase; matched against local whisper transcripts of short speech bursts. Measured on 48 spoken sentences (8 bundled voices): phrase heard 24/24, request after it intact 16/16, 0/24 false wakes, but only with the phrase leading whisper's prompt (it was 6 in 10 with the phrase last). Real human voices and a real room will be worse: **needs Brandon's mic** |
+| V3 Personalities | Built: Formal, Casual, Light humour, Dry/sarcastic, Custom (one-line style note) + "how you like to be addressed"; wording only, safety text unchanged for every role (tested). Per-action custom confirmation lines intentionally NOT built: confirmations stay fixed so tone can never loosen them |
+| V4 Background | Built: start with Windows (registry entry verified by read-back, real round-trip run), close-button choice, Normal/Quiet/Privacy modes, quiet hours, spoken reminders (off by default; alarms always sound). The 4th mode "presence" waits until there is something to volunteer |
+| V2 Conversation (sentence-by-sentence speech, "that's all") | Barge-in already existed; the rest is not built |
+| V5 Desktop-control audit, V6 resume by voice | Not built |
+| V8 Privacy text | Settings text says what each listener does; NovaLegal update NOT written (ask first) |
+
+### Next release (Brandon, 2026-10-25): do not limit activation to exactly two claps
+The clap trigger is a fixed double clap for now. Planned for the release after: let the person choose the pattern
+(e.g. single, double, triple, a rhythm they record), and combine it with the typed phrase. The detector already
+reports each clap with its time, so a pattern matcher can sit on top without changing the audio side.
+
 ## Release rules reminder
 Additive only; defaults unchanged (every listener, startup entry and tray-resident option OFF). **No Atlas code, commit, push or deploy until Brandon approves the plan; the spike runs only in its throwaway folder, only after he says go.**

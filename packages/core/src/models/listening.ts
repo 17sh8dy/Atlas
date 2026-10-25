@@ -33,7 +33,9 @@ export interface Transcript {
  * effect while `ListeningPreferences.enabled` is on too. While one is chosen the microphone stream is open and
  * analysed on this PC (nothing recorded or stored) and a visible indicator says so.
  */
-export type ActivationMode = 'off' | 'clap';
+export type ActivationMode = 'off' | 'clap' | 'wake' | 'both';
+
+export const ACTIVATION_MODES: readonly ActivationMode[] = ['off', 'clap', 'wake', 'both'];
 
 export interface ListeningPreferences {
   /**
@@ -69,8 +71,10 @@ export interface ListeningPreferences {
    * on, so it is a setting rather than a constant.
    */
   silenceMs: number;
-  /** How listening starts with no button: nothing (default), or a double clap. */
+  /** How listening starts with no button: nothing (default), a double clap, a spoken phrase, or either. */
   activation: ActivationMode;
+  /** The phrase that starts listening in wake modes. Any words the person chooses (see `validWakePhrase`). */
+  wakePhrase: string;
   /** 1 (needs a loud clean clap) to 5 (a soft clap in a quiet room). */
   clapSensitivity: number;
 }
@@ -82,4 +86,57 @@ export const DEFAULT_LISTENING: ListeningPreferences = {
   silenceMs: 900,
   activation: 'off',
   clapSensitivity: 3,
+  wakePhrase: 'Hey Atlas',
 };
+
+/** Words that are too common to wake anything: said on their own they would fire all day. */
+const TOO_COMMON = new Set([
+  'a',
+  'an',
+  'the',
+  'hey',
+  'hi',
+  'hello',
+  'ok',
+  'okay',
+  'yes',
+  'no',
+  'and',
+  'you',
+  'it',
+  'is',
+  'so',
+  'well',
+  'um',
+  'uh',
+  'oh',
+]);
+
+export type WakePhraseCheck = { ok: true; phrase: string } | { ok: false; reason: string };
+
+/**
+ * Is this usable as a wake phrase? Anything the person likes, within reason: one to four words, letters and
+ * digits, long enough to be said on purpose. The check is for the matcher's sake (a phrase it cannot tell apart
+ * from ordinary talk would fire constantly), not a judgement of the words.
+ */
+export function validWakePhrase(raw: string): WakePhraseCheck {
+  const phrase = raw.replace(/\s+/g, ' ').trim();
+  if (!phrase) return { ok: false, reason: 'Type the words that should wake Atlas.' };
+  if (phrase.length > 40) return { ok: false, reason: 'Keep it under 40 characters.' };
+  if (!/^[\p{L}\p{N}][\p{L}\p{N} '’-]*$/u.test(phrase))
+    return { ok: false, reason: 'Use letters, numbers and spaces only.' };
+  const words = phrase.split(' ');
+  if (words.length > 4) return { ok: false, reason: 'Four words at most.' };
+  const letters = phrase.replace(/[^\p{L}\p{N}]/gu, '');
+  if (letters.length < 4)
+    return {
+      ok: false,
+      reason: 'A little longer: at least four letters, so it is not set off by ordinary talk.',
+    };
+  if (words.every((w) => TOO_COMMON.has(w.toLowerCase())))
+    return {
+      ok: false,
+      reason: 'Those words are too common on their own. Add a name, like “Hey Atlas”.',
+    };
+  return { ok: true, phrase };
+}

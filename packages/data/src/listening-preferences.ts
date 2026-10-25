@@ -16,7 +16,8 @@
  */
 
 import type { Storage, ListeningPreferences } from '@atlas/core';
-import { DEFAULT_LISTENING } from '@atlas/core';
+import { ACTIVATION_MODES, DEFAULT_LISTENING, validWakePhrase } from '@atlas/core';
+import type { ActivationMode } from '@atlas/core';
 import { MemoryStore } from './memory-store';
 
 const ENABLED = 'listening.enabled';
@@ -25,6 +26,7 @@ const BARGE_IN = 'listening.bargeIn';
 const SILENCE = 'listening.silenceMs';
 const ACTIVATION = 'listening.activation';
 const CLAP_SENSITIVITY = 'listening.clapSensitivity';
+const WAKE_PHRASE = 'listening.wakePhrase';
 
 /** Bounds on the silence gate, matching what the Voice tab's slider offers. */
 const MIN_SILENCE = 400;
@@ -32,13 +34,14 @@ const MAX_SILENCE = 2500;
 
 export async function readListeningPreferences(storage: Storage): Promise<ListeningPreferences> {
   const memory = new MemoryStore(storage);
-  const [enabled, handsFree, bargeIn, silence, activation, clap] = await Promise.all([
+  const [enabled, handsFree, bargeIn, silence, activation, clap, wake] = await Promise.all([
     memory.fact('preference', ENABLED),
     memory.fact('preference', HANDS_FREE),
     memory.fact('preference', BARGE_IN),
     memory.fact('preference', SILENCE),
     memory.fact('preference', ACTIVATION),
     memory.fact('preference', CLAP_SENSITIVITY),
+    memory.fact('preference', WAKE_PHRASE),
   ]);
 
   const parsedSilence = Number(silence?.value);
@@ -56,7 +59,11 @@ export async function readListeningPreferences(storage: Storage): Promise<Listen
       ? Math.min(Math.max(parsedSilence, MIN_SILENCE), MAX_SILENCE)
       : DEFAULT_LISTENING.silenceMs,
     // Opt-in on an exact match, like `enabled`: a damaged file leaves the microphone alone.
-    activation: activation?.value === 'clap' ? 'clap' : 'off',
+    activation: (ACTIVATION_MODES as readonly string[]).includes(activation?.value ?? '')
+      ? (activation!.value as ActivationMode)
+      : 'off',
+    wakePhrase:
+      wake && validWakePhrase(wake.value).ok ? wake.value.trim() : DEFAULT_LISTENING.wakePhrase,
     clapSensitivity: Number.isFinite(parsedClap)
       ? Math.min(Math.max(Math.round(parsedClap), 1), 5)
       : DEFAULT_LISTENING.clapSensitivity,
@@ -80,8 +87,15 @@ export async function writeListeningPreferences(
   if (next.silenceMs !== undefined) {
     await memory.remember('preference', SILENCE, String(next.silenceMs));
   }
-  if (next.activation !== undefined) {
+  if (
+    next.activation !== undefined &&
+    (ACTIVATION_MODES as readonly string[]).includes(next.activation)
+  ) {
     await memory.remember('preference', ACTIVATION, next.activation);
+  }
+  if (next.wakePhrase !== undefined) {
+    const checked = validWakePhrase(next.wakePhrase);
+    if (checked.ok) await memory.remember('preference', WAKE_PHRASE, checked.phrase);
   }
   if (next.clapSensitivity !== undefined) {
     await memory.remember('preference', CLAP_SENSITIVITY, String(next.clapSensitivity));

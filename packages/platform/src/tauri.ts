@@ -343,9 +343,13 @@ export function createTauriPlatform(): Platform {
     // vocabulary hint rides in a header because the body is already spoken
     // for, percent-encoded because header values are bytes and app names are
     // not necessarily ASCII.
-    transcribeSpeech: (audio, hints) =>
+    transcribeSpeech: (audio, hints, wakePhrase) =>
       invoke<Transcript>('transcribe_speech', new Uint8Array(audio), {
-        headers: hints ? { 'Atlas-Hints': encodeURIComponent(hints) } : {},
+        headers: {
+          ...(hints ? { 'Atlas-Hints': encodeURIComponent(hints) } : {}),
+          // Listening for a wake phrase: the phrase leads the prompt (see listen.rs `wake_lead`).
+          ...(wakePhrase ? { 'Atlas-Wake': encodeURIComponent(wakePhrase) } : {}),
+        },
       }),
 
     networkAdapters: () => invoke<NetworkAdapter[]>('network_adapters'),

@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Icons, Surface, Switch, cn } from '@atlas/ui';
 import { DEFAULT_SPEECH } from '@atlas/core';
+import { Activation } from './voice/Activation';
 import type { ListeningPreferences, SpeechPreferences, SpeechVoice } from '@atlas/core';
 
 interface Props {
@@ -270,23 +271,11 @@ export function Voice({
               }
             />
 
-            {listening.enabled && (
-              <Row
-                label="Start listening when I clap twice"
-                hint="While this is on Atlas keeps the microphone open to hear a double clap. The sound is analysed on this PC and thrown away as it goes: nothing is recorded or stored. Windows shows its microphone indicator, and so does Atlas."
-                control={
-                  <Switch
-                    checked={listening.activation === 'clap'}
-                    onCheckedChange={(on) => onListeningChange({ activation: on ? 'clap' : 'off' })}
-                    aria-label="Start listening when I clap twice"
-                  />
-                }
-              />
-            )}
+            {listening.enabled && <Activation listening={listening} onChange={onListeningChange} />}
 
             {listening.enabled && (
               <Advanced>
-                {listening.activation === 'clap' && (
+                {(listening.activation === 'clap' || listening.activation === 'both') && (
                   <Slider
                     label="Clap sensitivity"
                     value={listening.clapSensitivity}
