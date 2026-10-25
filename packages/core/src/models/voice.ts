@@ -14,6 +14,10 @@ export interface VoiceProfile {
   atlasName?: string;
   /** A custom first-open greeting. Falls back to a generated one. */
   greeting?: string;
+  /** How the person likes to be addressed ("sir", "boss"). Used by greetings and farewells instead of the name. */
+  address?: string;
+  /** The custom role's one-line writing style for the language model. Wording only. */
+  customStyle?: string;
   /** How Atlas presents itself — see `atlas-role.ts`. Falls back to `assistant`. */
   role?: AtlasRole;
 }

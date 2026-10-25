@@ -82,7 +82,8 @@ export const JOKES: readonly string[] = Object.freeze([
  */
 export function createPhrasing(profile: VoiceProfile = {}): Phrasing {
   const atlasName = profile.atlasName?.trim() || 'Atlas';
-  const userName = profile.userName?.trim();
+  // How the person likes to be addressed ("sir") stands in for their name wherever Atlas addresses them.
+  const userName = profile.address?.trim() || profile.userName?.trim();
   const turn = counters();
   // The role's own wording for the few replies that are Atlas's, not a skill's.
   // `assistant` (and no role) has none, so it says exactly what it always did.

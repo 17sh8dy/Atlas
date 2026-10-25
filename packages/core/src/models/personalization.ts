@@ -49,7 +49,7 @@
  */
 
 /** Which field is being checked. `atlasName` is held to a slightly higher bar. */
-export type PersonalizationField = 'userName' | 'atlasName' | 'greeting';
+export type PersonalizationField = 'userName' | 'atlasName' | 'greeting' | 'address' | 'customStyle';
 
 /** Why something was refused. Internal — never rendered verbatim. */
 export type PersonalizationRejection =
@@ -76,6 +76,8 @@ export const PERSONALIZATION_LIMITS: Record<PersonalizationField, number> = {
   userName: 40,
   atlasName: 40,
   greeting: 280,
+  address: 24,
+  customStyle: 200,
 };
 
 /**

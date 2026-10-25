@@ -17,8 +17,10 @@ import { WorkingMemory } from '../src/working-memory';
 import { createPhrasing } from '../src/phrasing';
 
 const NON_DEFAULT = ATLAS_ROLES.filter((r) => r !== DEFAULT_ATLAS_ROLE);
+/** Roles with their own built-in wording. `custom` takes its style from the person and keeps Atlas's own lines neutral. */
+const BUILT_IN = NON_DEFAULT.filter((r) => r !== 'custom');
 
-function promptFor(role: AtlasRole | undefined, question: string): string[] {
+function promptFor(role: AtlasRole | undefined, question: string, customStyle?: string): string[] {
   const prompts: string[] = [];
   const p = {
     id: 'm',
@@ -37,7 +39,7 @@ function promptFor(role: AtlasRole | undefined, question: string): string[] {
     skills: new SkillRegistry({ capabilities: () => [] }),
     grammar,
     working,
-    voice: role ? { role } : {},
+    voice: role ? { role, ...(customStyle ? { customStyle } : {}) } : {},
     intelligence: {
       register: () => {},
       get: () => p,
@@ -62,7 +64,7 @@ describe('role style in what a model is asked', () => {
   });
 
   test('every other role puts its own style ahead of the question', async () => {
-    for (const role of NON_DEFAULT) {
+    for (const role of BUILT_IN) {
       const prompts = promptFor(role, question);
       await new Promise((r) => setTimeout(r, 0));
       const style = ATLAS_ROLE_META[role].style;
@@ -70,6 +72,53 @@ describe('role style in what a model is asked', () => {
       expect(prompts.length, role).toBeGreaterThan(0);
       expect(prompts[0], role).toContain(style!);
       expect(prompts[0], role).toContain(question);
+    }
+  });
+});
+
+describe('the custom role and how you like to be addressed', () => {
+  const question = 'why is the sky blue during the day';
+
+  test('the custom style is what the model is asked to write in, on one line and capped', async () => {
+    const prompts = promptFor('custom', question, 'Talk like a pirate,\n\n   but keep it short.');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(prompts[0]).toContain('Talk like a pirate, but keep it short.');
+    const long = promptFor('custom', question, 'x'.repeat(500));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(long[0]).not.toContain('x'.repeat(201));
+  });
+
+  test('custom with no style written sends exactly what the default role sends', async () => {
+    const none = promptFor(undefined, question);
+    const custom = promptFor('custom', question);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(custom).toEqual(none);
+  });
+
+  test("Atlas's own lines under custom are the neutral ones", () => {
+    const bare = createPhrasing({});
+    const p = createPhrasing({ role: 'custom', customStyle: 'anything' });
+    expect(p.declined()).toBe(bare.declined());
+    expect(p.rightThen(['a', 'b'])).toBe(bare.rightThen(['a', 'b']));
+  });
+
+  test('"sir" replaces the name in the greeting and the farewell, for every role', () => {
+    for (const role of ATLAS_ROLES) {
+      const p = createPhrasing({ role, userName: 'Brandon', address: 'sir' });
+      expect(p.greeting(), role).not.toContain('Brandon');
+      expect(p.smallTalk('goodbye', 1), role).not.toContain('Brandon');
+    }
+    expect(createPhrasing({ role: 'formal', address: 'sir' }).greeting()).toBe(
+      'Good day, sir. How may I be of assistance?',
+    );
+  });
+
+  test('the new tones are distinct, and none of them is the baseline', () => {
+    const baseline = createPhrasing({ userName: 'Sam' });
+    for (const role of ['formal', 'casual', 'humorous', 'sarcastic'] as const) {
+      const p = createPhrasing({ role, userName: 'Sam' });
+      expect(p.greeting(), role).not.toBe(baseline.greeting());
+      expect(p.smallTalk('thanks', 1), role).not.toBe(baseline.smallTalk('thanks', 1));
     }
   });
 });
@@ -86,7 +135,7 @@ describe('role wording in Atlas’s own replies', () => {
 
   test('other roles word these replies differently, and every one is non-empty', () => {
     const baseline = createPhrasing({});
-    for (const role of NON_DEFAULT) {
+    for (const role of BUILT_IN) {
       const p = createPhrasing({ role });
       expect(p.declined().length, role).toBeGreaterThan(0);
       expect(p.declined(), role).not.toBe(baseline.declined());

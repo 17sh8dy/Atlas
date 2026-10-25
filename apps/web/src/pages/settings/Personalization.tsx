@@ -55,6 +55,15 @@ export function Personalization({ storage, voiceProfile, onVoiceProfileChange }:
           onSaved={onVoiceProfileChange}
         />
         <Field
+          label="How do you like to be addressed?"
+          placeholder={'Leave blank to use your name (e.g. "sir", "boss")'}
+          initial={voiceProfile.address ?? ''}
+          subject="address"
+          field="address"
+          storage={storage}
+          onSaved={onVoiceProfileChange}
+        />
+        <Field
           label="What should Atlas call itself?"
           placeholder="Atlas"
           initial={voiceProfile.atlasName ?? ''}
@@ -172,6 +181,24 @@ function RoleSection({
         <span className="text-foreground">“{ATLAS_ROLE_META[role].phrases?.lead ?? 'Right'} — …”</span>
       </p>
 
+      {role === 'custom' && (
+        <div className="mt-4">
+          <Field
+            label="Your style note"
+            placeholder="e.g. Talk like a calm ship's captain, and keep it short"
+            initial={voiceProfile.customStyle ?? ''}
+            subject="custom.style"
+            field="customStyle"
+            storage={storage}
+            onSaved={onSaved}
+          />
+          <p className="text-foreground-subtle mt-1.5 text-xs leading-relaxed">
+            One line, sent to your language model ahead of ordinary questions. It never reaches the
+            actions Atlas takes, and Atlas&apos;s own short replies stay neutral.
+          </p>
+        </div>
+      )}
+
       {!voiceProfile.greeting?.trim() ? (
         <p className="text-foreground-subtle mt-1.5 text-xs leading-relaxed">
           Opens with: <span className="text-foreground">“{ATLAS_ROLE_META[role].greeting(atlasName, userName)}”</span>
@@ -198,7 +225,7 @@ function Field({
   label: string;
   placeholder: string;
   initial: string;
-  subject: 'user.name' | 'atlas.name' | 'greeting';
+  subject: 'user.name' | 'atlas.name' | 'greeting' | 'address' | 'custom.style';
   /** Which set of rules applies. `atlasName` is held to a slightly higher bar. */
   field: PersonalizationField;
   storage: Storage;

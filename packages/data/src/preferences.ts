@@ -11,7 +11,7 @@ import type { Storage, VoiceProfile } from '@atlas/core';
 import { isAtlasRole } from '@atlas/core';
 import { MemoryStore } from './memory-store';
 
-export type PreferenceSubject = 'user.name' | 'atlas.name' | 'greeting' | 'role';
+export type PreferenceSubject = 'user.name' | 'atlas.name' | 'greeting' | 'role' | 'address' | 'custom.style';
 
 export async function writePreference(
   storage: Storage,
@@ -32,6 +32,8 @@ export async function readVoiceProfile(storage: Storage): Promise<VoiceProfile> 
     userName: find('user.name'),
     atlasName: find('atlas.name'),
     greeting: find('greeting'),
+    address: find('address'),
+    customStyle: find('custom.style'),
     role: isAtlasRole(role) ? role : undefined,
   };
 }

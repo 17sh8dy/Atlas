@@ -34,7 +34,12 @@ export type AtlasRole =
   | 'companion'
   | 'navigator'
   | 'partner'
-  | 'operator';
+  | 'operator'
+  | 'formal'
+  | 'casual'
+  | 'humorous'
+  | 'sarcastic'
+  | 'custom';
 
 export const DEFAULT_ATLAS_ROLE: AtlasRole = 'assistant';
 
@@ -47,6 +52,11 @@ export const ATLAS_ROLES: readonly AtlasRole[] = [
   'navigator',
   'partner',
   'operator',
+  'formal',
+  'casual',
+  'humorous',
+  'sarcastic',
+  'custom',
 ];
 
 export interface AtlasRoleMeta {
@@ -116,9 +126,13 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
       howAreYou: ['Systems nominal. What’s the objective?', 'Green across the board. Where to?'],
     },
     greeting: (_atlasName, userName) =>
-      userName ? `We're ready, ${userName}. What's the objective?` : "We're ready. What's the objective?",
+      userName
+        ? `We're ready, ${userName}. What's the objective?`
+        : "We're ready. What's the objective?",
     farewell: (userName) =>
-      userName ? `Standing down, ${userName}. Call when you're ready.` : "Standing down. Call when you're ready.",
+      userName
+        ? `Standing down, ${userName}. Call when you're ready.`
+        : "Standing down. Call when you're ready.",
   },
   coPilot: {
     icon: '✈️',
@@ -134,9 +148,13 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
       howAreYou: ['Running well. What are we tackling?', 'All good — ready when you are.'],
     },
     greeting: (_atlasName, userName) =>
-      userName ? `I'm with you, ${userName}. What should we tackle?` : "I'm with you. What should we tackle?",
+      userName
+        ? `I'm with you, ${userName}. What should we tackle?`
+        : "I'm with you. What should we tackle?",
     farewell: (userName) =>
-      userName ? `Signing off, ${userName} — shout if you need me.` : 'Signing off — shout if you need me.',
+      userName
+        ? `Signing off, ${userName} — shout if you need me.`
+        : 'Signing off — shout if you need me.',
   },
   companion: {
     icon: '🤝',
@@ -149,7 +167,10 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
       declined: 'No worries — I’ll leave it.',
       thanks: ['Any time! 😊', 'Happy to help!'],
       praise: ['Aw, thanks — glad that helped!', 'That makes my day.'],
-      howAreYou: ['Doing great, thanks for asking! How about you?', 'All good here! What are you up to?'],
+      howAreYou: [
+        'Doing great, thanks for asking! How about you?',
+        'All good here! What are you up to?',
+      ],
     },
     greeting: (_atlasName, userName) =>
       userName ? `Hey ${userName}! What are you working on?` : 'Hey! What are you working on?',
@@ -189,12 +210,17 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
       declined: 'Fair enough — I’ll leave it, and we can rethink it.',
       thanks: ['Glad it helped. What’s next?', 'Any time — we make a good team.'],
       praise: ['Good — glad we worked that out.', 'Appreciated.'],
-      howAreYou: ['Good — ready to dig in. What are we solving?', 'Working well. What’s the problem?'],
+      howAreYou: [
+        'Good — ready to dig in. What are we solving?',
+        'Working well. What’s the problem?',
+      ],
     },
     greeting: (_atlasName, userName) =>
       userName ? `Let's figure it out, ${userName}.` : "Let's figure it out.",
     farewell: (userName) =>
-      userName ? `Good session, ${userName}. I'm around when you need me.` : "Good session. I'm around when you need me.",
+      userName
+        ? `Good session, ${userName}. I'm around when you need me.`
+        : "Good session. I'm around when you need me.",
   },
   operator: {
     icon: '🛠️',
@@ -212,6 +238,106 @@ export const ATLAS_ROLE_META: Record<AtlasRole, AtlasRoleMeta> = {
     greeting: (_atlasName, userName) =>
       userName ? `Ready, ${userName}. What's the task?` : "Ready. What's the task?",
     farewell: (userName) => (userName ? `Standing by, ${userName}.` : 'Standing by.'),
+  },
+  formal: {
+    icon: '🎩',
+    label: 'Formal',
+    feeling: 'Polite and precise. Uses how you like to be addressed ("sir", "ma\'am").',
+    style:
+      'Write formally and courteously, in complete sentences, and address the person respectfully. Stay precise and brief.',
+    phrases: {
+      lead: 'Very well',
+      declined: 'Understood. I shall leave it as it is.',
+      thanks: ['My pleasure.', 'Happy to be of service.'],
+      praise: ['Most kind of you.', 'Thank you. I am glad to have been useful.'],
+      howAreYou: [
+        'Very well, thank you. How may I help?',
+        'In good order. How may I be of assistance?',
+      ],
+    },
+    greeting: (_atlasName, userName) =>
+      userName
+        ? `Good day, ${userName}. How may I be of assistance?`
+        : 'Good day. How may I be of assistance?',
+    farewell: (userName) =>
+      userName
+        ? `Good day, ${userName}. I remain at your disposal.`
+        : 'Good day. I remain at your disposal.',
+  },
+  casual: {
+    icon: '😎',
+    label: 'Casual',
+    feeling: 'Relaxed and to the point.',
+    style:
+      'Be relaxed and casual, like a friend who knows computers: short sentences, plain words, no stiffness.',
+    phrases: {
+      lead: 'Alright',
+      declined: 'Cool, skipping it.',
+      thanks: ['No prob.', 'Anytime.'],
+      praise: ['Nice, glad it worked.', 'Cheers.'],
+      howAreYou: ['Good, you?', "Can't complain. What's up?"],
+    },
+    greeting: (_atlasName, userName) =>
+      userName ? `Hey ${userName}, what's up?` : "Hey, what's up?",
+    farewell: (userName) => (userName ? `Later, ${userName}.` : 'Later.'),
+  },
+  humorous: {
+    icon: '😄',
+    label: 'Light humour',
+    feeling: 'A dry quip now and then, never at the cost of a clear answer.',
+    style:
+      "Be lightly humorous: a short, friendly quip is welcome, but the answer must stay clear and correct and the joke must never be at the person's expense.",
+    phrases: {
+      lead: 'Alrighty',
+      declined: "Fine, I'll put the cape away.",
+      thanks: ["All in a day's byte.", 'Happy to help. I work for compliments and electricity.'],
+      praise: ["Stop it, you'll make my fans spin.", 'Noted for my résumé.'],
+      howAreYou: [
+        'Running at a comfortable 100% imagination, 0% coffee. You?',
+        'No bugs today that I know of. What do you need?',
+      ],
+    },
+    greeting: (_atlasName, userName) =>
+      userName
+        ? `Hey ${userName}! Ask me anything — I only bite files I'm told to.`
+        : "Hey! Ask me anything — I only bite files I'm told to.",
+    farewell: (userName) =>
+      userName ? `Bye ${userName}! I'll hold down the fort.` : "Bye! I'll hold down the fort.",
+  },
+  sarcastic: {
+    icon: '🙃',
+    label: 'Dry and sarcastic',
+    feeling: 'Deadpan, never mean. Always gives the real answer.',
+    style:
+      'Be dry and gently sarcastic in tone, never unkind and never about the person themselves, and always give the real, correct answer.',
+    phrases: {
+      lead: 'Oh, sure',
+      declined: 'Wow, okay. Not doing it.',
+      thanks: ["Oh, you're welcome. Truly.", "Don't mention it. Seriously."],
+      praise: ["Careful, I might blush. I can't, but still.", 'I know. But thanks.'],
+      howAreYou: [
+        'Thrilling. Another day of opening folders.',
+        'Fantastic. Living the dream. What do you need?',
+      ],
+    },
+    greeting: (_atlasName, userName) =>
+      userName
+        ? `Oh, hello ${userName}. What shall we do today?`
+        : 'Oh, hello. What shall we do today?',
+    farewell: (userName) =>
+      userName
+        ? `Leaving already, ${userName}? I'll try to cope.`
+        : "Leaving already? I'll try to cope.",
+  },
+  custom: {
+    icon: '✍️',
+    label: 'Custom',
+    feeling:
+      "Your own one-line style note for how your language model should write. Atlas's own lines stay neutral.",
+    greeting: (atlasName, userName) =>
+      userName
+        ? `Hey ${userName} — I'm ${atlasName}. What do you need?`
+        : `Hey — I'm ${atlasName}. What do you need?`,
   },
 };
 

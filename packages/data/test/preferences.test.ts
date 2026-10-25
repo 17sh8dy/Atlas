@@ -27,6 +27,8 @@ test('an untouched install has every field unset', async () => {
     userName: undefined,
     atlasName: undefined,
     greeting: undefined,
+    address: undefined,
+    customStyle: undefined,
     role: undefined,
   });
 });

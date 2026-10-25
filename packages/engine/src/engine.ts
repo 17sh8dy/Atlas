@@ -295,7 +295,12 @@ export class Engine {
     this.atlasName = options.voice?.atlasName?.trim() || 'Atlas';
     this.userName = options.voice?.userName?.trim() || undefined;
     const role = options.voice?.role;
-    this.styleNote = role && role !== DEFAULT_ATLAS_ROLE ? ATLAS_ROLE_META[role]?.style : undefined;
+    this.styleNote =
+      role === 'custom'
+        ? options.voice?.customStyle?.replace(/\s+/g, ' ').trim().slice(0, 200) || undefined
+        : role && role !== DEFAULT_ATLAS_ROLE
+          ? ATLAS_ROLE_META[role]?.style
+          : undefined;
     this.executor = new Executor(this.skills, this.phrasing);
     this.gateway = new ModelGateway(this.skills, { useRules: USE_RULES });
     this.routing = options.routing ?? {};
