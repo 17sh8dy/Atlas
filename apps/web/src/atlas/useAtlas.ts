@@ -99,6 +99,7 @@ import {
   createEnvironmentSkills,
   createStorageSkills,
   createFileFactSkills,
+  createSketchSkills,
   createOrganizeSkills,
   withFileJournal,
   createDevToolsSkills,
@@ -142,7 +143,7 @@ import {
   type FileJournal,
   type JournalBatch,
 } from '@atlas/engine';
-import type { CapabilityName, ConfirmOptions, ReviewPayload } from '@atlas/core';
+import type { CapabilityName, ConfirmOptions, ReviewPayload, SketchPayload } from '@atlas/core';
 
 const FILE_JOURNAL_KEY = 'atlas.file-journal';
 
@@ -167,6 +168,8 @@ export interface Entry {
    * its lines (the lines are read back from the checkpoint).
    */
   review?: ReviewPayload;
+  /** `atlas` entries: a drawing the connected model wrote as SVG (already sanitised; shown only as an image). */
+  sketch?: SketchPayload;
   /** Confirmation entries: button wording and the note once answered (see `ConfirmOptions`). */
   yesLabel?: string;
   noLabel?: string;
@@ -765,6 +768,7 @@ export function useAtlas(
     skills.registerMany(createEnvironmentSkills(platform));
     skills.registerMany(createStorageSkills(platform));
     skills.registerMany(createFileFactSkills(platform));
+    skills.registerMany(createSketchSkills(platform));
     skills.registerMany(createOrganizeSkills(platform, fileJournal));
     // The developer skills may leave the folder out (the current project fills in)
     // or speak it ("atlas"); a successful run makes its folder the current project.
@@ -1061,7 +1065,12 @@ export function useAtlas(
   const io = useMemo<EngineIO>(
     () => ({
       say: (text, options) => {
-        push({ kind: 'atlas', text, ...(options?.review ? { review: options.review } : {}) });
+        push({
+          kind: 'atlas',
+          text,
+          ...(options?.review ? { review: options.review } : {}),
+          ...(options?.sketch ? { sketch: options.sketch } : {}),
+        });
         // `aloud: false` is a skill saying its answer is for the eyes — a
         // password, a hash, a page of statistics. Still shown, still
         // copyable, just not read out.

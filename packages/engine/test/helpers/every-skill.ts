@@ -49,6 +49,7 @@ import { createServiceSkills } from '../../src/skills/service-skills';
 import { createEnvironmentSkills } from '../../src/skills/environment-skills';
 import { createStorageSkills } from '../../src/skills/storage-skills';
 import { createFileFactSkills } from '../../src/skills/file-facts-skills';
+import { createSketchSkills } from '../../src/skills/sketch-skills';
 import { createWindowSkills } from '../../src/skills/window-skills';
 import { createInputSkills } from '../../src/skills/input-skills';
 import { createUiaSkills } from '../../src/skills/uia-skills';
@@ -112,6 +113,7 @@ export function everySkill(): Skill[] {
     ...createEnvironmentSkills(NOTHING),
     ...createStorageSkills(NOTHING),
     ...createFileFactSkills(NOTHING),
+    ...createSketchSkills(NOTHING),
     ...createWindowSkills(NOTHING),
     ...createInputSkills(NOTHING),
     ...createUiaSkills(NOTHING),

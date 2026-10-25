@@ -15,6 +15,15 @@ import type { Clarification, ClarifyAnswer, ClarifyNeed } from './clarify';
 import type { ProbeSpec } from './verify';
 import type { ReviewPayload } from './review';
 
+/** A drawing the connected model wrote as SVG, already checked and rebuilt by Atlas (engine `general/sketch.ts`). */
+export interface SketchPayload {
+  /** Sanitised SVG text. Shown only as an image, never inserted into the page. */
+  svg: string;
+  /** Always shown with the drawing: what it is and why it may not look good. */
+  note: string;
+  subject?: string;
+}
+
 /**
  * How much damage a skill could do if invoked wrongly.
  *
@@ -117,7 +126,7 @@ export interface SkillResult<T = unknown> {
  */
 export interface SkillContext {
   /** Say something to the user. */
-  say(text: string, options?: { aloud?: boolean; review?: ReviewPayload }): void;
+  say(text: string, options?: { aloud?: boolean; review?: ReviewPayload; sketch?: SketchPayload }): void;
   /** Ask for approval. Resolves false if declined. */
   confirm(question: string, detail?: string, options?: ConfirmOptions): Promise<boolean>;
   /**

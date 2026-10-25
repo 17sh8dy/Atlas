@@ -92,6 +92,8 @@ export { createScreenSkills } from './skills/screen-skills';
 export { createEnvironmentSkills } from './skills/environment-skills';
 export { createStorageSkills } from './skills/storage-skills';
 export { createFileFactSkills } from './skills/file-facts-skills';
+export { createSketchSkills } from './skills/sketch-skills';
+export { sanitizeSvg, svgDataUrl, readSketchRequest, extractSvg } from './general/sketch';
 export {
   createOrganizeSkills,
   createMemoryJournal,

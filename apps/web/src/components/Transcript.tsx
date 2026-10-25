@@ -20,6 +20,7 @@ import { RevealText } from './RevealText';
 import type { ActivityRun, ClarifyAnswer } from '@atlas/core';
 import { LatticeRow } from './LatticeRow';
 import { ReviewBlock } from './review/ReviewBlock';
+import { SketchBlock } from './SketchBlock';
 
 /** An entry this new was just said; anything older was already read. */
 const FRESH_MS = 1500;
@@ -261,6 +262,13 @@ function EntryView({
         </div>
         {/* An edit that was WRITTEN: what changed, whether it is still in place, review and undo. */}
         {entry.review && <ReviewBlock review={entry.review} context="result" />}
+        {entry.sketch && (
+          <SketchBlock
+            sketch={entry.sketch}
+            onCopy={onCopy}
+            onSave={(svg, name) => onRunAction('sketch.save', { svg, name })}
+          />
+        )}
         {!entry.streaming && <MessageActions text={entry.text ?? ''} onCopy={onCopy} />}
       </div>
     );

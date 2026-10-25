@@ -57,7 +57,7 @@ import {
   HaltedError,
   untilHalted,
 } from '@atlas/core';
-import type { HaltSignal, ReviewPayload } from '@atlas/core';
+import type { HaltSignal, ReviewPayload, SketchPayload } from '@atlas/core';
 import { describeProviderFailure } from './cloud-limits';
 import { ModelGateway } from './gateway/plan';
 import { Bus } from './bus';
@@ -70,6 +70,7 @@ import { createPhrasing, type Phrasing } from './phrasing';
 import { WorkingMemory } from './working-memory';
 import { routeQuestion, type ResearchCategory } from './web/router';
 import { readQuestion, type QuestionShape } from './general/shape';
+import { SKETCH_NOTE, SKETCH_NO_MODEL, SKETCH_NO_PHOTOS, extractSvg, readSketchRequest, sanitizeSvg, sketchPrompt, sketchRetryPrompt, type SketchRequest } from './general/sketch';
 import { answerGeneral, nothingFoundText } from './general/answer';
 import { rewriteQuery } from './web/query';
 import { resultRows } from './skills/web-search-skills';
@@ -121,7 +122,7 @@ export interface EngineIO {
    * `aloud: false` means show it but do not read it out — see
    * `SkillResult.aloud`. Surfaces that cannot speak may ignore it entirely.
    */
-  say(text: string, options?: { aloud?: boolean; review?: ReviewPayload }): void;
+  say(text: string, options?: { aloud?: boolean; review?: ReviewPayload; sketch?: SketchPayload }): void;
   confirm(question: string, detail?: string, options?: ConfirmOptions): Promise<boolean>;
   /** See `SkillContext.offerFolder`. */
   offerFolder?(args: SkillArgs): Promise<boolean>;
@@ -583,6 +584,10 @@ export class Engine {
       return { ok: outcome.ok, mode: 'command', plan: matched, outcome };
     }
 
+    // 2b. A drawing: "draw me a house". The connected model writes an SVG, Atlas checks and rebuilds it (general/sketch.ts).
+    const sketchAsked = readSketchRequest(raw);
+    if (sketchAsked) return this.drawSketch(sketchAsked, io, signal);
+
     // 3. Triage — questions are conversation, not planning. Skipping this is
     //    how assistants end up trying to "run" a question.
     const instruction = actionable && !this.isQuestion(raw);
@@ -670,6 +675,72 @@ export class Engine {
 
     // 4. Conversation.
     return this.converse(understood, io, ctx, signal, instruction, options.thinkLonger === true);
+  }
+
+  /** One non-streaming ask: the whole reply, or why there is none. Ends at once when the person halts. */
+  private askOnce(provider: IntelligenceProvider, prompt: string, signal: HaltSignal): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new HaltedError());
+        return;
+      }
+      let done = false;
+      const onAbort = () => {
+        if (done) return;
+        done = true;
+        reject(new HaltedError());
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      const finish = (value: { ok: true; text: string } | { ok: false; reason: string }) => {
+        if (done) return;
+        done = true;
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      };
+      provider.ask(prompt, { onDelta: () => {}, onDone: (full) => finish({ ok: true, text: full }), onError: (reason) => finish({ ok: false, reason }) }, { signal });
+    });
+  }
+
+  /**
+   * "Draw me a house." The model writes SVG code; nothing it wrote is shown until it has been parsed and rebuilt from
+   * an allowlist (one retry with the reason if it was unusable), and it is always shown with the note that says what
+   * it is. No model, no photo-style request, or no usable drawing each get a plain, true answer instead.
+   */
+  private async drawSketch(req: SketchRequest, io: EngineIO, signal: HaltSignal): Promise<AskOutcome> {
+    if (req.photo) {
+      io.say(SKETCH_NO_PHOTOS);
+      return { ok: false, mode: 'chat', error: 'photo-unsupported' };
+    }
+    const provider = this.intelligence?.active();
+    if (!provider || !canConverse(provider.capabilities?.())) {
+      io.say(SKETCH_NO_MODEL);
+      return { ok: false, mode: 'chat', error: 'not-configured' };
+    }
+    io.typing?.(true);
+    try {
+      let why = '';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const reply = await this.askOnce(provider, attempt === 0 ? sketchPrompt(req.subject) : sketchRetryPrompt(req.subject, why), signal);
+        if (!reply.ok) {
+          const limit = describeProviderFailure(reply.reason, provider.label);
+          io.say(limit ?? (reply.reason === 'offline' ? `I couldn't reach your language model (it's set up in Settings → Intelligence), so I can't draw that right now.` : `⚠️ ${reply.reason}`));
+          return { ok: false, mode: 'chat', error: reply.reason };
+        }
+        const found = extractSvg(reply.text);
+        const checked = found ? sanitizeSvg(found) : ({ ok: false, reason: 'it did not contain an <svg> element' } as const);
+        if (checked.ok) {
+          const text = `Here is a sketch of ${req.subject}.`;
+          io.say(text, { sketch: { svg: checked.svg, note: SKETCH_NOTE, subject: req.subject } });
+          return { ok: true, mode: 'chat', text, via: 'model' };
+        }
+        why = checked.reason;
+      }
+      const msg = `I asked your model twice, but it did not give me a drawing I could use (${why}). Try again, or a simpler subject.`;
+      io.say(msg);
+      return { ok: false, mode: 'chat', error: 'sketch-invalid' };
+    } finally {
+      io.typing?.(false);
+    }
   }
 
   /** The knowledge tier. Null means "not for me": the caller carries on. */
@@ -805,7 +876,7 @@ export class Engine {
   private context(io: EngineIO, signal: HaltSignal): SkillContext {
     return {
       signal,
-      say: (t: string, options?: { aloud?: boolean; review?: ReviewPayload }) => io.say(t, options),
+      say: (t: string, options?: { aloud?: boolean; review?: ReviewPayload; sketch?: SketchPayload }) => io.say(t, options),
       confirm: (q: string, d?: string, o?: ConfirmOptions) => io.confirm(q, d, o),
       offerFolder: io.offerFolder ? (args) => io.offerFolder!(args) : undefined,
       clarify: io.clarify ? (question) => io.clarify!(question) : undefined,
