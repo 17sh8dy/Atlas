@@ -28,6 +28,13 @@ export interface Transcript {
   empty: boolean;
 }
 
+/**
+ * How Atlas starts listening without a button press. Off unless the person chooses one, and it only has any
+ * effect while `ListeningPreferences.enabled` is on too. While one is chosen the microphone stream is open and
+ * analysed on this PC (nothing recorded or stored) and a visible indicator says so.
+ */
+export type ActivationMode = 'off' | 'clap';
+
 export interface ListeningPreferences {
   /**
    * May Atlas use the microphone at all. Off by default, and the only gate
@@ -62,6 +69,10 @@ export interface ListeningPreferences {
    * on, so it is a setting rather than a constant.
    */
   silenceMs: number;
+  /** How listening starts with no button: nothing (default), or a double clap. */
+  activation: ActivationMode;
+  /** 1 (needs a loud clean clap) to 5 (a soft clap in a quiet room). */
+  clapSensitivity: number;
 }
 
 export const DEFAULT_LISTENING: ListeningPreferences = {
@@ -69,4 +80,6 @@ export const DEFAULT_LISTENING: ListeningPreferences = {
   handsFree: false,
   bargeIn: true,
   silenceMs: 900,
+  activation: 'off',
+  clapSensitivity: 3,
 };

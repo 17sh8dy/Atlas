@@ -61,6 +61,7 @@ import { ReviewProvider } from '../components/review/ReviewProvider';
 import { withAlerts } from '../atlas/alerts';
 import { useSpeech } from '../speech/useSpeech';
 import { useListening } from '../speech/useListening';
+import { useClapActivation } from '../speech/activation/useClapActivation';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { WatchIndicator } from '../components/WatchIndicator';
 import { UpdateBubble } from '../components/UpdateBubble';
@@ -636,6 +637,38 @@ function Ready({
     else listening.stop();
   }, [listening, wantHints]);
 
+  /**
+   * A double clap (Settings → Voice, off by default): bring Atlas up and listen for one request.
+   *
+   * It only OPENS THE VOICE SCREEN and asks it to listen once; what is heard goes through exactly the same path as
+   * pressing the mic. The recorder is started from an effect after the screen has changed, not here: changing screens
+   * closes the microphone (see below), so a start issued in the same breath would be closed again immediately.
+   */
+  const [clapActivated, setClapActivated] = useState(0);
+  const clapPending = useRef(false);
+  const clap = useClapActivation({
+    enabled: listeningPrefs.enabled && listeningPrefs.activation === 'clap' && listening.supported,
+    // Atlas is using the microphone or the speakers itself: close this stream meanwhile, so there is never two of them.
+    paused: listening.state !== 'idle' || voice.state === 'speaking' || voice.state === 'loading' || screen === 'voice',
+    sensitivity: listeningPrefs.clapSensitivity,
+    onDouble: () => {
+      void platform.showWindow?.().catch(() => {});
+      voice.prime();
+      void platform.warmSpeech?.().catch(() => {});
+      clapPending.current = true;
+      setScreen('voice');
+      setClapActivated((n) => n + 1);
+    },
+  });
+  useEffect(() => {
+    if (!clapPending.current || screen !== 'voice') return;
+    clapPending.current = false;
+    wantHints();
+    void listening.start();
+    // Only a clap starts this (the flag is cleared here); opening the voice screen by hand must not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clapActivated, screen]);
+
   // Switching the microphone off in Settings closes one that is already open —
   // "while this is off Atlas never opens it" has to include one open right now.
   const stopForSwitch = listening.stop;
@@ -844,6 +877,21 @@ function Ready({
                   <Icons.VolumeX className="h-3.5 w-3.5" />
                 )}
               </ChromeButton>
+            )}
+            {/* The truth about the microphone, whenever Atlas has it open for a double clap: read from the real stream,
+                and a click switches the clap trigger off (which closes the stream). */}
+            {clap.live && (
+              <button
+                type="button"
+                onClick={() => onListeningChange({ activation: 'off' })}
+                title="The microphone is open to hear a double clap. Nothing is recorded. Click to switch it off."
+                aria-label="Listening for a double clap. Click to switch off."
+                className="border-border text-foreground-muted hover:text-foreground flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs transition"
+              >
+                <span className="bg-accent h-1.5 w-1.5 animate-pulse rounded-full" />
+                <Icons.Mic className="h-3 w-3" />
+                Listening for a clap
+              </button>
             )}
             {/* Listening is a place, so it gets a door in the chrome next to
                 Settings rather than a control in the composer. The button is

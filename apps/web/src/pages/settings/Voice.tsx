@@ -271,7 +271,37 @@ export function Voice({
             />
 
             {listening.enabled && (
+              <Row
+                label="Start listening when I clap twice"
+                hint="While this is on Atlas keeps the microphone open to hear a double clap. The sound is analysed on this PC and thrown away as it goes: nothing is recorded or stored. Windows shows its microphone indicator, and so does Atlas."
+                control={
+                  <Switch
+                    checked={listening.activation === 'clap'}
+                    onCheckedChange={(on) => onListeningChange({ activation: on ? 'clap' : 'off' })}
+                    aria-label="Start listening when I clap twice"
+                  />
+                }
+              />
+            )}
+
+            {listening.enabled && (
               <Advanced>
+                {listening.activation === 'clap' && (
+                  <Slider
+                    label="Clap sensitivity"
+                    value={listening.clapSensitivity}
+                    display={
+                      ['', 'Loud claps only', 'Firm', 'Normal', 'Light', 'Very light'][
+                        listening.clapSensitivity
+                      ] ?? ''
+                    }
+                    min={1}
+                    max={5}
+                    step={1}
+                    onChange={(clapSensitivity) => onListeningChange({ clapSensitivity })}
+                    hint="Raise it if a double clap is missed; lower it if Atlas answers to doors or desk knocks."
+                  />
+                )}
                 <Row
                   label="Keep listening after an answer"
                   hint="Carry a conversation without pressing anything between turns."
