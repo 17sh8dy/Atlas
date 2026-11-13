@@ -61,6 +61,16 @@ const PRODUCTS: NovaProduct[] = [
     getUrl: 'https://atlas-website.shadylabs.workers.dev/',
   },
   {
+    id: 'vexa',
+    label: 'Vexa',
+    tagline: 'Browse the web',
+    icon: Icons.Globe,
+    kind: 'app',
+    // Atlas's app ids come from Start Menu shortcut names; Vexa's installer creates "Vexa".
+    appIds: ['vexa'],
+    getUrl: 'https://vexa.shadylabs.workers.dev/',
+  },
+  {
     id: 'nova-games',
     label: 'Nova Games',
     tagline: 'Coming soon',
@@ -98,6 +108,14 @@ const SITES: NovaProduct[] = [
     icon: Icons.Gamepad2,
     kind: 'site',
     url: 'https://replay-gg-site.shadylabs.workers.dev/',
+  },
+  {
+    id: 'vexa-site',
+    label: 'Vexa Website',
+    tagline: 'Download and learn about Vexa',
+    icon: Icons.Globe,
+    kind: 'site',
+    url: 'https://vexa.shadylabs.workers.dev/',
   },
   { id: 'nova', label: 'Nova', tagline: 'The Nova home page', icon: Icons.Globe, kind: 'site', url: NOVA_HOME_URL },
   {
